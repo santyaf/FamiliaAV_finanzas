@@ -1,0 +1,1554 @@
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import {
+  Home, List, Target, PiggyBank, Users, Settings, ArrowLeftRight, Wallet,
+  TrendingUp, TrendingDown, X, Check, AlertTriangle, Star, Repeat, Calendar,
+  Trash2, Pencil, ChevronRight, Plus, DollarSign, Landmark, Sparkles, ArrowRight,
+  MessageCircle, Camera, Loader2, Image as ImageIcon, Info
+} from 'lucide-react';
+import {
+  PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  LineChart, Line, CartesianGrid, Legend
+} from 'recharts';
+
+/* ---------------------------------------------------------------------- */
+/* TOKENS DE DISEÑO                                                        */
+/* ---------------------------------------------------------------------- */
+const T = {
+  bg: '#F3F5F1',
+  surface: '#FFFFFF',
+  ink: '#1B2B3A',
+  inkSoft: '#5B6B76',
+  border: '#DFE3DC',
+  teal: '#2F6E68',
+  tealSoft: '#E4EFEC',
+  coral: '#E0673F',
+  coralSoft: '#FBE9E2',
+  gold: '#B98A22',
+  goldSoft: '#F5EBD3',
+  danger: '#C1443A',
+};
+const MEMBER_COLORS = ['#2F6E68', '#E0673F', '#5B7FA6', '#B98A22', '#8E5B9F', '#4A9B6E', '#B5533C', '#3D6B8C'];
+const FONT_DISPLAY = "'Space Grotesk', system-ui, sans-serif";
+const FONT_BODY = "'Inter', system-ui, sans-serif";
+const FONT_MONO = "'IBM Plex Mono', monospace";
+
+const CURRENCIES = [
+  { code: 'USD', label: 'USD - Dólar' },
+  { code: 'MXN', label: 'MXN - Peso mexicano' },
+  { code: 'COP', label: 'COP - Peso colombiano' },
+  { code: 'ARS', label: 'ARS - Peso argentino' },
+  { code: 'PEN', label: 'PEN - Sol peruano' },
+  { code: 'CLP', label: 'CLP - Peso chileno' },
+  { code: 'EUR', label: 'EUR - Euro' },
+];
+
+const DEFAULT_CATEGORIES = [
+  { id: 'cat-salario', name: 'Salario', type: 'income', icon: '💼' },
+  { id: 'cat-negocio', name: 'Negocio / Freelance', type: 'income', icon: '🧾' },
+  { id: 'cat-rentas', name: 'Rentas', type: 'income', icon: '🏠' },
+  { id: 'cat-inv-in', name: 'Inversiones', type: 'income', icon: '📈' },
+  { id: 'cat-otro-in', name: 'Otros ingresos', type: 'income', icon: '➕' },
+  { id: 'cat-vivienda', name: 'Vivienda', type: 'expense', icon: '🏠' },
+  { id: 'cat-alimentacion', name: 'Alimentación', type: 'expense', icon: '🍎' },
+  { id: 'cat-transporte', name: 'Transporte', type: 'expense', icon: '🚗' },
+  { id: 'cat-salud', name: 'Salud', type: 'expense', icon: '⚕️' },
+  { id: 'cat-educacion', name: 'Educación', type: 'expense', icon: '🎓' },
+  { id: 'cat-ocio', name: 'Ocio y entretenimiento', type: 'expense', icon: '🎬' },
+  { id: 'cat-ropa', name: 'Ropa', type: 'expense', icon: '👕' },
+  { id: 'cat-servicios', name: 'Servicios (luz/agua/internet)', type: 'expense', icon: '💡' },
+  { id: 'cat-deudas', name: 'Deudas y préstamos', type: 'expense', icon: '💳' },
+  { id: 'cat-ahorro', name: 'Ahorro / Inversión', type: 'expense', icon: '🐷' },
+  { id: 'cat-otro-ex', name: 'Otros gastos', type: 'expense', icon: '➖' },
+];
+
+const STORAGE_KEY = 'hf-data-v1';
+
+/* ---------------------------------------------------------------------- */
+/* UTILIDADES                                                              */
+/* ---------------------------------------------------------------------- */
+const uid = (p) => `${p}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+const todayISO = () => new Date().toISOString().slice(0, 10);
+const monthKey = (d) => (d || todayISO()).slice(0, 7);
+const thisMonthKey = () => monthKey(todayISO());
+
+function formatMoney(amount, currency = 'USD') {
+  try {
+    return new Intl.NumberFormat('es-ES', { style: 'currency', currency, maximumFractionDigits: 0 }).format(amount || 0);
+  } catch {
+    return `$${Math.round(amount || 0).toLocaleString('es-ES')}`;
+  }
+}
+function formatDate(d) {
+  if (!d) return '';
+  const date = new Date(d + 'T00:00:00');
+  return date.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+function daysUntil(d) {
+  const today = new Date(todayISO() + 'T00:00:00');
+  const target = new Date(d + 'T00:00:00');
+  return Math.round((target - today) / 86400000);
+}
+
+function getNextOccurrence(t) {
+  const today = new Date(todayISO() + 'T00:00:00');
+  let d = new Date(t.date + 'T00:00:00');
+  if (t.frequency === 'semanal') {
+    while (d < today) d.setDate(d.getDate() + 7);
+  } else if (t.frequency === 'quincenal') {
+    while (d < today) d.setDate(d.getDate() + 14);
+  } else if (t.frequency === 'anual') {
+    while (d < today) d.setFullYear(d.getFullYear() + 1);
+  } else {
+    // mensual
+    while (d < today) d.setMonth(d.getMonth() + 1);
+  }
+  return d.toISOString().slice(0, 10);
+}
+
+function occurrencesInMonth(t, mKey) {
+  // cuántas veces cae una transacción recurrente en el mes dado
+  if (!t.recurring) return t.date && monthKey(t.date) === mKey ? 1 : 0;
+  const [y, m] = mKey.split('-').map(Number);
+  const start = new Date(t.date + 'T00:00:00');
+  if (t.frequency === 'anual') {
+    return start.getMonth() + 1 === m ? 1 : 0;
+  }
+  if (start > new Date(y, m, 0)) return 0; // aún no inicia ese mes
+  if (t.frequency === 'mensual') return 1;
+  if (t.frequency === 'quincenal') return 2;
+  if (t.frequency === 'semanal') return 4;
+  return 1;
+}
+
+function computeBalances(transactions, members) {
+  const bal = {};
+  members.forEach((m) => (bal[m.id] = 0));
+  transactions.forEach((t) => {
+    if (t.type === 'settlement') {
+      bal[t.from] = (bal[t.from] || 0) + t.amount;
+      bal[t.to] = (bal[t.to] || 0) - t.amount;
+      return;
+    }
+    if (t.type === 'expense' && t.isShared && t.participants?.length) {
+      const payerShare = t.participants.find((p) => p.memberId === t.memberId)?.share || 0;
+      bal[t.memberId] = (bal[t.memberId] || 0) + (t.amount - payerShare);
+      t.participants.forEach((p) => {
+        if (p.memberId !== t.memberId) bal[p.memberId] = (bal[p.memberId] || 0) - p.share;
+      });
+    }
+  });
+  return bal;
+}
+
+function simplifyDebts(balances) {
+  const creditors = [];
+  const debtors = [];
+  Object.entries(balances).forEach(([id, v]) => {
+    if (v > 0.5) creditors.push({ id, v });
+    else if (v < -0.5) debtors.push({ id, v: -v });
+  });
+  creditors.sort((a, b) => b.v - a.v);
+  debtors.sort((a, b) => b.v - a.v);
+  const transfers = [];
+  let i = 0, j = 0;
+  while (i < debtors.length && j < creditors.length) {
+    const amt = Math.min(debtors[i].v, creditors[j].v);
+    transfers.push({ from: debtors[i].id, to: creditors[j].id, amount: Math.round(amt * 100) / 100 });
+    debtors[i].v -= amt;
+    creditors[j].v -= amt;
+    if (debtors[i].v < 0.5) i++;
+    if (creditors[j].v < 0.5) j++;
+  }
+  return transfers;
+}
+
+function goalPriorityScore(goal) {
+  const votes = Object.values(goal.votes || {});
+  if (!votes.length) return 2;
+  return votes.reduce((a, b) => a + b, 0) / votes.length;
+}
+const PRIORITY_LABEL = { 3: 'Alta', 2: 'Media', 1: 'Baja' };
+
+/* ---------------------------------------------------------------------- */
+/* COMPONENTES DE UI GENÉRICOS                                             */
+/* ---------------------------------------------------------------------- */
+function Modal({ title, onClose, children, wide }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+      style={{ background: 'rgba(27,43,58,0.45)' }} onClick={onClose}>
+      <div
+        className={`w-full ${wide ? 'sm:max-w-lg' : 'sm:max-w-md'} bg-white rounded-t-2xl sm:rounded-2xl max-h-[90vh] overflow-y-auto`}
+        style={{ background: T.surface }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: T.border }}>
+          <h3 style={{ fontFamily: FONT_DISPLAY, color: T.ink }} className="text-lg font-semibold">{title}</h3>
+          <button onClick={onClose} className="p-1 rounded-full hover:bg-black/5">
+            <X size={20} color={T.inkSoft} />
+          </button>
+        </div>
+        <div className="p-5">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children }) {
+  return (
+    <label className="block mb-4">
+      <span className="block text-sm mb-1.5" style={{ color: T.inkSoft, fontFamily: FONT_BODY }}>{label}</span>
+      {children}
+    </label>
+  );
+}
+const inputStyle = {
+  width: '100%', padding: '10px 12px', borderRadius: 10, border: `1px solid ${T.border}`,
+  fontFamily: FONT_BODY, fontSize: 15, color: T.ink, background: '#FCFCFA', outline: 'none',
+};
+
+function PrimaryButton({ children, onClick, style, type = 'button', full }) {
+  return (
+    <button type={type} onClick={onClick}
+      className={`${full ? 'w-full' : ''} rounded-xl font-medium transition-transform active:scale-[0.98]`}
+      style={{ background: T.teal, color: '#fff', padding: '11px 18px', fontFamily: FONT_BODY, fontSize: 15, ...style }}>
+      {children}
+    </button>
+  );
+}
+function GhostButton({ children, onClick, style, full }) {
+  return (
+    <button onClick={onClick}
+      className={`${full ? 'w-full' : ''} rounded-xl font-medium`}
+      style={{ background: 'transparent', color: T.ink, border: `1px solid ${T.border}`, padding: '10px 18px', fontFamily: FONT_BODY, fontSize: 15, ...style }}>
+      {children}
+    </button>
+  );
+}
+
+function Card({ children, style }) {
+  return (
+    <div className="rounded-2xl p-4" style={{ background: T.surface, border: `1px solid ${T.border}`, ...style }}>
+      {children}
+    </div>
+  );
+}
+
+function ProgressBar({ value, color = T.teal, bg = '#EDEFE9', height = 8 }) {
+  const pct = Math.max(0, Math.min(100, value));
+  return (
+    <div style={{ width: '100%', height, borderRadius: height, background: bg, overflow: 'hidden' }}>
+      <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: height, transition: 'width .4s ease' }} />
+    </div>
+  );
+}
+
+function MemberChip({ member, size = 24 }) {
+  if (!member) return null;
+  return (
+    <div className="inline-flex items-center gap-1.5">
+      <div style={{ width: size, height: size, borderRadius: '50%', background: member.color, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size * 0.45, fontFamily: FONT_DISPLAY, fontWeight: 700 }}>
+        {member.name.slice(0, 1).toUpperCase()}
+      </div>
+      <span style={{ fontFamily: FONT_BODY, fontSize: 14, color: T.ink }}>{member.name}</span>
+    </div>
+  );
+}
+
+function EmptyState({ icon, title, subtitle }) {
+  return (
+    <div className="flex flex-col items-center text-center py-10 px-4">
+      <div className="mb-3" style={{ opacity: 0.5 }}>{icon}</div>
+      <p style={{ fontFamily: FONT_DISPLAY, color: T.ink, fontSize: 16 }} className="font-semibold">{title}</p>
+      <p style={{ fontFamily: FONT_BODY, color: T.inkSoft, fontSize: 13.5 }} className="mt-1 max-w-xs">{subtitle}</p>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* APP PRINCIPAL                                                          */
+/* ---------------------------------------------------------------------- */
+export default function App() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const saveTimer = useRef(null);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) setData(JSON.parse(raw));
+      else setData(defaultData());
+    } catch {
+      setData(defaultData());
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!data) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch {}
+    }, 400);
+    return () => clearTimeout(saveTimer.current);
+  }, [data]);
+
+  function defaultData() {
+    return {
+      setupDone: false,
+      householdName: '',
+      currency: 'USD',
+      viewMode: 'unified', // unified | individual
+      activeMemberId: null,
+      members: [],
+      accounts: [],
+      categories: DEFAULT_CATEGORIES,
+      transactions: [],
+      goals: [],
+      budgets: [],
+    };
+  }
+
+  if (loading || !data) {
+    return (
+      <div style={{ background: T.bg, minHeight: '100vh' }} className="flex items-center justify-center">
+        <p style={{ fontFamily: FONT_BODY, color: T.inkSoft }}>Cargando…</p>
+      </div>
+    );
+  }
+
+  if (!data.setupDone) {
+    return <Onboarding data={data} setData={setData} />;
+  }
+
+  return <MainApp data={data} setData={setData} />;
+}
+
+/* ---------------------------------------------------------------------- */
+/* ONBOARDING                                                              */
+/* ---------------------------------------------------------------------- */
+function Onboarding({ data, setData }) {
+  const [step, setStep] = useState(0);
+  const [householdName, setHouseholdName] = useState(data.householdName || '');
+  const [currency, setCurrency] = useState(data.currency || 'USD');
+  const [members, setMembers] = useState(data.members?.length ? data.members : []);
+  const [nameInput, setNameInput] = useState('');
+
+  function addMember() {
+    if (!nameInput.trim()) return;
+    const color = MEMBER_COLORS[members.length % MEMBER_COLORS.length];
+    setMembers([...members, { id: uid('mem'), name: nameInput.trim(), color }]);
+    setNameInput('');
+  }
+  function removeMember(id) {
+    setMembers(members.filter((m) => m.id !== id));
+  }
+
+  function finish() {
+    const sharedAccount = { id: uid('acc'), name: `Cuenta compartida — ${householdName}`, type: 'shared', ownerIds: members.map((m) => m.id) };
+    const individualAccounts = members.map((m) => ({ id: uid('acc'), name: `Cuenta de ${m.name}`, type: 'individual', ownerIds: [m.id] }));
+    setData({
+      ...data,
+      householdName,
+      currency,
+      members,
+      accounts: [sharedAccount, ...individualAccounts],
+      setupDone: true,
+    });
+  }
+
+  return (
+    <div style={{ background: T.bg, minHeight: '100vh', fontFamily: FONT_BODY }} className="flex flex-col items-center px-5 py-10">
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap');`}</style>
+      <div className="w-full max-w-md">
+        <div className="flex items-center gap-2 mb-8">
+          <div style={{ width: 40, height: 40, borderRadius: 12, background: T.teal, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Wallet size={22} color="#fff" />
+          </div>
+          <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 20, color: T.ink }}>Finanzas del Hogar</span>
+        </div>
+
+        {step === 0 && (
+          <Card>
+            <p style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: T.ink }} className="mb-1">¿Cómo se llama tu hogar?</p>
+            <p style={{ color: T.inkSoft, fontSize: 13.5 }} className="mb-4">Puedes usar el apellido familiar o un apodo, como "Casa García".</p>
+            <Field label="Nombre del hogar">
+              <input style={inputStyle} value={householdName} onChange={(e) => setHouseholdName(e.target.value)} placeholder="Ej. Casa García" />
+            </Field>
+            <Field label="Moneda principal">
+              <select style={inputStyle} value={currency} onChange={(e) => setCurrency(e.target.value)}>
+                {CURRENCIES.map((c) => <option key={c.code} value={c.code}>{c.label}</option>)}
+              </select>
+            </Field>
+            <PrimaryButton full onClick={() => householdName.trim() && setStep(1)}>Continuar</PrimaryButton>
+          </Card>
+        )}
+
+        {step === 1 && (
+          <Card>
+            <p style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: T.ink }} className="mb-1">¿Quiénes integran el hogar?</p>
+            <p style={{ color: T.inkSoft, fontSize: 13.5 }} className="mb-4">Agrega a cada integrante. Podrás sumar más después.</p>
+            <div className="flex gap-2 mb-4">
+              <input style={inputStyle} value={nameInput} onChange={(e) => setNameInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && addMember()} placeholder="Nombre del integrante" />
+              <button onClick={addMember} style={{ background: T.teal, borderRadius: 10, padding: '0 14px' }}>
+                <Plus color="#fff" size={20} />
+              </button>
+            </div>
+            <div className="flex flex-col gap-2 mb-5">
+              {members.map((m) => (
+                <div key={m.id} className="flex items-center justify-between rounded-xl px-3 py-2" style={{ background: T.bg }}>
+                  <MemberChip member={m} />
+                  <button onClick={() => removeMember(m.id)}><Trash2 size={16} color={T.inkSoft} /></button>
+                </div>
+              ))}
+              {members.length === 0 && <p style={{ color: T.inkSoft, fontSize: 13 }}>Aún no agregas integrantes.</p>}
+            </div>
+            <div className="flex gap-2">
+              <GhostButton onClick={() => setStep(0)}>Atrás</GhostButton>
+              <PrimaryButton full onClick={() => members.length && setStep(2)}>Continuar</PrimaryButton>
+            </div>
+          </Card>
+        )}
+
+        {step === 2 && (
+          <Card>
+            <p style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: T.ink }} className="mb-1">Todo listo</p>
+            <p style={{ color: T.inkSoft, fontSize: 13.5 }} className="mb-4">
+              Crearemos una <b>cuenta compartida del hogar</b> y una <b>cuenta individual</b> para cada integrante.
+              Podrás ver tus finanzas de forma <b>unificada</b> o <b>por integrante</b>, y cambiar entre ambas vistas cuando quieras.
+            </p>
+            <div className="rounded-xl p-3 mb-5" style={{ background: T.tealSoft }}>
+              <p style={{ fontFamily: FONT_MONO, fontSize: 13, color: T.teal }}>{householdName} · {members.length} integrante(s) · {currency}</p>
+            </div>
+            <div className="flex gap-2">
+              <GhostButton onClick={() => setStep(1)}>Atrás</GhostButton>
+              <PrimaryButton full onClick={finish}>Empezar</PrimaryButton>
+            </div>
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* MAIN APP                                                                */
+/* ---------------------------------------------------------------------- */
+const TABS = [
+  { id: 'dashboard', label: 'Inicio', icon: Home },
+  { id: 'rapido', label: 'Registro rápido', icon: MessageCircle },
+  { id: 'movimientos', label: 'Movimientos', icon: List },
+  { id: 'objetivos', label: 'Objetivos', icon: Target },
+  { id: 'presupuestos', label: 'Presupuestos', icon: PiggyBank },
+  { id: 'conciliacion', label: 'Conciliación', icon: ArrowLeftRight },
+  { id: 'cuentas', label: 'Cuentas', icon: Landmark },
+  { id: 'ajustes', label: 'Ajustes', icon: Settings },
+];
+
+function MainApp({ data, setData }) {
+  const [tab, setTab] = useState('dashboard');
+  const [modal, setModal] = useState(null); // {type: 'transaction'|'goal'|'member'|'account'|'budget'|'vote'|'settle', payload}
+
+  const currency = data.currency;
+  const membersById = useMemo(() => Object.fromEntries(data.members.map((m) => [m.id, m])), [data.members]);
+
+  function update(patch) { setData({ ...data, ...patch }); }
+
+  const visibleMemberId = data.viewMode === 'individual' ? (data.activeMemberId || data.members[0]?.id) : null;
+
+  // transacciones visibles según el modo
+  const visibleTransactions = useMemo(() => {
+    if (data.viewMode === 'unified') return data.transactions;
+    return data.transactions.filter((t) => t.memberId === visibleMemberId || t.type === 'settlement');
+  }, [data.transactions, data.viewMode, visibleMemberId]);
+
+  return (
+    <div style={{ background: T.bg, minHeight: '100vh', fontFamily: FONT_BODY, paddingBottom: 84 }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap');`}</style>
+
+      {/* Header */}
+      <div className="px-5 pt-6 pb-4 sticky top-0 z-10" style={{ background: T.bg }}>
+        <div className="flex items-center justify-between">
+          <div>
+            <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 20, color: T.ink }}>{data.householdName}</p>
+            <p style={{ color: T.inkSoft, fontSize: 12.5 }}>{data.members.length} integrantes · {currency}</p>
+          </div>
+          <ViewModeToggle data={data} update={update} />
+        </div>
+        {data.viewMode === 'individual' && (
+          <div className="flex gap-2 mt-3 overflow-x-auto pb-1">
+            {data.members.map((m) => (
+              <button key={m.id} onClick={() => update({ activeMemberId: m.id })}
+                className="flex-shrink-0 rounded-full px-3 py-1.5 flex items-center gap-1.5"
+                style={{ background: visibleMemberId === m.id ? m.color : T.surface, border: `1px solid ${visibleMemberId === m.id ? m.color : T.border}` }}>
+                <span style={{ color: visibleMemberId === m.id ? '#fff' : T.ink, fontSize: 13, fontFamily: FONT_BODY, fontWeight: 500 }}>{m.name}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="px-5">
+        {tab === 'dashboard' && <Dashboard data={data} update={update} visibleTransactions={visibleTransactions} visibleMemberId={visibleMemberId} setModal={setModal} setTab={setTab} />}
+        {tab === 'rapido' && <QuickCapture data={data} update={update} setModal={setModal} />}
+        {tab === 'movimientos' && <Movimientos data={data} update={update} visibleTransactions={visibleTransactions} setModal={setModal} />}
+        {tab === 'objetivos' && <Objetivos data={data} update={update} setModal={setModal} />}
+        {tab === 'presupuestos' && <Presupuestos data={data} update={update} setModal={setModal} />}
+        {tab === 'conciliacion' && <Conciliacion data={data} update={update} />}
+        {tab === 'cuentas' && <Cuentas data={data} update={update} setModal={setModal} />}
+        {tab === 'ajustes' && <Ajustes data={data} update={update} setModal={setModal} />}
+      </div>
+
+      {/* Nav inferior */}
+      <div className="fixed bottom-0 left-0 right-0 z-20" style={{ background: T.surface, borderTop: `1px solid ${T.border}` }}>
+        <div className="flex justify-between px-2 py-2 overflow-x-auto">
+          {TABS.map((tItem) => {
+            const Icon = tItem.icon;
+            const active = tab === tItem.id;
+            return (
+              <button key={tItem.id} onClick={() => setTab(tItem.id)} className="flex flex-col items-center gap-0.5 px-2 py-1 flex-shrink-0" style={{ minWidth: 56 }}>
+                <Icon size={20} color={active ? T.teal : T.inkSoft} />
+                <span style={{ fontSize: 10.5, color: active ? T.teal : T.inkSoft, fontFamily: FONT_BODY, fontWeight: active ? 600 : 400 }}>{tItem.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Botón flotante agregar movimiento */}
+      <button onClick={() => setModal({ type: 'transaction' })}
+        className="fixed z-20 rounded-full flex items-center justify-center shadow-lg"
+        style={{ right: 20, bottom: 92, width: 56, height: 56, background: T.coral }}>
+        <Plus color="#fff" size={26} />
+      </button>
+
+      {modal?.type === 'transaction' && <TransactionModal data={data} update={update} payload={modal.payload} onClose={() => setModal(null)} />}
+      {modal?.type === 'goal' && <GoalModal data={data} update={update} payload={modal.payload} onClose={() => setModal(null)} />}
+      {modal?.type === 'member' && <MemberModal data={data} update={update} onClose={() => setModal(null)} />}
+      {modal?.type === 'account' && <AccountModal data={data} update={update} onClose={() => setModal(null)} />}
+      {modal?.type === 'budget' && <BudgetModal data={data} update={update} payload={modal.payload} onClose={() => setModal(null)} />}
+      {modal?.type === 'vote' && <VoteModal data={data} update={update} payload={modal.payload} onClose={() => setModal(null)} />}
+      {modal?.type === 'contribute' && <ContributeModal data={data} update={update} payload={modal.payload} onClose={() => setModal(null)} />}
+      {modal?.type === 'category' && <CategoryModal data={data} update={update} onClose={() => setModal(null)} />}
+    </div>
+  );
+}
+
+function ViewModeToggle({ data, update }) {
+  return (
+    <div className="flex rounded-full p-1" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+      <button onClick={() => update({ viewMode: 'unified' })} className="px-3 py-1 rounded-full" style={{ background: data.viewMode === 'unified' ? T.ink : 'transparent' }}>
+        <span style={{ fontSize: 12.5, color: data.viewMode === 'unified' ? '#fff' : T.inkSoft, fontFamily: FONT_BODY, fontWeight: 500 }}>Unificado</span>
+      </button>
+      <button onClick={() => update({ viewMode: 'individual', activeMemberId: data.activeMemberId || data.members[0]?.id })} className="px-3 py-1 rounded-full" style={{ background: data.viewMode === 'individual' ? T.ink : 'transparent' }}>
+        <span style={{ fontSize: 12.5, color: data.viewMode === 'individual' ? '#fff' : T.inkSoft, fontFamily: FONT_BODY, fontWeight: 500 }}>Individual</span>
+      </button>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* DASHBOARD                                                               */
+/* ---------------------------------------------------------------------- */
+function Dashboard({ data, update, visibleTransactions, visibleMemberId, setModal, setTab }) {
+  const mKey = thisMonthKey();
+  const currency = data.currency;
+
+  let income = 0, expense = 0;
+  visibleTransactions.forEach((t) => {
+    if (t.type === 'settlement') return;
+    const occ = occurrencesInMonth(t, mKey);
+    if (!occ) return;
+    if (t.type === 'income') income += t.amount * occ;
+    else expense += t.amount * occ;
+  });
+  const balance = income - expense;
+
+  const byCategory = {};
+  visibleTransactions.forEach((t) => {
+    if (t.type !== 'expense') return;
+    const occ = occurrencesInMonth(t, mKey);
+    if (!occ) return;
+    byCategory[t.categoryId] = (byCategory[t.categoryId] || 0) + t.amount * occ;
+  });
+  const catData = Object.entries(byCategory).map(([id, val]) => {
+    const cat = data.categories.find((c) => c.id === id);
+    return { name: cat?.name || 'Otro', value: val, icon: cat?.icon };
+  }).sort((a, b) => b.value - a.value);
+  const pieColors = [T.teal, T.coral, T.gold, '#5B7FA6', '#8E5B9F', '#4A9B6E', '#B5533C'];
+
+  // próximos pagos recurrentes (14 días)
+  const upcoming = data.transactions
+    .filter((t) => t.recurring && (data.viewMode === 'unified' || t.memberId === visibleMemberId))
+    .map((t) => ({ ...t, next: getNextOccurrence(t) }))
+    .filter((t) => daysUntil(t.next) >= 0 && daysUntil(t.next) <= 14)
+    .sort((a, b) => a.next.localeCompare(b.next));
+
+  // alertas de presupuesto
+  const budgetAlerts = data.budgets.map((b) => {
+    const spent = data.transactions
+      .filter((t) => t.type === 'expense' && t.categoryId === b.categoryId && occurrencesInMonth(t, mKey) && (b.scope === 'household' || t.memberId === b.scope))
+      .reduce((s, t) => s + t.amount * occurrencesInMonth(t, mKey), 0);
+    return { ...b, spent, pct: b.limit ? (spent / b.limit) * 100 : 0 };
+  }).filter((b) => b.pct >= 80);
+
+  // top objetivo
+  const topGoals = [...data.goals].sort((a, b) => goalPriorityScore(b) - goalPriorityScore(a)).slice(0, 2);
+
+  return (
+    <div className="pb-4">
+      <div className="grid grid-cols-2 gap-3 mb-4 mt-2">
+        <Card style={{ background: T.tealSoft, border: 'none' }}>
+          <div className="flex items-center gap-1.5 mb-1"><TrendingUp size={15} color={T.teal} /><span style={{ fontSize: 12, color: T.teal, fontFamily: FONT_BODY }}>Ingresos del mes</span></div>
+          <p style={{ fontFamily: FONT_MONO, fontWeight: 600, fontSize: 20, color: T.ink }}>{formatMoney(income, currency)}</p>
+        </Card>
+        <Card style={{ background: T.coralSoft, border: 'none' }}>
+          <div className="flex items-center gap-1.5 mb-1"><TrendingDown size={15} color={T.coral} /><span style={{ fontSize: 12, color: T.coral, fontFamily: FONT_BODY }}>Gastos del mes</span></div>
+          <p style={{ fontFamily: FONT_MONO, fontWeight: 600, fontSize: 20, color: T.ink }}>{formatMoney(expense, currency)}</p>
+        </Card>
+      </div>
+
+      <Card style={{ marginBottom: 16 }}>
+        <div className="flex items-center justify-between">
+          <span style={{ fontFamily: FONT_BODY, color: T.inkSoft, fontSize: 13 }}>Balance de {data.viewMode === 'unified' ? 'el hogar' : 'este integrante'}</span>
+          <span style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 22, color: balance >= 0 ? T.teal : T.danger }}>{formatMoney(balance, currency)}</span>
+        </div>
+      </Card>
+
+      {budgetAlerts.length > 0 && (
+        <Card style={{ marginBottom: 16, background: T.goldSoft, border: 'none' }}>
+          <div className="flex items-center gap-2 mb-2"><AlertTriangle size={16} color={T.gold} /><span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: T.ink }}>Presupuestos por vencer</span></div>
+          {budgetAlerts.map((b) => {
+            const cat = data.categories.find((c) => c.id === b.categoryId);
+            return <p key={b.id} style={{ fontSize: 12.5, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-0.5">
+              {cat?.icon} {cat?.name}: usaste {Math.round(b.pct)}% ({formatMoney(b.spent, currency)} de {formatMoney(b.limit, currency)})
+            </p>;
+          })}
+        </Card>
+      )}
+
+      {upcoming.length > 0 && (
+        <Card style={{ marginBottom: 16 }}>
+          <div className="flex items-center gap-2 mb-3"><Calendar size={16} color={T.ink} /><span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: T.ink }}>Próximos pagos recurrentes</span></div>
+          {upcoming.map((t) => {
+            const cat = data.categories.find((c) => c.id === t.categoryId);
+            const d = daysUntil(t.next);
+            return (
+              <div key={t.id} className="flex items-center justify-between py-1.5">
+                <div className="flex items-center gap-2">
+                  <span>{cat?.icon}</span>
+                  <div>
+                    <p style={{ fontSize: 13.5, color: T.ink, fontFamily: FONT_BODY }}>{t.description || cat?.name}</p>
+                    <p style={{ fontSize: 11.5, color: T.inkSoft }}>{d === 0 ? 'Hoy' : d === 1 ? 'Mañana' : `En ${d} días`} · {formatDate(t.next)}</p>
+                  </div>
+                </div>
+                <span style={{ fontFamily: FONT_MONO, fontSize: 13.5, color: t.type === 'income' ? T.teal : T.coral }}>{t.type === 'income' ? '+' : '-'}{formatMoney(t.amount, currency)}</span>
+              </div>
+            );
+          })}
+        </Card>
+      )}
+
+      {catData.length > 0 && (
+        <Card style={{ marginBottom: 16 }}>
+          <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: T.ink }} className="mb-2">Gastos por categoría</p>
+          <div style={{ height: 200 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={catData} dataKey="value" nameKey="name" innerRadius={45} outerRadius={75} paddingAngle={2}>
+                  {catData.map((_, i) => <Cell key={i} fill={pieColors[i % pieColors.length]} />)}
+                </Pie>
+                <Tooltip formatter={(v) => formatMoney(v, currency)} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="flex flex-col gap-1 mt-1">
+            {catData.slice(0, 5).map((c, i) => (
+              <div key={c.name} className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5"><div style={{ width: 8, height: 8, borderRadius: 4, background: pieColors[i % pieColors.length] }} /><span style={{ fontSize: 12.5, color: T.inkSoft }}>{c.icon} {c.name}</span></div>
+                <span style={{ fontFamily: FONT_MONO, fontSize: 12.5, color: T.ink }}>{formatMoney(c.value, currency)}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {topGoals.length > 0 && (
+        <Card>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2"><Sparkles size={16} color={T.gold} /><span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: T.ink }}>Objetivos prioritarios</span></div>
+            <button onClick={() => setTab('objetivos')}><ChevronRight size={18} color={T.inkSoft} /></button>
+          </div>
+          {topGoals.map((g) => (
+            <div key={g.id} className="mb-2">
+              <div className="flex items-center justify-between mb-1">
+                <span style={{ fontSize: 13, color: T.ink, fontFamily: FONT_BODY }}>{g.name}</span>
+                <span style={{ fontSize: 12, color: T.inkSoft, fontFamily: FONT_MONO }}>{formatMoney(g.currentAmount, currency)} / {formatMoney(g.targetAmount, currency)}</span>
+              </div>
+              <ProgressBar value={(g.currentAmount / g.targetAmount) * 100} color={T.gold} />
+            </div>
+          ))}
+        </Card>
+      )}
+
+      {visibleTransactions.length === 0 && (
+        <EmptyState icon={<Wallet size={40} color={T.teal} />} title="Aún no hay movimientos" subtitle="Toca el botón + para registrar tu primer ingreso o gasto." />
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* MOVIMIENTOS                                                            */
+/* ---------------------------------------------------------------------- */
+function Movimientos({ data, update, visibleTransactions, setModal }) {
+  const [filter, setFilter] = useState('todos'); // todos | income | expense | recurring | sporadic
+  const currency = data.currency;
+
+  const filtered = visibleTransactions.filter((t) => {
+    if (t.type === 'settlement') return false;
+    if (filter === 'income') return t.type === 'income';
+    if (filter === 'expense') return t.type === 'expense';
+    if (filter === 'recurring') return t.recurring;
+    if (filter === 'sporadic') return !t.recurring;
+    return true;
+  }).sort((a, b) => b.date.localeCompare(a.date));
+
+  function removeTransaction(id) {
+    update({ transactions: data.transactions.filter((t) => t.id !== id) });
+  }
+
+  return (
+    <div className="pb-4">
+      <div className="flex gap-2 mb-4 overflow-x-auto pt-2">
+        {[['todos', 'Todos'], ['income', 'Ingresos'], ['expense', 'Gastos'], ['recurring', 'Recurrentes'], ['sporadic', 'Esporádicos']].map(([id, label]) => (
+          <button key={id} onClick={() => setFilter(id)} className="flex-shrink-0 rounded-full px-3 py-1.5"
+            style={{ background: filter === id ? T.ink : T.surface, border: `1px solid ${filter === id ? T.ink : T.border}` }}>
+            <span style={{ fontSize: 12.5, color: filter === id ? '#fff' : T.inkSoft, fontFamily: FONT_BODY }}>{label}</span>
+          </button>
+        ))}
+      </div>
+
+      {filtered.length === 0 && <EmptyState icon={<List size={36} color={T.teal} />} title="Sin movimientos" subtitle="No hay movimientos que coincidan con este filtro." />}
+
+      <div className="flex flex-col gap-2">
+        {filtered.map((t) => {
+          const cat = data.categories.find((c) => c.id === t.categoryId);
+          const member = data.members.find((m) => m.id === t.memberId);
+          const account = data.accounts.find((a) => a.id === t.accountId);
+          return (
+            <Card key={t.id}>
+              <div className="flex items-start justify-between">
+                <div className="flex items-start gap-2.5">
+                  <div style={{ width: 36, height: 36, borderRadius: 10, background: t.type === 'income' ? T.tealSoft : T.coralSoft, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17 }}>
+                    {cat?.icon || '💰'}
+                  </div>
+                  <div>
+                    <p style={{ fontSize: 14, color: T.ink, fontFamily: FONT_BODY, fontWeight: 500 }}>{t.description || cat?.name}</p>
+                    <p style={{ fontSize: 11.5, color: T.inkSoft }}>{cat?.name} · {formatDate(t.date)}{account ? ` · ${account.name}` : ''}</p>
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      {member && <MemberChip member={member} size={18} />}
+                      {t.recurring && <span className="flex items-center gap-1 rounded-full px-2 py-0.5" style={{ background: T.goldSoft }}><Repeat size={10} color={T.gold} /><span style={{ fontSize: 10, color: T.gold }}>{t.frequency}</span></span>}
+                      {t.isShared && <span className="rounded-full px-2 py-0.5" style={{ background: T.tealSoft }}><span style={{ fontSize: 10, color: T.teal }}>Compartido</span></span>}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-col items-end gap-2">
+                  <span style={{ fontFamily: FONT_MONO, fontWeight: 600, fontSize: 14.5, color: t.type === 'income' ? T.teal : T.coral }}>
+                    {t.type === 'income' ? '+' : '-'}{formatMoney(t.amount, currency)}
+                  </span>
+                  <button onClick={() => removeTransaction(t.id)}><Trash2 size={14} color={T.inkSoft} /></button>
+                </div>
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* REGISTRO RÁPIDO (texto libre o foto de recibo, estilo "WhatsApp")      */
+/* ---------------------------------------------------------------------- */
+function matchCategory(guessName, type, categories) {
+  const pool = categories.filter((c) => c.type === type);
+  if (!guessName) return pool[0]?.id;
+  const norm = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const g = norm(guessName);
+  let found = pool.find((c) => norm(c.name) === g);
+  if (!found) found = pool.find((c) => norm(c.name).includes(g) || g.includes(norm(c.name)));
+  return (found || pool[0])?.id;
+}
+function matchMember(guessName, members) {
+  if (!guessName) return null;
+  const norm = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const g = norm(guessName);
+  const found = members.find((m) => norm(m.name) === g || g.includes(norm(m.name)) || norm(m.name).includes(g));
+  return found?.id || null;
+}
+function stripJsonFences(text) {
+  return text.replace(/```json/gi, '').replace(/```/g, '').trim();
+}
+
+async function callClaude({ system, content }) {
+  const response = await fetch('/api/claude', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ system, content }),
+  });
+  const json = await response.json();
+  if (json.error) throw new Error(json.error);
+  const text = (json.content || []).map((b) => b.text || '').join('\n');
+  return JSON.parse(stripJsonFences(text));
+}
+
+function QuickCapture({ data, update, setModal }) {
+  const [mode, setMode] = useState('texto'); // texto | foto
+  const [text, setText] = useState('');
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [asMember, setAsMember] = useState(data.members[0]?.id || '');
+
+  const categoryNames = { income: data.categories.filter((c) => c.type === 'income').map((c) => c.name), expense: data.categories.filter((c) => c.type === 'expense').map((c) => c.name) };
+  const memberNames = data.members.map((m) => m.name);
+
+  function buildDraft(parsed, rawLabel) {
+    const type = parsed.type === 'income' ? 'income' : 'expense';
+    const categoryId = matchCategory(parsed.category, type, data.categories);
+    const memberId = matchMember(parsed.member, data.members) || asMember || data.members[0]?.id;
+    const account = data.accounts.find((a) => a.ownerIds?.includes(memberId)) || data.accounts[0];
+    return {
+      type,
+      description: parsed.description || parsed.merchant || '',
+      amount: parsed.amount || '',
+      categoryId,
+      accountId: account?.id,
+      memberId,
+      date: parsed.date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.date) ? parsed.date : todayISO(),
+      source: 'quick',
+      raw: rawLabel,
+    };
+  }
+
+  async function analyzeText() {
+    if (!text.trim()) return;
+    setLoading(true); setError('');
+    try {
+      const system = `Extraes datos de un movimiento financiero de hogar a partir de un mensaje corto tipo WhatsApp, escrito por: ${asMember ? data.members.find(m=>m.id===asMember)?.name : 'un integrante'}. Hoy es ${todayISO()}. Categorías de ingreso disponibles: ${categoryNames.income.join(', ')}. Categorías de gasto disponibles: ${categoryNames.expense.join(', ')}. Integrantes del hogar: ${memberNames.join(', ')}. Responde SOLO con JSON válido, sin texto adicional, con este formato exacto: {"type":"income|expense","amount":number,"date":"YYYY-MM-DD","description":"texto corto","category":"nombre de categoría de la lista","member":"nombre del integrante si se menciona, si no null"}`;
+      const parsed = await callClaude({ system, content: [{ type: 'text', text }] });
+      setModal({ type: 'transaction', payload: buildDraft(parsed, text) });
+      setText('');
+    } catch (e) {
+      setError('No se pudo interpretar el mensaje. Intenta de nuevo o descríbelo distinto.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function onPickImage(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImageFile(file);
+    const reader = new FileReader();
+    reader.onload = () => setImagePreview(reader.result);
+    reader.readAsDataURL(file);
+  }
+
+  async function analyzeImage() {
+    if (!imagePreview) return;
+    setLoading(true); setError('');
+    try {
+      const base64Data = imagePreview.split(',')[1];
+      const mediaType = imageFile.type || 'image/jpeg';
+      const system = `Extraes datos de un recibo o factura en una foto para registrar un gasto de hogar. Hoy es ${todayISO()}. Categorías de gasto disponibles: ${categoryNames.expense.join(', ')}. Responde SOLO con JSON válido, sin texto adicional, con este formato exacto: {"type":"expense","amount":number,"date":"YYYY-MM-DD o null si no se ve","description":"nombre del comercio o resumen","category":"nombre de categoría de la lista"}`;
+      const parsed = await callClaude({
+        system,
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
+          { type: 'text', text: 'Extrae los datos de este recibo.' },
+        ],
+      });
+      setModal({ type: 'transaction', payload: buildDraft(parsed, 'Foto de recibo') });
+      setImageFile(null); setImagePreview(null);
+    } catch (e) {
+      setError('No se pudo leer el recibo. Intenta con una foto más clara o regístralo manualmente.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="pb-4 pt-2">
+      <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: T.ink }} className="mb-1">Registro rápido</p>
+      <p style={{ fontSize: 12.5, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-3">
+        Escribe como si le mandaras un mensaje a tu familia, o sube la foto de un recibo. La IA detecta el monto, la categoría y la fecha; tú confirmas antes de guardar.
+      </p>
+
+      <div className="flex items-start gap-2 rounded-xl p-3 mb-4" style={{ background: T.tealSoft }}>
+        <Info size={14} color={T.teal} style={{ marginTop: 2, flexShrink: 0 }} />
+        <p style={{ fontSize: 11.5, color: T.ink, fontFamily: FONT_BODY }}>
+          Esta app aún no recibe mensajes directamente desde el WhatsApp de cada integrante (eso requiere un servidor conectado a WhatsApp Business). Mientras tanto, cualquiera puede abrir esta pestaña desde su celular y registrar igual de rápido.
+        </p>
+      </div>
+
+      <Field label="Registrar como">
+        <select style={inputStyle} value={asMember} onChange={(e) => setAsMember(e.target.value)}>
+          {data.members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+        </select>
+      </Field>
+
+      <div className="flex rounded-xl p-1 mb-4" style={{ background: T.bg }}>
+        <button onClick={() => setMode('texto')} className="flex-1 rounded-lg py-2 flex items-center justify-center gap-1.5" style={{ background: mode === 'texto' ? T.surface : 'transparent', border: mode === 'texto' ? `1px solid ${T.border}` : 'none' }}>
+          <MessageCircle size={15} color={T.ink} /><span style={{ fontSize: 13, color: T.ink, fontFamily: FONT_BODY, fontWeight: 500 }}>Mensaje</span>
+        </button>
+        <button onClick={() => setMode('foto')} className="flex-1 rounded-lg py-2 flex items-center justify-center gap-1.5" style={{ background: mode === 'foto' ? T.surface : 'transparent', border: mode === 'foto' ? `1px solid ${T.border}` : 'none' }}>
+          <Camera size={15} color={T.ink} /><span style={{ fontSize: 13, color: T.ink, fontFamily: FONT_BODY, fontWeight: 500 }}>Foto de recibo</span>
+        </button>
+      </div>
+
+      {mode === 'texto' && (
+        <Card>
+          <textarea
+            style={{ ...inputStyle, minHeight: 90, resize: 'vertical' }}
+            placeholder='Ej. "Pagué 350 de gasolina hoy" o "Me depositaron 8000 de nómina"'
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+          />
+          <PrimaryButton full onClick={analyzeText} style={{ marginTop: 12 }}>
+            {loading ? <span className="flex items-center justify-center gap-2"><Loader2 size={16} className="animate-spin" />Analizando…</span> : 'Detectar movimiento'}
+          </PrimaryButton>
+        </Card>
+      )}
+
+      {mode === 'foto' && (
+        <Card>
+          {imagePreview ? (
+            <img src={imagePreview} alt="Recibo" className="w-full rounded-xl mb-3" style={{ maxHeight: 260, objectFit: 'contain', background: T.bg }} />
+          ) : (
+            <label className="flex flex-col items-center justify-center rounded-xl py-8 cursor-pointer" style={{ border: `1.5px dashed ${T.border}`, background: T.bg }}>
+              <ImageIcon size={28} color={T.inkSoft} />
+              <span style={{ fontSize: 12.5, color: T.inkSoft, fontFamily: FONT_BODY }} className="mt-2">Toca para elegir o tomar una foto</span>
+              <input type="file" accept="image/*" capture="environment" className="hidden" onChange={onPickImage} />
+            </label>
+          )}
+          {imagePreview && (
+            <div className="flex gap-2">
+              <GhostButton onClick={() => { setImageFile(null); setImagePreview(null); }}>Cambiar foto</GhostButton>
+              <PrimaryButton full onClick={analyzeImage}>
+                {loading ? <span className="flex items-center justify-center gap-2"><Loader2 size={16} className="animate-spin" />Leyendo recibo…</span> : 'Leer recibo'}
+              </PrimaryButton>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {error && <p style={{ fontSize: 12.5, color: T.danger, fontFamily: FONT_BODY }} className="mt-3">{error}</p>}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* MODAL: TRANSACCIÓN                                                     */
+/* ---------------------------------------------------------------------- */
+function TransactionModal({ data, update, payload, onClose }) {
+  const [type, setType] = useState(payload?.type || 'expense');
+  const [description, setDescription] = useState(payload?.description || '');
+  const [amount, setAmount] = useState(payload?.amount ? String(payload.amount) : '');
+  const [categoryId, setCategoryId] = useState(payload?.categoryId || '');
+  const [accountId, setAccountId] = useState(payload?.accountId || data.accounts[0]?.id || '');
+  const [memberId, setMemberId] = useState(payload?.memberId || data.members[0]?.id || '');
+  const [date, setDate] = useState(payload?.date || todayISO());
+  const [recurring, setRecurring] = useState(false);
+  const [frequency, setFrequency] = useState('mensual');
+  const [isShared, setIsShared] = useState(false);
+  const [participants, setParticipants] = useState(data.members.map((m) => m.id));
+
+  const cats = data.categories.filter((c) => c.type === type);
+  useEffect(() => { if (!categoryId && cats.length) setCategoryId(cats[0].id); }, [type]);
+
+  function save() {
+    const amt = parseFloat(amount);
+    if (!amt || amt <= 0 || !categoryId || !accountId || !memberId) return;
+    let participantsData = null;
+    if (type === 'expense' && isShared && participants.length) {
+      const share = amt / participants.length;
+      participantsData = participants.map((id) => ({ memberId: id, share }));
+    }
+    const t = {
+      id: uid('tx'), type, description, amount: amt, categoryId, accountId, memberId, date,
+      recurring, frequency: recurring ? frequency : null,
+      isShared: type === 'expense' ? isShared : false,
+      participants: participantsData,
+    };
+    update({ transactions: [...data.transactions, t] });
+    onClose();
+  }
+
+  function toggleParticipant(id) {
+    setParticipants((p) => p.includes(id) ? p.filter((x) => x !== id) : [...p, id]);
+  }
+
+  return (
+    <Modal title={payload?.source === 'quick' ? 'Revisa lo detectado' : 'Nuevo movimiento'} onClose={onClose}>
+      {payload?.source === 'quick' && (
+        <div className="flex items-start gap-2 rounded-xl p-3 mb-4" style={{ background: T.goldSoft }}>
+          <Info size={15} color={T.gold} style={{ marginTop: 2, flexShrink: 0 }} />
+          <p style={{ fontSize: 12, color: T.ink, fontFamily: FONT_BODY }}>
+            Esto se extrajo automáticamente{payload?.raw ? `: "${payload.raw}"` : ''}. Revisa y ajusta antes de guardar.
+          </p>
+        </div>
+      )}
+      <div className="flex rounded-xl p-1 mb-4" style={{ background: T.bg }}>
+        <button onClick={() => setType('expense')} className="flex-1 rounded-lg py-2" style={{ background: type === 'expense' ? T.coral : 'transparent' }}>
+          <span style={{ color: type === 'expense' ? '#fff' : T.inkSoft, fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13.5 }}>Gasto</span>
+        </button>
+        <button onClick={() => setType('income')} className="flex-1 rounded-lg py-2" style={{ background: type === 'income' ? T.teal : 'transparent' }}>
+          <span style={{ color: type === 'income' ? '#fff' : T.inkSoft, fontFamily: FONT_BODY, fontWeight: 600, fontSize: 13.5 }}>Ingreso</span>
+        </button>
+      </div>
+
+      <Field label="Descripción (opcional)">
+        <input style={inputStyle} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ej. Supermercado" />
+      </Field>
+      <Field label="Monto">
+        <input style={inputStyle} type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />
+      </Field>
+      <Field label="Categoría">
+        <select style={inputStyle} value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+          {cats.map((c) => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
+        </select>
+      </Field>
+      <Field label="Cuenta">
+        <select style={inputStyle} value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+          {data.accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+        </select>
+      </Field>
+      <Field label={type === 'income' ? 'Recibido por' : 'Pagado por'}>
+        <select style={inputStyle} value={memberId} onChange={(e) => setMemberId(e.target.value)}>
+          {data.members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+        </select>
+      </Field>
+      <Field label="Fecha">
+        <input style={inputStyle} type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+      </Field>
+
+      <label className="flex items-center gap-2 mb-3">
+        <input type="checkbox" checked={recurring} onChange={(e) => setRecurring(e.target.checked)} />
+        <span style={{ fontSize: 14, color: T.ink, fontFamily: FONT_BODY }}>Es recurrente</span>
+      </label>
+      {recurring && (
+        <Field label="Frecuencia">
+          <select style={inputStyle} value={frequency} onChange={(e) => setFrequency(e.target.value)}>
+            <option value="semanal">Semanal</option>
+            <option value="quincenal">Quincenal</option>
+            <option value="mensual">Mensual</option>
+            <option value="anual">Anual</option>
+          </select>
+        </Field>
+      )}
+
+      {type === 'expense' && data.members.length > 1 && (
+        <>
+          <label className="flex items-center gap-2 mb-3">
+            <input type="checkbox" checked={isShared} onChange={(e) => setIsShared(e.target.checked)} />
+            <span style={{ fontSize: 14, color: T.ink, fontFamily: FONT_BODY }}>Gasto compartido entre integrantes</span>
+          </label>
+          {isShared && (
+            <Field label="Se divide entre (partes iguales)">
+              <div className="flex flex-col gap-1.5">
+                {data.members.map((m) => (
+                  <label key={m.id} className="flex items-center gap-2">
+                    <input type="checkbox" checked={participants.includes(m.id)} onChange={() => toggleParticipant(m.id)} />
+                    <MemberChip member={m} size={18} />
+                  </label>
+                ))}
+              </div>
+            </Field>
+          )}
+        </>
+      )}
+
+      <PrimaryButton full onClick={save} style={{ marginTop: 8 }}>Guardar movimiento</PrimaryButton>
+    </Modal>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* OBJETIVOS                                                              */
+/* ---------------------------------------------------------------------- */
+function Objetivos({ data, update, setModal }) {
+  const currency = data.currency;
+  const sorted = [...data.goals].sort((a, b) => goalPriorityScore(b) - goalPriorityScore(a));
+
+  function removeGoal(id) { update({ goals: data.goals.filter((g) => g.id !== id)}); }
+
+  return (
+    <div className="pb-4 pt-2">
+      <div className="flex items-center justify-between mb-3">
+        <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: T.ink }}>Objetivos de compra</p>
+        <PrimaryButton onClick={() => setModal({ type: 'goal' })} style={{ padding: '8px 14px', fontSize: 13 }}>+ Nuevo</PrimaryButton>
+      </div>
+      <p style={{ fontSize: 12.5, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-4">
+        Cada integrante puede votar la prioridad de cada objetivo. El orden se calcula con el promedio de votos.
+      </p>
+
+      {sorted.length === 0 && <EmptyState icon={<Target size={36} color={T.teal} />} title="Sin objetivos aún" subtitle="Crea una meta de compra, como 'Vacaciones' o 'Nuevo refrigerador'." />}
+
+      <div className="flex flex-col gap-3">
+        {sorted.map((g) => {
+          const score = goalPriorityScore(g);
+          const pct = Math.min(100, (g.currentAmount / g.targetAmount) * 100);
+          const votesCount = Object.keys(g.votes || {}).length;
+          return (
+            <Card key={g.id}>
+              <div className="flex items-start justify-between mb-2">
+                <div>
+                  <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: T.ink }}>{g.name}</p>
+                  {g.targetDate && <p style={{ fontSize: 11.5, color: T.inkSoft }}>Meta para {formatDate(g.targetDate)}</p>}
+                </div>
+                <div className="flex items-center gap-1 rounded-full px-2 py-1" style={{ background: score >= 2.5 ? T.coralSoft : score >= 1.5 ? T.goldSoft : T.tealSoft }}>
+                  <Star size={12} color={score >= 2.5 ? T.coral : score >= 1.5 ? T.gold : T.teal} />
+                  <span style={{ fontSize: 11, fontFamily: FONT_BODY, color: T.ink }}>{score >= 2.5 ? 'Alta' : score >= 1.5 ? 'Media' : 'Baja'} · {votesCount}/{data.members.length} votos</span>
+                </div>
+              </div>
+              <ProgressBar value={pct} color={T.gold} />
+              <div className="flex items-center justify-between mt-1.5">
+                <span style={{ fontFamily: FONT_MONO, fontSize: 12.5, color: T.inkSoft }}>{formatMoney(g.currentAmount, currency)} de {formatMoney(g.targetAmount, currency)}</span>
+                <span style={{ fontFamily: FONT_MONO, fontSize: 12.5, color: T.ink }}>{Math.round(pct)}%</span>
+              </div>
+              <div className="flex gap-2 mt-3">
+                <GhostButton onClick={() => setModal({ type: 'vote', payload: g })} style={{ flex: 1, fontSize: 12.5, padding: '8px' }}>Votar prioridad</GhostButton>
+                <PrimaryButton onClick={() => setModal({ type: 'contribute', payload: g })} style={{ flex: 1, fontSize: 12.5, padding: '8px' }}>Aportar</PrimaryButton>
+                <button onClick={() => removeGoal(g.id)}><Trash2 size={16} color={T.inkSoft} /></button>
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function GoalModal({ data, update, onClose }) {
+  const [name, setName] = useState('');
+  const [targetAmount, setTargetAmount] = useState('');
+  const [targetDate, setTargetDate] = useState('');
+  function save() {
+    if (!name.trim() || !parseFloat(targetAmount)) return;
+    const g = { id: uid('goal'), name: name.trim(), targetAmount: parseFloat(targetAmount), currentAmount: 0, targetDate: targetDate || null, votes: {} };
+    update({ goals: [...data.goals, g] });
+    onClose();
+  }
+  return (
+    <Modal title="Nuevo objetivo de compra" onClose={onClose}>
+      <Field label="Nombre del objetivo">
+        <input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej. Vacaciones en familia" />
+      </Field>
+      <Field label="Monto meta">
+        <input style={inputStyle} type="number" value={targetAmount} onChange={(e) => setTargetAmount(e.target.value)} placeholder="0" />
+      </Field>
+      <Field label="Fecha meta (opcional)">
+        <input style={inputStyle} type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} />
+      </Field>
+      <PrimaryButton full onClick={save}>Crear objetivo</PrimaryButton>
+    </Modal>
+  );
+}
+
+function VoteModal({ data, update, payload, onClose }) {
+  const goal = payload;
+  const [votes, setVotes] = useState(goal.votes || {});
+  function save() {
+    update({ goals: data.goals.map((g) => g.id === goal.id ? { ...g, votes } : g) });
+    onClose();
+  }
+  return (
+    <Modal title={`Votar prioridad: ${goal.name}`} onClose={onClose}>
+      <p style={{ fontSize: 12.5, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-4">Cada integrante elige qué tan prioritario es este objetivo para el hogar.</p>
+      {data.members.map((m) => (
+        <div key={m.id} className="flex items-center justify-between mb-3">
+          <MemberChip member={m} />
+          <div className="flex gap-1.5">
+            {[1, 2, 3].map((v) => (
+              <button key={v} onClick={() => setVotes({ ...votes, [m.id]: v })}
+                className="rounded-lg px-2.5 py-1.5"
+                style={{ background: votes[m.id] === v ? T.gold : T.bg, border: `1px solid ${votes[m.id] === v ? T.gold : T.border}` }}>
+                <span style={{ fontSize: 11.5, color: votes[m.id] === v ? '#fff' : T.inkSoft }}>{PRIORITY_LABEL[v]}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+      <PrimaryButton full onClick={save}>Guardar votos</PrimaryButton>
+    </Modal>
+  );
+}
+
+function ContributeModal({ data, update, payload, onClose }) {
+  const goal = payload;
+  const [amount, setAmount] = useState('');
+  const [memberId, setMemberId] = useState(data.members[0]?.id || '');
+  const [accountId, setAccountId] = useState(data.accounts[0]?.id || '');
+  function save() {
+    const amt = parseFloat(amount);
+    if (!amt || amt <= 0) return;
+    const ahorroCat = data.categories.find((c) => c.id === 'cat-ahorro')?.id || data.categories.find(c=>c.type==='expense')?.id;
+    const t = { id: uid('tx'), type: 'expense', description: `Aporte a "${goal.name}"`, amount: amt, categoryId: ahorroCat, accountId, memberId, date: todayISO(), recurring: false, isShared: false, participants: null };
+    update({
+      transactions: [...data.transactions, t],
+      goals: data.goals.map((g) => g.id === goal.id ? { ...g, currentAmount: g.currentAmount + amt } : g),
+    });
+    onClose();
+  }
+  return (
+    <Modal title={`Aportar a: ${goal.name}`} onClose={onClose}>
+      <Field label="Monto a aportar">
+        <input style={inputStyle} type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />
+      </Field>
+      <Field label="Integrante que aporta">
+        <select style={inputStyle} value={memberId} onChange={(e) => setMemberId(e.target.value)}>
+          {data.members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+        </select>
+      </Field>
+      <Field label="Desde la cuenta">
+        <select style={inputStyle} value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+          {data.accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+        </select>
+      </Field>
+      <p style={{ fontSize: 11.5, color: T.inkSoft }} className="mb-4">Esto se registrará también como un gasto en la categoría "Ahorro / Inversión".</p>
+      <PrimaryButton full onClick={save}>Confirmar aporte</PrimaryButton>
+    </Modal>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* PRESUPUESTOS                                                           */
+/* ---------------------------------------------------------------------- */
+function Presupuestos({ data, update, setModal }) {
+  const mKey = thisMonthKey();
+  const currency = data.currency;
+
+  function removeBudget(id) { update({ budgets: data.budgets.filter((b) => b.id !== id) }); }
+
+  return (
+    <div className="pb-4 pt-2">
+      <div className="flex items-center justify-between mb-3">
+        <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: T.ink }}>Presupuestos mensuales</p>
+        <PrimaryButton onClick={() => setModal({ type: 'budget' })} style={{ padding: '8px 14px', fontSize: 13 }}>+ Nuevo</PrimaryButton>
+      </div>
+
+      {data.budgets.length === 0 && <EmptyState icon={<PiggyBank size={36} color={T.teal} />} title="Sin presupuestos" subtitle="Define límites mensuales por categoría para recibir alertas antes de excederte." />}
+
+      <div className="flex flex-col gap-3">
+        {data.budgets.map((b) => {
+          const cat = data.categories.find((c) => c.id === b.categoryId);
+          const spent = data.transactions
+            .filter((t) => t.type === 'expense' && t.categoryId === b.categoryId && occurrencesInMonth(t, mKey) && (b.scope === 'household' || t.memberId === b.scope))
+            .reduce((s, t) => s + t.amount * occurrencesInMonth(t, mKey), 0);
+          const pct = (spent / b.limit) * 100;
+          const scopeLabel = b.scope === 'household' ? 'Todo el hogar' : data.members.find((m) => m.id === b.scope)?.name;
+          return (
+            <Card key={b.id}>
+              <div className="flex items-center justify-between mb-1.5">
+                <span style={{ fontFamily: FONT_BODY, fontWeight: 500, fontSize: 14, color: T.ink }}>{cat?.icon} {cat?.name}</span>
+                <button onClick={() => removeBudget(b.id)}><Trash2 size={14} color={T.inkSoft} /></button>
+              </div>
+              <p style={{ fontSize: 11, color: T.inkSoft }} className="mb-2">{scopeLabel}</p>
+              <ProgressBar value={pct} color={pct >= 100 ? T.danger : pct >= 80 ? T.gold : T.teal} />
+              <div className="flex items-center justify-between mt-1.5">
+                <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: T.inkSoft }}>{formatMoney(spent, currency)} de {formatMoney(b.limit, currency)}</span>
+                <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: pct >= 100 ? T.danger : T.ink }}>{Math.round(pct)}%</span>
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function BudgetModal({ data, update, onClose }) {
+  const expenseCats = data.categories.filter((c) => c.type === 'expense');
+  const [categoryId, setCategoryId] = useState(expenseCats[0]?.id || '');
+  const [limit, setLimit] = useState('');
+  const [scope, setScope] = useState('household');
+  function save() {
+    const lim = parseFloat(limit);
+    if (!lim || !categoryId) return;
+    update({ budgets: [...data.budgets, { id: uid('bud'), categoryId, limit: lim, scope }] });
+    onClose();
+  }
+  return (
+    <Modal title="Nuevo presupuesto" onClose={onClose}>
+      <Field label="Categoría">
+        <select style={inputStyle} value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+          {expenseCats.map((c) => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
+        </select>
+      </Field>
+      <Field label="Límite mensual">
+        <input style={inputStyle} type="number" value={limit} onChange={(e) => setLimit(e.target.value)} placeholder="0" />
+      </Field>
+      <Field label="Aplica a">
+        <select style={inputStyle} value={scope} onChange={(e) => setScope(e.target.value)}>
+          <option value="household">Todo el hogar</option>
+          {data.members.map((m) => <option key={m.id} value={m.id}>Solo {m.name}</option>)}
+        </select>
+      </Field>
+      <PrimaryButton full onClick={save}>Guardar presupuesto</PrimaryButton>
+    </Modal>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* CONCILIACIÓN (quién debe a quién)                                      */
+/* ---------------------------------------------------------------------- */
+function Conciliacion({ data, update }) {
+  const currency = data.currency;
+  const balances = useMemo(() => computeBalances(data.transactions, data.members), [data.transactions, data.members]);
+  const transfers = useMemo(() => simplifyDebts(balances), [balances]);
+
+  function settle(transfer) {
+    const t = { id: uid('settle'), type: 'settlement', from: transfer.from, to: transfer.to, amount: transfer.amount, date: todayISO() };
+    update({ transactions: [...data.transactions, t] });
+  }
+
+  const sharedExpensesCount = data.transactions.filter((t) => t.isShared).length;
+
+  return (
+    <div className="pb-4 pt-2">
+      <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: T.ink }} className="mb-1">Conciliación de gastos compartidos</p>
+      <p style={{ fontSize: 12.5, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-4">
+        Calculado a partir de {sharedExpensesCount} gasto(s) compartido(s). Muestra las transferencias mínimas para saldar cuentas entre integrantes.
+      </p>
+
+      <Card style={{ marginBottom: 16 }}>
+        <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: T.ink }} className="mb-3">Balance individual</p>
+        {data.members.map((m) => {
+          const b = balances[m.id] || 0;
+          return (
+            <div key={m.id} className="flex items-center justify-between mb-2">
+              <MemberChip member={m} />
+              <span style={{ fontFamily: FONT_MONO, fontSize: 13.5, color: b > 0.5 ? T.teal : b < -0.5 ? T.danger : T.inkSoft }}>
+                {b > 0.5 ? `Le deben ${formatMoney(b, currency)}` : b < -0.5 ? `Debe ${formatMoney(-b, currency)}` : 'En paz'}
+              </span>
+            </div>
+          );
+        })}
+      </Card>
+
+      <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: T.ink }} className="mb-2">Transferencias sugeridas</p>
+      {transfers.length === 0 && <EmptyState icon={<ArrowLeftRight size={32} color={T.teal} />} title="Todo saldado" subtitle="No hay deudas pendientes entre los integrantes por ahora." />}
+      <div className="flex flex-col gap-2">
+        {transfers.map((tr, i) => {
+          const from = data.members.find((m) => m.id === tr.from);
+          const to = data.members.find((m) => m.id === tr.to);
+          return (
+            <Card key={i}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <MemberChip member={from} size={22} />
+                  <ArrowRight size={14} color={T.inkSoft} />
+                  <MemberChip member={to} size={22} />
+                </div>
+                <span style={{ fontFamily: FONT_MONO, fontWeight: 600, fontSize: 14, color: T.ink }}>{formatMoney(tr.amount, currency)}</span>
+              </div>
+              <PrimaryButton full onClick={() => settle(tr)} style={{ marginTop: 10, fontSize: 13, padding: '8px' }}>Marcar como pagado</PrimaryButton>
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* CUENTAS                                                                */
+/* ---------------------------------------------------------------------- */
+function Cuentas({ data, update, setModal }) {
+  const currency = data.currency;
+  function balanceOf(acc) {
+    return data.transactions
+      .filter((t) => t.accountId === acc.id)
+      .reduce((s, t) => s + (t.type === 'income' ? t.amount : t.type === 'expense' ? -t.amount : 0), 0);
+  }
+  function removeAccount(id) { update({ accounts: data.accounts.filter((a) => a.id !== id) }); }
+
+  return (
+    <div className="pb-4 pt-2">
+      <div className="flex items-center justify-between mb-3">
+        <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: T.ink }}>Cuentas</p>
+        <PrimaryButton onClick={() => setModal({ type: 'account' })} style={{ padding: '8px 14px', fontSize: 13 }}>+ Nueva</PrimaryButton>
+      </div>
+      <div className="flex flex-col gap-3">
+        {data.accounts.map((a) => (
+          <Card key={a.id}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div style={{ width: 34, height: 34, borderRadius: 10, background: a.type === 'shared' ? T.tealSoft : T.goldSoft, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Landmark size={16} color={a.type === 'shared' ? T.teal : T.gold} />
+                </div>
+                <div>
+                  <p style={{ fontSize: 14, color: T.ink, fontFamily: FONT_BODY, fontWeight: 500 }}>{a.name}</p>
+                  <p style={{ fontSize: 11, color: T.inkSoft }}>{a.type === 'shared' ? 'Compartida' : 'Individual'} · {a.ownerIds.map((id) => data.members.find((m) => m.id === id)?.name).join(', ')}</p>
+                </div>
+              </div>
+              <button onClick={() => removeAccount(a.id)}><Trash2 size={15} color={T.inkSoft} /></button>
+            </div>
+            <p style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 18, color: T.ink }} className="mt-2">{formatMoney(balanceOf(a), currency)}</p>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AccountModal({ data, update, onClose }) {
+  const [name, setName] = useState('');
+  const [type, setType] = useState('individual');
+  const [ownerIds, setOwnerIds] = useState([data.members[0]?.id]);
+  function toggle(id) { setOwnerIds((o) => o.includes(id) ? o.filter((x) => x !== id) : [...o, id]); }
+  function save() {
+    if (!name.trim() || !ownerIds.length) return;
+    update({ accounts: [...data.accounts, { id: uid('acc'), name: name.trim(), type, ownerIds }] });
+    onClose();
+  }
+  return (
+    <Modal title="Nueva cuenta" onClose={onClose}>
+      <Field label="Nombre de la cuenta">
+        <input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej. Cuenta de ahorros" />
+      </Field>
+      <Field label="Tipo">
+        <select style={inputStyle} value={type} onChange={(e) => setType(e.target.value)}>
+          <option value="individual">Individual</option>
+          <option value="shared">Compartida</option>
+        </select>
+      </Field>
+      <Field label="Integrantes asociados">
+        <div className="flex flex-col gap-1.5">
+          {data.members.map((m) => (
+            <label key={m.id} className="flex items-center gap-2">
+              <input type="checkbox" checked={ownerIds.includes(m.id)} onChange={() => toggle(m.id)} />
+              <MemberChip member={m} size={18} />
+            </label>
+          ))}
+        </div>
+      </Field>
+      <PrimaryButton full onClick={save}>Crear cuenta</PrimaryButton>
+    </Modal>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* AJUSTES                                                                */
+/* ---------------------------------------------------------------------- */
+function Ajustes({ data, update, setModal }) {
+  function removeMember(id) {
+    if (data.members.length <= 1) return;
+    update({ members: data.members.filter((m) => m.id !== id) });
+  }
+  function removeCategory(id) {
+    update({ categories: data.categories.filter((c) => c.id !== id) });
+  }
+  return (
+    <div className="pb-4 pt-2">
+      <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: T.ink }} className="mb-3">Ajustes</p>
+
+      <Card style={{ marginBottom: 14 }}>
+        <Field label="Nombre del hogar">
+          <input style={inputStyle} value={data.householdName} onChange={(e) => update({ householdName: e.target.value })} />
+        </Field>
+        <Field label="Moneda">
+          <select style={inputStyle} value={data.currency} onChange={(e) => update({ currency: e.target.value })}>
+            {CURRENCIES.map((c) => <option key={c.code} value={c.code}>{c.label}</option>)}
+          </select>
+        </Field>
+      </Card>
+
+      <Card style={{ marginBottom: 14 }}>
+        <div className="flex items-center justify-between mb-3">
+          <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: T.ink }}>Integrantes</p>
+          <button onClick={() => setModal({ type: 'member' })}><Plus size={18} color={T.teal} /></button>
+        </div>
+        {data.members.map((m) => (
+          <div key={m.id} className="flex items-center justify-between mb-2">
+            <MemberChip member={m} />
+            <button onClick={() => removeMember(m.id)}><Trash2 size={15} color={T.inkSoft} /></button>
+          </div>
+        ))}
+      </Card>
+
+      <Card>
+        <div className="flex items-center justify-between mb-3">
+          <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: T.ink }}>Categorías</p>
+          <button onClick={() => setModal({ type: 'category' })}><Plus size={18} color={T.teal} /></button>
+        </div>
+        <p style={{ fontSize: 11.5, color: T.inkSoft }} className="mb-2">Ingresos</p>
+        {data.categories.filter((c) => c.type === 'income').map((c) => (
+          <div key={c.id} className="flex items-center justify-between mb-1.5">
+            <span style={{ fontSize: 13, color: T.ink }}>{c.icon} {c.name}</span>
+            <button onClick={() => removeCategory(c.id)}><Trash2 size={13} color={T.inkSoft} /></button>
+          </div>
+        ))}
+        <p style={{ fontSize: 11.5, color: T.inkSoft }} className="mb-2 mt-3">Gastos</p>
+        {data.categories.filter((c) => c.type === 'expense').map((c) => (
+          <div key={c.id} className="flex items-center justify-between mb-1.5">
+            <span style={{ fontSize: 13, color: T.ink }}>{c.icon} {c.name}</span>
+            <button onClick={() => removeCategory(c.id)}><Trash2 size={13} color={T.inkSoft} /></button>
+          </div>
+        ))}
+      </Card>
+    </div>
+  );
+}
+
+function MemberModal({ data, update, onClose }) {
+  const [name, setName] = useState('');
+  function save() {
+    if (!name.trim()) return;
+    const color = MEMBER_COLORS[data.members.length % MEMBER_COLORS.length];
+    const member = { id: uid('mem'), name: name.trim(), color };
+    const account = { id: uid('acc'), name: `Cuenta de ${name.trim()}`, type: 'individual', ownerIds: [member.id] };
+    update({ members: [...data.members, member], accounts: [...data.accounts, account] });
+    onClose();
+  }
+  return (
+    <Modal title="Agregar integrante" onClose={onClose}>
+      <Field label="Nombre">
+        <input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre del integrante" />
+      </Field>
+      <PrimaryButton full onClick={save}>Agregar</PrimaryButton>
+    </Modal>
+  );
+}
+
+function CategoryModal({ data, update, onClose }) {
+  const [name, setName] = useState('');
+  const [type, setType] = useState('expense');
+  const [icon, setIcon] = useState('🔖');
+  function save() {
+    if (!name.trim()) return;
+    update({ categories: [...data.categories, { id: uid('cat'), name: name.trim(), type, icon }] });
+    onClose();
+  }
+  return (
+    <Modal title="Nueva categoría" onClose={onClose}>
+      <Field label="Nombre">
+        <input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej. Mascotas" />
+      </Field>
+      <Field label="Tipo">
+        <select style={inputStyle} value={type} onChange={(e) => setType(e.target.value)}>
+          <option value="expense">Gasto</option>
+          <option value="income">Ingreso</option>
+        </select>
+      </Field>
+      <Field label="Emoji / ícono">
+        <input style={inputStyle} value={icon} onChange={(e) => setIcon(e.target.value)} placeholder="🔖" />
+      </Field>
+      <PrimaryButton full onClick={save}>Crear categoría</PrimaryButton>
+    </Modal>
+  );
+}
