@@ -3,12 +3,14 @@ import {
   Home, List, Target, PiggyBank, Users, Settings, ArrowLeftRight, Wallet,
   TrendingUp, TrendingDown, X, Check, AlertTriangle, Star, Repeat, Calendar,
   Trash2, Pencil, ChevronRight, Plus, DollarSign, Landmark, Sparkles, ArrowRight,
-  MessageCircle, Camera, Loader2, Image as ImageIcon, Info
+  MessageCircle, Camera, Loader2, Image as ImageIcon, Info, LogOut, QrCode, Copy, UserPlus
 } from 'lucide-react';
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   LineChart, Line, CartesianGrid, Legend
 } from 'recharts';
+import { supabase } from './lib/supabaseClient';
+import * as db from './lib/db';
 
 /* ---------------------------------------------------------------------- */
 /* TOKENS DE DISEÑO                                                        */
@@ -265,98 +267,58 @@ function EmptyState({ icon, title, subtitle }) {
 }
 
 /* ---------------------------------------------------------------------- */
-/* APP PRINCIPAL                                                          */
+/* APP PRINCIPAL — AUTENTICACIÓN Y HOGAR                                   */
 /* ---------------------------------------------------------------------- */
 export default function App() {
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const saveTimer = useRef(null);
+  const [session, setSession] = useState(undefined); // undefined = cargando, null = sin sesión
+  const [household, setHousehold] = useState(undefined); // undefined = cargando, null = sin hogar
+  const [joinError, setJoinError] = useState('');
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) setData(JSON.parse(raw));
-      else setData(defaultData());
-    } catch {
-      setData(defaultData());
-    } finally {
-      setLoading(false);
-    }
+    supabase.auth.getSession().then(({ data }) => setSession(data.session ?? null));
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
+    return () => sub.subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
-    if (!data) return;
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch {}
-    }, 400);
-    return () => clearTimeout(saveTimer.current);
-  }, [data]);
+    if (session === undefined) return;
+    if (!session) { setHousehold(null); return; }
+    (async () => {
+      const params = new URLSearchParams(window.location.search);
+      const token = params.get('token');
+      if (token) {
+        try {
+          await db.redeemInvite(token, session.user.id);
+        } catch (e) {
+          setJoinError(e.message);
+        } finally {
+          window.history.replaceState({}, '', window.location.pathname);
+        }
+      }
+      try {
+        setHousehold(await db.getMyHousehold(session.user.id));
+      } catch {
+        setHousehold(null);
+      }
+    })();
+  }, [session]);
 
-  function defaultData() {
-    return {
-      setupDone: false,
-      householdName: '',
-      currency: 'USD',
-      viewMode: 'unified', // unified | individual
-      activeMemberId: null,
-      members: [],
-      accounts: [],
-      categories: DEFAULT_CATEGORIES,
-      transactions: [],
-      goals: [],
-      budgets: [],
-    };
-  }
-
-  if (loading || !data) {
-    return (
-      <div style={{ background: T.bg, minHeight: '100vh' }} className="flex items-center justify-center">
-        <p style={{ fontFamily: FONT_BODY, color: T.inkSoft }}>Cargando…</p>
-      </div>
-    );
-  }
-
-  if (!data.setupDone) {
-    return <Onboarding data={data} setData={setData} />;
-  }
-
-  return <MainApp data={data} setData={setData} />;
+  if (session === undefined || (session && household === undefined)) return <LoadingScreen />;
+  if (!session) return <AuthScreen />;
+  if (!household) return <HouseholdSetup userId={session.user.id} onReady={setHousehold} joinError={joinError} />;
+  return <HouseholdApp session={session} household={household} onLeftHousehold={() => setHousehold(null)} />;
 }
 
-/* ---------------------------------------------------------------------- */
-/* ONBOARDING                                                              */
-/* ---------------------------------------------------------------------- */
-function Onboarding({ data, setData }) {
-  const [step, setStep] = useState(0);
-  const [householdName, setHouseholdName] = useState(data.householdName || '');
-  const [currency, setCurrency] = useState(data.currency || 'USD');
-  const [members, setMembers] = useState(data.members?.length ? data.members : []);
-  const [nameInput, setNameInput] = useState('');
+function LoadingScreen() {
+  return (
+    <div style={{ background: T.bg, minHeight: '100vh' }} className="flex items-center justify-center">
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap');`}</style>
+      <p style={{ fontFamily: FONT_BODY, color: T.inkSoft }}>Cargando…</p>
+    </div>
+  );
+}
 
-  function addMember() {
-    if (!nameInput.trim()) return;
-    const color = MEMBER_COLORS[members.length % MEMBER_COLORS.length];
-    setMembers([...members, { id: uid('mem'), name: nameInput.trim(), color }]);
-    setNameInput('');
-  }
-  function removeMember(id) {
-    setMembers(members.filter((m) => m.id !== id));
-  }
-
-  function finish() {
-    const sharedAccount = { id: uid('acc'), name: `Cuenta compartida — ${householdName}`, type: 'shared', ownerIds: members.map((m) => m.id) };
-    const individualAccounts = members.map((m) => ({ id: uid('acc'), name: `Cuenta de ${m.name}`, type: 'individual', ownerIds: [m.id] }));
-    setData({
-      ...data,
-      householdName,
-      currency,
-      members,
-      accounts: [sharedAccount, ...individualAccounts],
-      setupDone: true,
-    });
-  }
-
+function AuthShell({ children }) {
   return (
     <div style={{ background: T.bg, minHeight: '100vh', fontFamily: FONT_BODY }} className="flex flex-col items-center px-5 py-10">
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap');`}</style>
@@ -367,69 +329,196 @@ function Onboarding({ data, setData }) {
           </div>
           <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 20, color: T.ink }}>Finanzas del Hogar</span>
         </div>
+        {children}
+      </div>
+    </div>
+  );
+}
 
-        {step === 0 && (
-          <Card>
-            <p style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: T.ink }} className="mb-1">¿Cómo se llama tu hogar?</p>
-            <p style={{ color: T.inkSoft, fontSize: 13.5 }} className="mb-4">Puedes usar el apellido familiar o un apodo, como "Casa García".</p>
+function AuthScreen() {
+  const [mode, setMode] = useState('login');
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  async function submit() {
+    setError(''); setNotice(''); setLoading(true);
+    try {
+      if (mode === 'signup') {
+        if (!fullName.trim()) throw new Error('Ingresa tu nombre.');
+        await db.signUp(email.trim(), password, fullName.trim());
+        setNotice('Cuenta creada. Si tu proyecto pide confirmación por correo, revisa tu bandeja y luego inicia sesión.');
+        setMode('login');
+      } else {
+        await db.signIn(email.trim(), password);
+      }
+    } catch (e) {
+      setError(e.message || 'Ocurrió un error.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <AuthShell>
+      <Card>
+        <div className="flex rounded-xl p-1 mb-4" style={{ background: T.bg }}>
+          <button onClick={() => setMode('login')} className="flex-1 rounded-lg py-2" style={{ background: mode === 'login' ? T.surface : 'transparent', border: mode === 'login' ? `1px solid ${T.border}` : 'none' }}>
+            <span style={{ fontSize: 13, fontFamily: FONT_BODY, fontWeight: 600, color: T.ink }}>Iniciar sesión</span>
+          </button>
+          <button onClick={() => setMode('signup')} className="flex-1 rounded-lg py-2" style={{ background: mode === 'signup' ? T.surface : 'transparent', border: mode === 'signup' ? `1px solid ${T.border}` : 'none' }}>
+            <span style={{ fontSize: 13, fontFamily: FONT_BODY, fontWeight: 600, color: T.ink }}>Crear cuenta</span>
+          </button>
+        </div>
+        {mode === 'signup' && (
+          <Field label="Nombre">
+            <input style={inputStyle} value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Tu nombre" />
+          </Field>
+        )}
+        <Field label="Correo">
+          <input style={inputStyle} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="tucorreo@ejemplo.com" />
+        </Field>
+        <Field label="Contraseña">
+          <input style={inputStyle} type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
+        </Field>
+        {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+        {notice && <p style={{ color: T.teal, fontSize: 12.5 }} className="mb-3">{notice}</p>}
+        <PrimaryButton full onClick={submit}>{loading ? 'Un momento…' : mode === 'signup' ? 'Crear cuenta' : 'Entrar'}</PrimaryButton>
+      </Card>
+    </AuthShell>
+  );
+}
+
+function HouseholdSetup({ userId, onReady, joinError }) {
+  const [mode, setMode] = useState('create');
+  const [name, setName] = useState('');
+  const [currency, setCurrency] = useState('COP');
+  const [code, setCode] = useState('');
+  const [error, setError] = useState(joinError || '');
+  const [loading, setLoading] = useState(false);
+
+  async function create() {
+    if (!name.trim()) return;
+    setLoading(true); setError('');
+    try {
+      await db.createHousehold(userId, name.trim(), currency);
+      onReady(await db.getMyHousehold(userId));
+    } catch (e) { setError(e.message); } finally { setLoading(false); }
+  }
+  async function join() {
+    if (!code.trim()) return;
+    setLoading(true); setError('');
+    try {
+      await db.redeemInvite(code.trim(), userId);
+      onReady(await db.getMyHousehold(userId));
+    } catch (e) { setError(e.message); } finally { setLoading(false); }
+  }
+
+  return (
+    <AuthShell>
+      <Card>
+        <div className="flex rounded-xl p-1 mb-4" style={{ background: T.bg }}>
+          <button onClick={() => setMode('create')} className="flex-1 rounded-lg py-2" style={{ background: mode === 'create' ? T.surface : 'transparent' }}>
+            <span style={{ fontSize: 13, fontFamily: FONT_BODY, fontWeight: 600, color: T.ink }}>Crear hogar</span>
+          </button>
+          <button onClick={() => setMode('join')} className="flex-1 rounded-lg py-2" style={{ background: mode === 'join' ? T.surface : 'transparent' }}>
+            <span style={{ fontSize: 13, fontFamily: FONT_BODY, fontWeight: 600, color: T.ink }}>Unirme con código</span>
+          </button>
+        </div>
+        {mode === 'create' ? (
+          <>
             <Field label="Nombre del hogar">
-              <input style={inputStyle} value={householdName} onChange={(e) => setHouseholdName(e.target.value)} placeholder="Ej. Casa García" />
+              <input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej. Casa García" />
             </Field>
             <Field label="Moneda principal">
               <select style={inputStyle} value={currency} onChange={(e) => setCurrency(e.target.value)}>
                 {CURRENCIES.map((c) => <option key={c.code} value={c.code}>{c.label}</option>)}
               </select>
             </Field>
-            <PrimaryButton full onClick={() => householdName.trim() && setStep(1)}>Continuar</PrimaryButton>
-          </Card>
+            {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+            <PrimaryButton full onClick={create}>{loading ? 'Creando…' : 'Crear hogar'}</PrimaryButton>
+          </>
+        ) : (
+          <>
+            <p style={{ fontSize: 12.5, color: T.inkSoft }} className="mb-3">Pide a un integrante que te comparta el código o el QR desde Ajustes → Invitar.</p>
+            <Field label="Código de invitación">
+              <input style={inputStyle} value={code} onChange={(e) => setCode(e.target.value)} placeholder="Pega el código aquí" />
+            </Field>
+            {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+            <PrimaryButton full onClick={join}>{loading ? 'Uniendo…' : 'Unirme al hogar'}</PrimaryButton>
+          </>
         )}
-
-        {step === 1 && (
-          <Card>
-            <p style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: T.ink }} className="mb-1">¿Quiénes integran el hogar?</p>
-            <p style={{ color: T.inkSoft, fontSize: 13.5 }} className="mb-4">Agrega a cada integrante. Podrás sumar más después.</p>
-            <div className="flex gap-2 mb-4">
-              <input style={inputStyle} value={nameInput} onChange={(e) => setNameInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && addMember()} placeholder="Nombre del integrante" />
-              <button onClick={addMember} style={{ background: T.teal, borderRadius: 10, padding: '0 14px' }}>
-                <Plus color="#fff" size={20} />
-              </button>
-            </div>
-            <div className="flex flex-col gap-2 mb-5">
-              {members.map((m) => (
-                <div key={m.id} className="flex items-center justify-between rounded-xl px-3 py-2" style={{ background: T.bg }}>
-                  <MemberChip member={m} />
-                  <button onClick={() => removeMember(m.id)}><Trash2 size={16} color={T.inkSoft} /></button>
-                </div>
-              ))}
-              {members.length === 0 && <p style={{ color: T.inkSoft, fontSize: 13 }}>Aún no agregas integrantes.</p>}
-            </div>
-            <div className="flex gap-2">
-              <GhostButton onClick={() => setStep(0)}>Atrás</GhostButton>
-              <PrimaryButton full onClick={() => members.length && setStep(2)}>Continuar</PrimaryButton>
-            </div>
-          </Card>
-        )}
-
-        {step === 2 && (
-          <Card>
-            <p style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: T.ink }} className="mb-1">Todo listo</p>
-            <p style={{ color: T.inkSoft, fontSize: 13.5 }} className="mb-4">
-              Crearemos una <b>cuenta compartida del hogar</b> y una <b>cuenta individual</b> para cada integrante.
-              Podrás ver tus finanzas de forma <b>unificada</b> o <b>por integrante</b>, y cambiar entre ambas vistas cuando quieras.
-            </p>
-            <div className="rounded-xl p-3 mb-5" style={{ background: T.tealSoft }}>
-              <p style={{ fontFamily: FONT_MONO, fontSize: 13, color: T.teal }}>{householdName} · {members.length} integrante(s) · {currency}</p>
-            </div>
-            <div className="flex gap-2">
-              <GhostButton onClick={() => setStep(1)}>Atrás</GhostButton>
-              <PrimaryButton full onClick={finish}>Empezar</PrimaryButton>
-            </div>
-          </Card>
-        )}
-      </div>
-    </div>
+      </Card>
+    </AuthShell>
   );
+}
+
+/* ---------------------------------------------------------------------- */
+/* CARGA DE DATOS DEL HOGAR Y ACCIONES (puente hacia Supabase)             */
+/* ---------------------------------------------------------------------- */
+function HouseholdApp({ session, household, onLeftHousehold }) {
+  const [raw, setRaw] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [viewMode, setViewMode] = useState('unified');
+  const [activeMemberId, setActiveMemberId] = useState(null);
+  const [householdMeta, setHouseholdMeta] = useState(household.household);
+
+  async function refresh() {
+    const d = await db.loadHouseholdData(household.householdId);
+    setRaw(d);
+  }
+  useEffect(() => { refresh().finally(() => setLoading(false)); }, [household.householdId]);
+
+  if (loading || !raw) return <LoadingScreen />;
+
+  const data = {
+    householdName: householdMeta?.name || '',
+    currency: householdMeta?.currency || 'COP',
+    viewMode, activeMemberId,
+    members: raw.members, categories: raw.categories, accounts: raw.accounts,
+    transactions: raw.transactions, goals: raw.goals, budgets: raw.budgets,
+  };
+
+  function update(patch) {
+    if ('viewMode' in patch) setViewMode(patch.viewMode);
+    if ('activeMemberId' in patch) setActiveMemberId(patch.activeMemberId);
+    if ('householdName' in patch || 'currency' in patch) {
+      const next = { ...householdMeta, ...('householdName' in patch ? { name: patch.householdName } : {}), ...('currency' in patch ? { currency: patch.currency } : {}) };
+      setHouseholdMeta(next);
+      db.updateHousehold(household.householdId, patch).catch(() => {});
+    }
+  }
+
+  const wrap = (fn) => async (...args) => { await fn(...args); await refresh(); };
+
+  const actions = {
+    userId: session.user.id,
+    myRole: household.role,
+    addTransaction: wrap((t) => db.addTransaction(household.householdId, session.user.id, t)),
+    deleteTransaction: wrap((id) => db.deleteTransaction(id)),
+    addSettlement: wrap((from, to, amount) => db.addSettlement(household.householdId, session.user.id, from, to, amount)),
+    addGoal: wrap((g) => db.addGoal(household.householdId, g)),
+    removeGoal: wrap((id) => db.removeGoal(id)),
+    voteGoal: wrap((goalId, votes) => Promise.all(Object.entries(votes).map(([memberId, p]) => db.voteGoal(goalId, memberId, p)))),
+    contributeGoal: wrap((goal, amount, memberId, accountId) => {
+      const ahorroCat = data.categories.find((c) => c.name === 'Ahorro / Inversión')?.id || data.categories.find((c) => c.type === 'expense')?.id;
+      return db.contributeGoal(household.householdId, session.user.id, goal, amount, memberId, accountId, ahorroCat);
+    }),
+    addBudget: wrap((b) => db.addBudget(household.householdId, b)),
+    removeBudget: wrap((id) => db.removeBudget(id)),
+    addAccount: wrap((a) => db.addAccount(household.householdId, a)),
+    removeAccount: wrap((id) => db.removeAccount(id)),
+    addCategory: wrap((c) => db.addCategory(household.householdId, c)),
+    removeCategory: wrap((id) => db.removeCategory(id)),
+    createInvite: () => db.createInvite(household.householdId, session.user.id),
+    leaveHousehold: async () => { await db.leaveHousehold(household.householdId, session.user.id); onLeftHousehold(); },
+    signOut: () => db.signOut(),
+  };
+
+  return <MainApp data={data} update={update} actions={actions} />;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -446,14 +535,12 @@ const TABS = [
   { id: 'ajustes', label: 'Ajustes', icon: Settings },
 ];
 
-function MainApp({ data, setData }) {
+function MainApp({ data, update, actions }) {
   const [tab, setTab] = useState('dashboard');
-  const [modal, setModal] = useState(null); // {type: 'transaction'|'goal'|'member'|'account'|'budget'|'vote'|'settle', payload}
+  const [modal, setModal] = useState(null); // {type: 'transaction'|'goal'|'invite'|'account'|'budget'|'vote'|'contribute'|'category', payload}
 
   const currency = data.currency;
   const membersById = useMemo(() => Object.fromEntries(data.members.map((m) => [m.id, m])), [data.members]);
-
-  function update(patch) { setData({ ...data, ...patch }); }
 
   const visibleMemberId = data.viewMode === 'individual' ? (data.activeMemberId || data.members[0]?.id) : null;
 
@@ -474,7 +561,12 @@ function MainApp({ data, setData }) {
             <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 20, color: T.ink }}>{data.householdName}</p>
             <p style={{ color: T.inkSoft, fontSize: 12.5 }}>{data.members.length} integrantes · {currency}</p>
           </div>
-          <ViewModeToggle data={data} update={update} />
+          <div className="flex items-center gap-2">
+            <ViewModeToggle data={data} update={update} />
+            <button onClick={actions.signOut} title="Cerrar sesión" className="p-2 rounded-full" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+              <LogOut size={16} color={T.inkSoft} />
+            </button>
+          </div>
         </div>
         {data.viewMode === 'individual' && (
           <div className="flex gap-2 mt-3 overflow-x-auto pb-1">
@@ -491,13 +583,13 @@ function MainApp({ data, setData }) {
 
       <div className="px-5">
         {tab === 'dashboard' && <Dashboard data={data} update={update} visibleTransactions={visibleTransactions} visibleMemberId={visibleMemberId} setModal={setModal} setTab={setTab} />}
-        {tab === 'rapido' && <QuickCapture data={data} update={update} setModal={setModal} />}
-        {tab === 'movimientos' && <Movimientos data={data} update={update} visibleTransactions={visibleTransactions} setModal={setModal} />}
-        {tab === 'objetivos' && <Objetivos data={data} update={update} setModal={setModal} />}
-        {tab === 'presupuestos' && <Presupuestos data={data} update={update} setModal={setModal} />}
-        {tab === 'conciliacion' && <Conciliacion data={data} update={update} />}
-        {tab === 'cuentas' && <Cuentas data={data} update={update} setModal={setModal} />}
-        {tab === 'ajustes' && <Ajustes data={data} update={update} setModal={setModal} />}
+        {tab === 'rapido' && <QuickCapture data={data} actions={actions} setModal={setModal} />}
+        {tab === 'movimientos' && <Movimientos data={data} actions={actions} visibleTransactions={visibleTransactions} setModal={setModal} />}
+        {tab === 'objetivos' && <Objetivos data={data} actions={actions} setModal={setModal} />}
+        {tab === 'presupuestos' && <Presupuestos data={data} actions={actions} setModal={setModal} />}
+        {tab === 'conciliacion' && <Conciliacion data={data} actions={actions} />}
+        {tab === 'cuentas' && <Cuentas data={data} actions={actions} setModal={setModal} />}
+        {tab === 'ajustes' && <Ajustes data={data} update={update} actions={actions} setModal={setModal} />}
       </div>
 
       {/* Nav inferior */}
@@ -523,14 +615,14 @@ function MainApp({ data, setData }) {
         <Plus color="#fff" size={26} />
       </button>
 
-      {modal?.type === 'transaction' && <TransactionModal data={data} update={update} payload={modal.payload} onClose={() => setModal(null)} />}
-      {modal?.type === 'goal' && <GoalModal data={data} update={update} payload={modal.payload} onClose={() => setModal(null)} />}
-      {modal?.type === 'member' && <MemberModal data={data} update={update} onClose={() => setModal(null)} />}
-      {modal?.type === 'account' && <AccountModal data={data} update={update} onClose={() => setModal(null)} />}
-      {modal?.type === 'budget' && <BudgetModal data={data} update={update} payload={modal.payload} onClose={() => setModal(null)} />}
-      {modal?.type === 'vote' && <VoteModal data={data} update={update} payload={modal.payload} onClose={() => setModal(null)} />}
-      {modal?.type === 'contribute' && <ContributeModal data={data} update={update} payload={modal.payload} onClose={() => setModal(null)} />}
-      {modal?.type === 'category' && <CategoryModal data={data} update={update} onClose={() => setModal(null)} />}
+      {modal?.type === 'transaction' && <TransactionModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
+      {modal?.type === 'goal' && <GoalModal data={data} actions={actions} onClose={() => setModal(null)} />}
+      {modal?.type === 'invite' && <InviteModal data={data} actions={actions} onClose={() => setModal(null)} />}
+      {modal?.type === 'account' && <AccountModal data={data} actions={actions} onClose={() => setModal(null)} />}
+      {modal?.type === 'budget' && <BudgetModal data={data} actions={actions} onClose={() => setModal(null)} />}
+      {modal?.type === 'vote' && <VoteModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
+      {modal?.type === 'contribute' && <ContributeModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
+      {modal?.type === 'category' && <CategoryModal data={data} actions={actions} onClose={() => setModal(null)} />}
     </div>
   );
 }
@@ -702,7 +794,7 @@ function Dashboard({ data, update, visibleTransactions, visibleMemberId, setModa
 /* ---------------------------------------------------------------------- */
 /* MOVIMIENTOS                                                            */
 /* ---------------------------------------------------------------------- */
-function Movimientos({ data, update, visibleTransactions, setModal }) {
+function Movimientos({ data, actions, visibleTransactions, setModal }) {
   const [filter, setFilter] = useState('todos'); // todos | income | expense | recurring | sporadic
   const currency = data.currency;
 
@@ -716,7 +808,7 @@ function Movimientos({ data, update, visibleTransactions, setModal }) {
   }).sort((a, b) => b.date.localeCompare(a.date));
 
   function removeTransaction(id) {
-    update({ transactions: data.transactions.filter((t) => t.id !== id) });
+    actions.deleteTransaction(id);
   }
 
   return (
@@ -954,7 +1046,7 @@ function QuickCapture({ data, update, setModal }) {
 /* ---------------------------------------------------------------------- */
 /* MODAL: TRANSACCIÓN                                                     */
 /* ---------------------------------------------------------------------- */
-function TransactionModal({ data, update, payload, onClose }) {
+function TransactionModal({ data, actions, payload, onClose }) {
   const [type, setType] = useState(payload?.type || 'expense');
   const [description, setDescription] = useState(payload?.description || '');
   const [amount, setAmount] = useState(payload?.amount ? String(payload.amount) : '');
@@ -965,12 +1057,13 @@ function TransactionModal({ data, update, payload, onClose }) {
   const [recurring, setRecurring] = useState(false);
   const [frequency, setFrequency] = useState('mensual');
   const [isShared, setIsShared] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [participants, setParticipants] = useState(data.members.map((m) => m.id));
 
   const cats = data.categories.filter((c) => c.type === type);
   useEffect(() => { if (!categoryId && cats.length) setCategoryId(cats[0].id); }, [type]);
 
-  function save() {
+  async function save() {
     const amt = parseFloat(amount);
     if (!amt || amt <= 0 || !categoryId || !accountId || !memberId) return;
     let participantsData = null;
@@ -979,13 +1072,18 @@ function TransactionModal({ data, update, payload, onClose }) {
       participantsData = participants.map((id) => ({ memberId: id, share }));
     }
     const t = {
-      id: uid('tx'), type, description, amount: amt, categoryId, accountId, memberId, date,
+      type, description, amount: amt, categoryId, accountId, memberId, date,
       recurring, frequency: recurring ? frequency : null,
       isShared: type === 'expense' ? isShared : false,
       participants: participantsData,
     };
-    update({ transactions: [...data.transactions, t] });
-    onClose();
+    setSaving(true);
+    try {
+      await actions.addTransaction(t);
+      onClose();
+    } finally {
+      setSaving(false);
+    }
   }
 
   function toggleParticipant(id) {
@@ -1072,7 +1170,7 @@ function TransactionModal({ data, update, payload, onClose }) {
         </>
       )}
 
-      <PrimaryButton full onClick={save} style={{ marginTop: 8 }}>Guardar movimiento</PrimaryButton>
+      <PrimaryButton full onClick={save} style={{ marginTop: 8 }}>{saving ? 'Guardando…' : 'Guardar movimiento'}</PrimaryButton>
     </Modal>
   );
 }
@@ -1080,11 +1178,11 @@ function TransactionModal({ data, update, payload, onClose }) {
 /* ---------------------------------------------------------------------- */
 /* OBJETIVOS                                                              */
 /* ---------------------------------------------------------------------- */
-function Objetivos({ data, update, setModal }) {
+function Objetivos({ data, actions, setModal }) {
   const currency = data.currency;
   const sorted = [...data.goals].sort((a, b) => goalPriorityScore(b) - goalPriorityScore(a));
 
-  function removeGoal(id) { update({ goals: data.goals.filter((g) => g.id !== id)}); }
+  function removeGoal(id) { actions.removeGoal(id); }
 
   return (
     <div className="pb-4 pt-2">
@@ -1133,14 +1231,13 @@ function Objetivos({ data, update, setModal }) {
   );
 }
 
-function GoalModal({ data, update, onClose }) {
+function GoalModal({ data, actions, onClose }) {
   const [name, setName] = useState('');
   const [targetAmount, setTargetAmount] = useState('');
   const [targetDate, setTargetDate] = useState('');
-  function save() {
+  async function save() {
     if (!name.trim() || !parseFloat(targetAmount)) return;
-    const g = { id: uid('goal'), name: name.trim(), targetAmount: parseFloat(targetAmount), currentAmount: 0, targetDate: targetDate || null, votes: {} };
-    update({ goals: [...data.goals, g] });
+    await actions.addGoal({ name: name.trim(), targetAmount: parseFloat(targetAmount), targetDate: targetDate || null });
     onClose();
   }
   return (
@@ -1159,11 +1256,11 @@ function GoalModal({ data, update, onClose }) {
   );
 }
 
-function VoteModal({ data, update, payload, onClose }) {
+function VoteModal({ data, actions, payload, onClose }) {
   const goal = payload;
   const [votes, setVotes] = useState(goal.votes || {});
-  function save() {
-    update({ goals: data.goals.map((g) => g.id === goal.id ? { ...g, votes } : g) });
+  async function save() {
+    await actions.voteGoal(goal.id, votes);
     onClose();
   }
   return (
@@ -1188,20 +1285,15 @@ function VoteModal({ data, update, payload, onClose }) {
   );
 }
 
-function ContributeModal({ data, update, payload, onClose }) {
+function ContributeModal({ data, actions, payload, onClose }) {
   const goal = payload;
   const [amount, setAmount] = useState('');
   const [memberId, setMemberId] = useState(data.members[0]?.id || '');
   const [accountId, setAccountId] = useState(data.accounts[0]?.id || '');
-  function save() {
+  async function save() {
     const amt = parseFloat(amount);
     if (!amt || amt <= 0) return;
-    const ahorroCat = data.categories.find((c) => c.id === 'cat-ahorro')?.id || data.categories.find(c=>c.type==='expense')?.id;
-    const t = { id: uid('tx'), type: 'expense', description: `Aporte a "${goal.name}"`, amount: amt, categoryId: ahorroCat, accountId, memberId, date: todayISO(), recurring: false, isShared: false, participants: null };
-    update({
-      transactions: [...data.transactions, t],
-      goals: data.goals.map((g) => g.id === goal.id ? { ...g, currentAmount: g.currentAmount + amt } : g),
-    });
+    await actions.contributeGoal(goal, amt, memberId, accountId);
     onClose();
   }
   return (
@@ -1228,11 +1320,11 @@ function ContributeModal({ data, update, payload, onClose }) {
 /* ---------------------------------------------------------------------- */
 /* PRESUPUESTOS                                                           */
 /* ---------------------------------------------------------------------- */
-function Presupuestos({ data, update, setModal }) {
+function Presupuestos({ data, actions, setModal }) {
   const mKey = thisMonthKey();
   const currency = data.currency;
 
-  function removeBudget(id) { update({ budgets: data.budgets.filter((b) => b.id !== id) }); }
+  function removeBudget(id) { actions.removeBudget(id); }
 
   return (
     <div className="pb-4 pt-2">
@@ -1271,15 +1363,15 @@ function Presupuestos({ data, update, setModal }) {
   );
 }
 
-function BudgetModal({ data, update, onClose }) {
+function BudgetModal({ data, actions, onClose }) {
   const expenseCats = data.categories.filter((c) => c.type === 'expense');
   const [categoryId, setCategoryId] = useState(expenseCats[0]?.id || '');
   const [limit, setLimit] = useState('');
   const [scope, setScope] = useState('household');
-  function save() {
+  async function save() {
     const lim = parseFloat(limit);
     if (!lim || !categoryId) return;
-    update({ budgets: [...data.budgets, { id: uid('bud'), categoryId, limit: lim, scope }] });
+    await actions.addBudget({ categoryId, limit: lim, scope });
     onClose();
   }
   return (
@@ -1306,14 +1398,13 @@ function BudgetModal({ data, update, onClose }) {
 /* ---------------------------------------------------------------------- */
 /* CONCILIACIÓN (quién debe a quién)                                      */
 /* ---------------------------------------------------------------------- */
-function Conciliacion({ data, update }) {
+function Conciliacion({ data, actions }) {
   const currency = data.currency;
   const balances = useMemo(() => computeBalances(data.transactions, data.members), [data.transactions, data.members]);
   const transfers = useMemo(() => simplifyDebts(balances), [balances]);
 
   function settle(transfer) {
-    const t = { id: uid('settle'), type: 'settlement', from: transfer.from, to: transfer.to, amount: transfer.amount, date: todayISO() };
-    update({ transactions: [...data.transactions, t] });
+    actions.addSettlement(transfer.from, transfer.to, transfer.amount);
   }
 
   const sharedExpensesCount = data.transactions.filter((t) => t.isShared).length;
@@ -1368,14 +1459,14 @@ function Conciliacion({ data, update }) {
 /* ---------------------------------------------------------------------- */
 /* CUENTAS                                                                */
 /* ---------------------------------------------------------------------- */
-function Cuentas({ data, update, setModal }) {
+function Cuentas({ data, actions, setModal }) {
   const currency = data.currency;
   function balanceOf(acc) {
     return data.transactions
       .filter((t) => t.accountId === acc.id)
       .reduce((s, t) => s + (t.type === 'income' ? t.amount : t.type === 'expense' ? -t.amount : 0), 0);
   }
-  function removeAccount(id) { update({ accounts: data.accounts.filter((a) => a.id !== id) }); }
+  function removeAccount(id) { actions.removeAccount(id); }
 
   return (
     <div className="pb-4 pt-2">
@@ -1406,14 +1497,14 @@ function Cuentas({ data, update, setModal }) {
   );
 }
 
-function AccountModal({ data, update, onClose }) {
+function AccountModal({ data, actions, onClose }) {
   const [name, setName] = useState('');
   const [type, setType] = useState('individual');
   const [ownerIds, setOwnerIds] = useState([data.members[0]?.id]);
   function toggle(id) { setOwnerIds((o) => o.includes(id) ? o.filter((x) => x !== id) : [...o, id]); }
-  function save() {
+  async function save() {
     if (!name.trim() || !ownerIds.length) return;
-    update({ accounts: [...data.accounts, { id: uid('acc'), name: name.trim(), type, ownerIds }] });
+    await actions.addAccount({ name: name.trim(), type, ownerIds });
     onClose();
   }
   return (
@@ -1445,13 +1536,9 @@ function AccountModal({ data, update, onClose }) {
 /* ---------------------------------------------------------------------- */
 /* AJUSTES                                                                */
 /* ---------------------------------------------------------------------- */
-function Ajustes({ data, update, setModal }) {
-  function removeMember(id) {
-    if (data.members.length <= 1) return;
-    update({ members: data.members.filter((m) => m.id !== id) });
-  }
+function Ajustes({ data, update, actions, setModal }) {
   function removeCategory(id) {
-    update({ categories: data.categories.filter((c) => c.id !== id) });
+    actions.removeCategory(id);
   }
   return (
     <div className="pb-4 pt-2">
@@ -1471,14 +1558,19 @@ function Ajustes({ data, update, setModal }) {
       <Card style={{ marginBottom: 14 }}>
         <div className="flex items-center justify-between mb-3">
           <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: T.ink }}>Integrantes</p>
-          <button onClick={() => setModal({ type: 'member' })}><Plus size={18} color={T.teal} /></button>
+          <button onClick={() => setModal({ type: 'invite' })} className="flex items-center gap-1 rounded-full px-3 py-1.5" style={{ background: T.teal }}>
+            <QrCode size={14} color="#fff" /><span style={{ fontSize: 12, color: '#fff', fontFamily: FONT_BODY, fontWeight: 500 }}>Invitar</span>
+          </button>
         </div>
         {data.members.map((m) => (
           <div key={m.id} className="flex items-center justify-between mb-2">
             <MemberChip member={m} />
-            <button onClick={() => removeMember(m.id)}><Trash2 size={15} color={T.inkSoft} /></button>
+            {m.role === 'admin' && <span style={{ fontSize: 10.5, color: T.inkSoft, fontFamily: FONT_BODY }}>Admin</span>}
           </div>
         ))}
+        <GhostButton full onClick={() => { if (confirm('¿Salir de este hogar? Dejarás de ver sus datos en este dispositivo.')) actions.leaveHousehold(); }} style={{ marginTop: 10, fontSize: 12.5 }}>
+          Salir de este hogar
+        </GhostButton>
       </Card>
 
       <Card>
@@ -1505,33 +1597,70 @@ function Ajustes({ data, update, setModal }) {
   );
 }
 
-function MemberModal({ data, update, onClose }) {
-  const [name, setName] = useState('');
-  function save() {
-    if (!name.trim()) return;
-    const color = MEMBER_COLORS[data.members.length % MEMBER_COLORS.length];
-    const member = { id: uid('mem'), name: name.trim(), color };
-    const account = { id: uid('acc'), name: `Cuenta de ${name.trim()}`, type: 'individual', ownerIds: [member.id] };
-    update({ members: [...data.members, member], accounts: [...data.accounts, account] });
-    onClose();
+function InviteModal({ data, actions, onClose }) {
+  const [invite, setInvite] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  async function generate() {
+    setLoading(true); setError('');
+    try {
+      const inv = await actions.createInvite();
+      setInvite(inv);
+    } catch (e) {
+      setError(e.message || 'No se pudo crear la invitación.');
+    } finally {
+      setLoading(false);
+    }
   }
+  useEffect(() => { generate(); }, []);
+
+  const joinUrl = invite ? `${window.location.origin}${window.location.pathname}?token=${invite.token}` : '';
+  const qrUrl = invite ? `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(joinUrl)}` : '';
+
+  function copyLink() {
+    navigator.clipboard.writeText(joinUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
   return (
-    <Modal title="Agregar integrante" onClose={onClose}>
-      <Field label="Nombre">
-        <input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre del integrante" />
-      </Field>
-      <PrimaryButton full onClick={save}>Agregar</PrimaryButton>
+    <Modal title="Invitar a un integrante" onClose={onClose}>
+      <p style={{ fontSize: 12.5, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-4">
+        Pide a la persona que escanee este código con la cámara de su celular, o comparte el enlace directamente. La invitación vence en 3 días.
+      </p>
+      {loading && <p style={{ fontSize: 13, color: T.inkSoft }} className="text-center py-6">Generando invitación…</p>}
+      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+      {invite && (
+        <>
+          <div className="flex justify-center mb-4">
+            <img src={qrUrl} alt="Código QR de invitación" width={200} height={200} className="rounded-xl" style={{ border: `1px solid ${T.border}` }} />
+          </div>
+          <div className="rounded-xl p-3 mb-4 flex items-center justify-between gap-2" style={{ background: T.bg }}>
+            <p style={{ fontFamily: FONT_MONO, fontSize: 11.5, color: T.inkSoft, wordBreak: 'break-all' }}>{joinUrl}</p>
+          </div>
+          <div className="flex gap-2">
+            <GhostButton full onClick={copyLink} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+              <Copy size={14} /> {copied ? '¡Copiado!' : 'Copiar enlace'}
+            </GhostButton>
+            <PrimaryButton full onClick={generate} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+              <UserPlus size={14} /> Nueva invitación
+            </PrimaryButton>
+          </div>
+        </>
+      )}
     </Modal>
   );
 }
 
-function CategoryModal({ data, update, onClose }) {
+function CategoryModal({ data, actions, onClose }) {
   const [name, setName] = useState('');
   const [type, setType] = useState('expense');
   const [icon, setIcon] = useState('🔖');
-  function save() {
+  async function save() {
     if (!name.trim()) return;
-    update({ categories: [...data.categories, { id: uid('cat'), name: name.trim(), type, icon }] });
+    await actions.addCategory({ name: name.trim(), type, icon });
     onClose();
   }
   return (
