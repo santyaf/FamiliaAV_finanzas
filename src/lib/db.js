@@ -32,7 +32,7 @@ export async function getMyHousehold(userId) {
 
 export async function createHousehold(userId, name, currency) {
   const { data: household, error: e1 } = await supabase
-    .from('households').insert({ name, currency, created_by: userId }).select().single();
+    .from('households').insert({ name, currency }).select().single();
   if (e1) throw e1;
 
   const { error: e2 } = await supabase.from('household_members').insert({
