@@ -1009,6 +1009,7 @@ function Movimientos({ data, actions, visibleTransactions, setModal }) {
                     <button onClick={() => setModal({ type: 'editTransaction', payload: t })}><Pencil size={14} color={T.inkSoft} /></button>
                     <button onClick={() => removeTransaction(t.id)}><Trash2 size={14} color={T.inkSoft} /></button>
                   </div>
+                </div>
               </div>
             </Card>
           );
