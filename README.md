@@ -45,8 +45,34 @@ Luego impórtalo en https://vercel.com/new y agrega las variables de entorno del
 4. La invitación vence en 3 días y es de un solo uso por defecto; puedes generar una nueva cuando quieras
 
 ## Qué falta (fases siguientes, ya planeadas)
-- **Fase 2**: edición de movimientos con confirmación + histórico de cambios
-- **Fase 3**: módulo de créditos (COP/UVR, amortización, seguros) conectado al valor UVR
+- ~~**Fase 2**: edición de movimientos con confirmación + histórico de cambios~~ ✅ Completada
+- ~~**Fase 3**: módulo de créditos (COP/UVR, amortización, seguros) conectado al valor UVR~~ ✅ Completada
+
+## Fase 3 — Créditos, PWA, privacidad y mejoras de cuenta
+
+**Módulo de créditos**
+- Crea créditos en COP o UVR, con tasa efectiva anual, seguros mensuales, plazo y sistema de amortización (francés o alemán)
+- Tabla de amortización completa generada automáticamente
+- "Pagar cuota" registra el gasto automáticamente en Movimientos, categoría "Deudas y préstamos"
+- **Abonos a capital**, con dos estrategias a elegir: reducir plazo (misma cuota, terminas antes) o reducir cuota (mismo plazo, cuota más baja) — recalcula toda la tabla restante
+- Valor UVR consultado automáticamente (portal de datos abiertos del Estado colombiano, dataset certificado por el Banco de la República) con caché y entrada manual de respaldo en Ajustes — **importante**: no pude confirmar con 100% de certeza el nombre exacto de las columnas de esa API externa, así que la función `/api/uvr.js` detecta los campos por heurística; si falla, no rompe nada, simplemente usa el último valor guardado o el que ingreses a mano
+
+**Privacidad individual vs. familiar**
+- Cuentas y movimientos **individuales** ahora solo los puede ver su dueño (a nivel de base de datos, con RLS — no es solo una restricción visual)
+- Cuentas y movimientos **compartidos** (cuenta compartida o gasto marcado como "compartido") los ven todos los integrantes implicados
+- El Dashboard ahora muestra un bloque separado de "Familiar/compartido" y "Mis finanzas personales"
+
+**Cuenta**
+- Confirmación de contraseña al registrarse
+- "¿Olvidaste tu contraseña?" con recuperación por correo
+
+**PWA**
+- La app se puede instalar en el celular (ícono, pantalla completa, funciona sin barra del navegador)
+- Botón "Instalar app" en Ajustes cuando el navegador lo permite
+- Funciona parcialmente offline (el shell de la app se cachea; los datos siempre se piden frescos a Supabase cuando hay internet)
+
+### ⚠️ Importante: vuelve a correr `supabase-schema.sql` completo
+Esta fase agrega tablas nuevas y **cambia políticas de seguridad existentes** (privacidad de cuentas/movimientos). Corre el script completo de nuevo en el SQL Editor — sigue siendo seguro re-ejecutarlo.
 
 ## Notas técnicas
 - `src/lib/supabaseClient.js` — cliente de Supabase
