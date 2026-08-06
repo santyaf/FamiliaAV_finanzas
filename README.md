@@ -74,6 +74,48 @@ Luego impórtalo en https://vercel.com/new y agrega las variables de entorno del
 ### ⚠️ Importante: vuelve a correr `supabase-schema.sql` completo
 Esta fase agrega tablas nuevas y **cambia políticas de seguridad existentes** (privacidad de cuentas/movimientos). Corre el script completo de nuevo en el SQL Editor — sigue siendo seguro re-ejecutarlo.
 
+## Fase 3a — Superusuario, panel admin y proveedores de IA
+
+**Cómo activar tu primer superusuario** (solo se hace una vez, directo por SQL — no hay forma de hacerlo desde la app, a propósito, por seguridad):
+1. Corre el `supabase-schema.sql` actualizado (ya incluye la tabla `platform_admins` y `app_settings`)
+2. En el SQL Editor, corre esto reemplazando tu correo:
+   ```sql
+   insert into platform_admins (user_id)
+   select id from auth.users where email = 'tu-correo@ejemplo.com';
+   ```
+3. Cierra sesión y vuelve a entrar en la app — te debería aparecer la pestaña **"Admin"**
+4. Desde ahí puedes promover a otros superusuarios por correo (ya no necesitas volver al SQL Editor)
+
+**Qué hay en el panel Admin:**
+- Apagar/prender el **Registro rápido con IA** para toda la plataforma
+- Elegir el **proveedor de IA** activo: Claude, ChatGPT o Gemini — el cambio aplica al instante, sin redeploy
+- Gestionar superusuarios
+- Ver la lista de hogares de la plataforma (solo metadatos: nombre, fecha, # de integrantes — nunca el detalle financiero)
+
+**Variables de entorno nuevas** (solo necesitas la del proveedor que realmente vayas a usar; si un proveedor no tiene su clave configurada, la app simplemente muestra un error claro al intentar usarlo, sin romper nada más):
+- `OPENAI_API_KEY` — para ChatGPT (https://platform.openai.com/api-keys)
+- `GOOGLE_API_KEY` — para Gemini (https://aistudio.google.com/apikey)
+- `ANTHROPIC_API_KEY` — la que ya tenías, para Claude
+
+**Cambio técnico**: `api/claude.js` fue reemplazado por `api/ai-parse.js`, que recibe siempre el mismo formato normalizado y adapta la llamada según el proveedor activo. Si tenías algo apuntando directo a `/api/claude`, ya no existe.
+
+## Fase 3c — Notificaciones (bandeja dentro de la app)
+
+Un ícono de campana 🔔 en la parte superior (con contador de no leídas) abre la bandeja de notificaciones.
+
+**Motor de detección** — corre en el navegador, una vez por sesión, cada vez que alguien abre la app (no es un cron en el servidor; ver nota abajo). Revisa:
+- **Proyección temprana de presupuesto**: si al ritmo de gasto actual vas a terminar el mes por encima del límite, avisa *antes* de llegar al 100%, no después
+- **Ritmo de objetivos**: si a un objetivo le quedan 30 días o menos y el avance va por debajo del 90%
+- **Ingreso extraordinario**: detecta un ingreso bastante mayor a tu promedio histórico y sugiere destinarlo al objetivo de mayor prioridad o a un abono a capital
+- **Cuotas de crédito** que vencen en los próximos 7 días
+- **Excedente familiar del mes** (con más de la mitad del mes ya transcurrida, para que el dato sea confiable) — sugiere reforzar un objetivo o abonar a capital
+
+Cada alerta se genera **una sola vez** por período (mes, o por movimiento/cuota específica) gracias a una clave de deduplicación en la base de datos — no se repite cada vez que abres la app.
+
+**Por qué "bandeja en la app" y no push todavía**: como definiste, esta fase no requiere infraestructura nueva (VAPID keys, permisos del navegador, etc.) — el motor de detección ya queda construido y probado; agregar push más adelante sería solo cambiar el "canal de entrega" sin tocar la lógica de qué alertar.
+
+**Limitación honesta**: como el motor corre en el navegador al abrir la app (no hay un cron real en el servidor en esta fase), si nadie abre la app en varios días, esas alertas no se generan hasta que alguien entre. Para alertas verdaderamente independientes de que alguien abra la app, se necesitaría un Vercel Cron Job llamando a una función serverless — técnicamente posible en un salto futuro si se vuelve necesario.
+
 ## Notas técnicas
 - `src/lib/supabaseClient.js` — cliente de Supabase
 - `src/lib/db.js` — toda la lógica de acceso a datos (auth, hogar, invitaciones, CRUD)

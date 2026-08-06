@@ -3,7 +3,8 @@ import {
   Home, List, Target, PiggyBank, Users, Settings, ArrowLeftRight, Wallet,
   TrendingUp, TrendingDown, X, Check, AlertTriangle, Star, Repeat, Calendar,
   Trash2, Pencil, ChevronRight, Plus, DollarSign, Landmark, Sparkles, ArrowRight,
-  MessageCircle, Camera, Loader2, Image as ImageIcon, Info, LogOut, QrCode, Copy, UserPlus, History, CreditCard, Percent, ShieldCheck
+  MessageCircle, Camera, Loader2, Image as ImageIcon, Info, LogOut, QrCode, Copy, UserPlus, History, CreditCard, Percent, ShieldCheck,
+  ShieldAlert, ToggleLeft, ToggleRight, Bot, Bell
 } from 'lucide-react';
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -170,6 +171,120 @@ function goalPriorityScore(goal) {
   return votes.reduce((a, b) => a + b, 0) / votes.length;
 }
 const PRIORITY_LABEL = { 3: 'Alta', 2: 'Media', 1: 'Baja' };
+
+/* ---------------------------------------------------------------------- */
+/* MOTOR DE DETECCIÓN DE ALERTAS (corre en el cliente, una vez por sesión) */
+/* ---------------------------------------------------------------------- */
+function buildNotificationCandidates(data, creditsWithPayments, myUserId) {
+  const out = [];
+  const mKey = thisMonthKey();
+  const today = new Date(todayISO() + 'T00:00:00');
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  const daysElapsed = today.getDate();
+  const monthProgress = daysElapsed / daysInMonth;
+
+  // 1) Proyección temprana de presupuesto: si al ritmo actual vas a terminar por encima del límite
+  if (monthProgress > 0.15 && monthProgress < 0.95) {
+    data.budgets.forEach((b) => {
+      const spent = data.transactions
+        .filter((t) => t.type === 'expense' && t.categoryId === b.categoryId && occurrencesInMonth(t, mKey) && (b.scope === 'household' || t.memberId === b.scope))
+        .reduce((s, t) => s + t.amount * occurrencesInMonth(t, mKey), 0);
+      const projected = spent / monthProgress;
+      const pctNow = (spent / b.limit) * 100;
+      const pctProjected = (projected / b.limit) * 100;
+      if (pctProjected >= 100 && pctNow < 100) {
+        const cat = data.categories.find((c) => c.id === b.categoryId);
+        out.push({
+          type: 'budget_projection',
+          title: `Vas a exceder "${cat?.name || 'un presupuesto'}" este mes`,
+          body: `Llevas ${Math.round(pctNow)}% del presupuesto con ${Math.round(monthProgress * 100)}% del mes transcurrido. Al ritmo actual, terminarías cerca del ${Math.round(pctProjected)}%.`,
+          data: { budgetId: b.id },
+          dedupeKey: `budget:${b.id}:${mKey}`,
+          userId: b.scope === 'household' ? null : b.scope,
+        });
+      }
+    });
+  }
+
+  // 2) Ritmo de objetivos: meta próxima (30 días) y con avance insuficiente
+  data.goals.forEach((g) => {
+    if (!g.targetDate) return;
+    const daysLeft = daysUntil(g.targetDate);
+    const pct = g.targetAmount ? (g.currentAmount / g.targetAmount) * 100 : 100;
+    if (daysLeft >= 0 && daysLeft <= 30 && pct < 90) {
+      out.push({
+        type: 'goal_pace',
+        title: `"${g.name}" se acerca y va al ${Math.round(pct)}%`,
+        body: `Faltan ${daysLeft} día(s) para la fecha meta y llevas ${formatMoney(g.currentAmount, data.currency)} de ${formatMoney(g.targetAmount, data.currency)}.`,
+        data: { goalId: g.id },
+        dedupeKey: `goal:${g.id}:${mKey}`,
+        userId: null,
+      });
+    }
+  });
+
+  // 3) Ingreso extraordinario: un ingreso bastante mayor al promedio histórico de sus ingresos
+  const incomeTx = data.transactions.filter((t) => t.type === 'income');
+  const avgIncome = incomeTx.length ? incomeTx.reduce((s, t) => s + t.amount, 0) / incomeTx.length : 0;
+  if (avgIncome > 0) {
+    incomeTx.filter((t) => monthKey(t.date) === mKey && t.amount >= avgIncome * 2).forEach((t) => {
+      const topGoal = [...data.goals].sort((a, b) => goalPriorityScore(b) - goalPriorityScore(a))[0];
+      out.push({
+        type: 'extra_income',
+        title: 'Recibiste un ingreso fuera de lo común',
+        body: `${formatMoney(t.amount, data.currency)} es bastante más que tu ingreso promedio (${formatMoney(avgIncome, data.currency)}).${topGoal ? ` ¿Destinar parte a "${topGoal.name}" o a un abono a capital?` : ''}`,
+        data: { transactionId: t.id },
+        dedupeKey: `income:${t.id}`,
+        userId: t.memberId,
+      });
+    });
+  }
+
+  // 4) Cuotas de crédito por vencer en los próximos 7 días
+  creditsWithPayments.forEach(({ credit, payments }) => {
+    const next = payments.find((p) => !p.paid);
+    if (!next) return;
+    const d = daysUntil(next.dueDate);
+    if (d >= 0 && d <= 7) {
+      out.push({
+        type: 'credit_due',
+        title: `Cuota de "${credit.name}" vence pronto`,
+        body: `La cuota ${next.installmentNumber} vence ${d === 0 ? 'hoy' : d === 1 ? 'mañana' : `en ${d} días`} (${formatDate(next.dueDate)}) por ${credit.currency === 'UVR' ? `${next.total.toLocaleString('es-CO', { maximumFractionDigits: 2 })} UVR` : formatMoney(next.total, data.currency)}.`,
+        data: { creditId: credit.id, paymentId: next.id },
+        dedupeKey: `credit_due:${next.id}`,
+        userId: credit.ownerMemberId || null,
+      });
+    }
+  });
+
+  // 5) Excedente del mes (familiar) — con más de la mitad del mes ya transcurrida, para que el dato sea confiable
+  if (monthProgress > 0.5) {
+    let famIncome = 0, famExpense = 0;
+    data.transactions.forEach((t) => {
+      if (t.type === 'settlement') return;
+      const account = data.accounts.find((a) => a.id === t.accountId);
+      const isFamily = t.isShared || account?.type === 'shared';
+      if (!isFamily) return;
+      const occ = occurrencesInMonth(t, mKey);
+      if (!occ) return;
+      if (t.type === 'income') famIncome += t.amount * occ; else famExpense += t.amount * occ;
+    });
+    const surplus = famIncome - famExpense;
+    if (famIncome > 0 && surplus > famIncome * 0.25) {
+      const topGoal = [...data.goals].sort((a, b) => goalPriorityScore(b) - goalPriorityScore(a))[0];
+      out.push({
+        type: 'surplus_opportunity',
+        title: 'Este mes va bien: hay excedente familiar',
+        body: `Llevan ${formatMoney(surplus, data.currency)} de excedente este mes.${topGoal ? ` Podría acelerar "${topGoal.name}" o un abono a capital.` : ' Es buen momento para reforzar un objetivo o un abono a capital.'}`,
+        data: {},
+        dedupeKey: `surplus:${mKey}`,
+        userId: null,
+      });
+    }
+  }
+
+  return out;
+}
 
 /* ---------------------------------------------------------------------- */
 /* COMPONENTES DE UI GENÉRICOS                                             */
@@ -545,14 +660,44 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
   const [viewMode, setViewMode] = useState('unified');
   const [activeMemberId, setActiveMemberId] = useState(null);
   const [householdMeta, setHouseholdMeta] = useState(household.household);
+  const [settings, setSettings] = useState(null);
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
+  const [notifications, setNotifications] = useState([]);
 
   async function refresh() {
     const d = await db.loadHouseholdData(household.householdId);
     setRaw(d);
+    return d;
   }
-  useEffect(() => { refresh().finally(() => setLoading(false)); }, [household.householdId]);
+  async function refreshSettings() {
+    setSettings(await db.getSettings());
+  }
+  async function refreshNotifications() {
+    setNotifications(await db.loadNotifications(household.householdId));
+  }
+  useEffect(() => {
+    (async () => {
+      const d = await refresh();
+      setLoading(false);
+      // motor de detección: corre una vez por sesión, en silencio, cuando se abre la app
+      try {
+        const credits = await db.loadCredits(household.householdId);
+        const creditsWithPayments = await Promise.all(
+          credits.filter((c) => c.status !== 'pagado').map(async (c) => ({ credit: c, payments: await db.loadCreditPayments(c.id) }))
+        );
+        const candidates = buildNotificationCandidates(d, creditsWithPayments, session.user.id);
+        await db.upsertNotifications(household.householdId, candidates);
+      } catch { /* si falla el motor de detección, no debe romper el resto de la app */ }
+      await refreshNotifications();
+    })();
+    refreshSettings();
+    db.amIPlatformAdmin(session.user.id).then(setIsPlatformAdmin).catch(() => {});
+  }, [household.householdId]);
 
-  if (loading || !raw) return <LoadingScreen />;
+  if (loading || !raw || !settings) return <LoadingScreen />;
+
+  const myNotifications = notifications.filter((n) => !n.userId || n.userId === session.user.id);
+  const unreadCount = myNotifications.filter((n) => !n.read).length;
 
   const data = {
     householdName: householdMeta?.name || '',
@@ -560,6 +705,7 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     viewMode, activeMemberId,
     members: raw.members, categories: raw.categories, accounts: raw.accounts,
     transactions: raw.transactions, goals: raw.goals, budgets: raw.budgets,
+    settings, isPlatformAdmin, notifications: myNotifications, unreadCount,
   };
 
   function update(patch) {
@@ -611,6 +757,16 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
       db.applyExtraPayment(household.householdId, session.user.id, credit, payments, extraAmount, strategy, applyDate, accountId, memberId, categoryId, registerAsExpense),
     getLatestUvr: () => db.getLatestUvr(),
     saveManualUvr: (date, value) => db.saveManualUvr(date, value),
+    // configuración global / superusuario
+    updateSetting: async (key, value) => { await db.updateSetting(key, value, session.user.id); await refreshSettings(); },
+    listAllHouseholdsAdmin: () => db.listAllHouseholdsAdmin(),
+    listPlatformAdmins: () => db.listPlatformAdmins(),
+    promoteToAdmin: (email) => db.promoteToAdmin(email),
+    removeAdmin: (userId) => db.removeAdmin(userId),
+    // notificaciones
+    markNotificationRead: async (id) => { await db.markNotificationRead(id); await refreshNotifications(); },
+    markAllNotificationsRead: async () => { await db.markAllNotificationsRead(household.householdId, session.user.id); await refreshNotifications(); },
+    deleteNotification: async (id) => { await db.deleteNotification(id); await refreshNotifications(); },
   };
 
   return <MainApp data={data} update={update} actions={actions} />;
@@ -621,7 +777,7 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
 /* ---------------------------------------------------------------------- */
 const TABS = [
   { id: 'dashboard', label: 'Inicio', icon: Home },
-  { id: 'rapido', label: 'Registro rápido', icon: MessageCircle },
+  { id: 'rapido', label: 'Registro rápido', icon: MessageCircle, requiresQuickCapture: true },
   { id: 'movimientos', label: 'Movimientos', icon: List },
   { id: 'creditos', label: 'Créditos', icon: CreditCard },
   { id: 'objetivos', label: 'Objetivos', icon: Target },
@@ -629,11 +785,19 @@ const TABS = [
   { id: 'conciliacion', label: 'Conciliación', icon: ArrowLeftRight },
   { id: 'cuentas', label: 'Cuentas', icon: Landmark },
   { id: 'ajustes', label: 'Ajustes', icon: Settings },
+  { id: 'admin', label: 'Admin', icon: ShieldAlert, requiresAdmin: true },
 ];
 
 function MainApp({ data, update, actions }) {
   const [tab, setTab] = useState('dashboard');
   const [modal, setModal] = useState(null); // {type: 'transaction'|'goal'|'invite'|'account'|'budget'|'vote'|'contribute'|'category', payload}
+
+  const quickCaptureEnabled = data.settings?.quick_capture_enabled !== false;
+  const visibleTabs = TABS.filter((t) => {
+    if (t.requiresAdmin && !data.isPlatformAdmin) return false;
+    if (t.requiresQuickCapture && !quickCaptureEnabled) return false;
+    return true;
+  });
 
   const currency = data.currency;
   const membersById = useMemo(() => Object.fromEntries(data.members.map((m) => [m.id, m])), [data.members]);
@@ -659,6 +823,14 @@ function MainApp({ data, update, actions }) {
           </div>
           <div className="flex items-center gap-2">
             <ViewModeToggle data={data} update={update} />
+            <button onClick={() => setModal({ type: 'notifications' })} title="Notificaciones" className="relative p-2 rounded-full" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+              <Bell size={16} color={T.inkSoft} />
+              {data.unreadCount > 0 && (
+                <span className="absolute flex items-center justify-center" style={{ top: -4, right: -4, minWidth: 16, height: 16, borderRadius: 8, background: T.coral, padding: '0 3px' }}>
+                  <span style={{ fontSize: 9.5, color: '#fff', fontFamily: FONT_BODY, fontWeight: 700 }}>{data.unreadCount > 9 ? '9+' : data.unreadCount}</span>
+                </span>
+              )}
+            </button>
             <button onClick={actions.signOut} title="Cerrar sesión" className="p-2 rounded-full" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
               <LogOut size={16} color={T.inkSoft} />
             </button>
@@ -679,7 +851,7 @@ function MainApp({ data, update, actions }) {
 
       <div className="px-5">
         {tab === 'dashboard' && <Dashboard data={data} update={update} actions={actions} visibleTransactions={visibleTransactions} visibleMemberId={visibleMemberId} setModal={setModal} setTab={setTab} />}
-        {tab === 'rapido' && <QuickCapture data={data} actions={actions} setModal={setModal} />}
+        {tab === 'rapido' && quickCaptureEnabled && <QuickCapture data={data} actions={actions} setModal={setModal} />}
         {tab === 'movimientos' && <Movimientos data={data} actions={actions} visibleTransactions={visibleTransactions} setModal={setModal} />}
         {tab === 'creditos' && <Creditos data={data} actions={actions} setModal={setModal} />}
         {tab === 'objetivos' && <Objetivos data={data} actions={actions} setModal={setModal} />}
@@ -687,12 +859,13 @@ function MainApp({ data, update, actions }) {
         {tab === 'conciliacion' && <Conciliacion data={data} actions={actions} />}
         {tab === 'cuentas' && <Cuentas data={data} actions={actions} setModal={setModal} />}
         {tab === 'ajustes' && <Ajustes data={data} update={update} actions={actions} setModal={setModal} />}
+        {tab === 'admin' && data.isPlatformAdmin && <AdminPanel data={data} actions={actions} />}
       </div>
 
       {/* Nav inferior */}
       <div className="fixed bottom-0 left-0 right-0 z-20" style={{ background: T.surface, borderTop: `1px solid ${T.border}` }}>
         <div className="flex justify-between px-2 py-2 overflow-x-auto">
-          {TABS.map((tItem) => {
+          {visibleTabs.map((tItem) => {
             const Icon = tItem.icon;
             const active = tab === tItem.id;
             return (
@@ -722,6 +895,7 @@ function MainApp({ data, update, actions }) {
       {modal?.type === 'vote' && <VoteModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
       {modal?.type === 'contribute' && <ContributeModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
       {modal?.type === 'category' && <CategoryModal data={data} actions={actions} onClose={() => setModal(null)} />}
+      {modal?.type === 'notifications' && <NotificationsPanel data={data} actions={actions} onClose={() => setModal(null)} />}
       {modal?.type === 'credit' && <CreditModal data={data} actions={actions} onClose={() => setModal(null)} onCreated={modal.onCreated} />}
       {modal?.type === 'extraPayment' && <ExtraPaymentModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} onDone={modal.onDone} />}
       {modal?.type === 'payInstallment' && <PayInstallmentModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} onDone={modal.onDone} />}
@@ -1042,19 +1216,18 @@ function stripJsonFences(text) {
   return text.replace(/```json/gi, '').replace(/```/g, '').trim();
 }
 
-async function callClaude({ system, content }) {
-  const response = await fetch('/api/claude', {
+async function callAI({ system, content, provider, model }) {
+  const response = await fetch('/api/ai-parse', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ system, content }),
+    body: JSON.stringify({ provider, model, system, content }),
   });
   const json = await response.json();
   if (json.error) throw new Error(json.error);
-  const text = (json.content || []).map((b) => b.text || '').join('\n');
-  return JSON.parse(stripJsonFences(text));
+  return JSON.parse(stripJsonFences(json.text || ''));
 }
 
-function QuickCapture({ data, update, setModal }) {
+function QuickCapture({ data, actions, setModal }) {
   const [mode, setMode] = useState('texto'); // texto | foto
   const [text, setText] = useState('');
   const [imageFile, setImageFile] = useState(null);
@@ -1089,7 +1262,7 @@ function QuickCapture({ data, update, setModal }) {
     setLoading(true); setError('');
     try {
       const system = `Extraes datos de un movimiento financiero de hogar a partir de un mensaje corto tipo WhatsApp, escrito por: ${asMember ? data.members.find(m=>m.id===asMember)?.name : 'un integrante'}. Hoy es ${todayISO()}. Categorías de ingreso disponibles: ${categoryNames.income.join(', ')}. Categorías de gasto disponibles: ${categoryNames.expense.join(', ')}. Integrantes del hogar: ${memberNames.join(', ')}. Responde SOLO con JSON válido, sin texto adicional, con este formato exacto: {"type":"income|expense","amount":number,"date":"YYYY-MM-DD","description":"texto corto","category":"nombre de categoría de la lista","member":"nombre del integrante si se menciona, si no null"}`;
-      const parsed = await callClaude({ system, content: [{ type: 'text', text }] });
+      const parsed = await callAI({ system, content: [{ type: 'text', text }], provider: data.settings?.ai_provider, model: data.settings?.ai_model });
       setModal({ type: 'transaction', payload: buildDraft(parsed, text) });
       setText('');
     } catch (e) {
@@ -1115,12 +1288,13 @@ function QuickCapture({ data, update, setModal }) {
       const base64Data = imagePreview.split(',')[1];
       const mediaType = imageFile.type || 'image/jpeg';
       const system = `Extraes datos de un recibo o factura en una foto para registrar un gasto de hogar. Hoy es ${todayISO()}. Categorías de gasto disponibles: ${categoryNames.expense.join(', ')}. Responde SOLO con JSON válido, sin texto adicional, con este formato exacto: {"type":"expense","amount":number,"date":"YYYY-MM-DD o null si no se ve","description":"nombre del comercio o resumen","category":"nombre de categoría de la lista"}`;
-      const parsed = await callClaude({
+      const parsed = await callAI({
         system,
         content: [
           { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
           { type: 'text', text: 'Extrae los datos de este recibo.' },
         ],
+        provider: data.settings?.ai_provider, model: data.settings?.ai_model,
       });
       setModal({ type: 'transaction', payload: buildDraft(parsed, 'Foto de recibo') });
       setImageFile(null); setImagePreview(null);
@@ -2491,6 +2665,203 @@ function CategoryModal({ data, actions, onClose }) {
         <input style={inputStyle} value={icon} onChange={(e) => setIcon(e.target.value)} placeholder="🔖" />
       </Field>
       <PrimaryButton full onClick={save}>Crear categoría</PrimaryButton>
+    </Modal>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* PANEL DE ADMINISTRACIÓN (superusuario)                                */
+/* ---------------------------------------------------------------------- */
+const AI_PROVIDERS = [
+  { id: 'claude', label: 'Claude (Anthropic)', defaultModel: 'claude-sonnet-4-6' },
+  { id: 'openai', label: 'ChatGPT (OpenAI)', defaultModel: 'gpt-4o-mini' },
+  { id: 'gemini', label: 'Gemini (Google)', defaultModel: 'gemini-2.0-flash' },
+];
+
+function AdminPanel({ data, actions }) {
+  const [households, setHouseholds] = useState(null);
+  const [admins, setAdmins] = useState(null);
+  const [newAdminEmail, setNewAdminEmail] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function refreshAll() {
+    const [h, a] = await Promise.all([actions.listAllHouseholdsAdmin(), actions.listPlatformAdmins()]);
+    setHouseholds(h); setAdmins(a);
+  }
+  useEffect(() => { refreshAll(); }, []);
+
+  const settings = data.settings;
+  const quickCaptureEnabled = settings.quick_capture_enabled !== false;
+  const currentProvider = settings.ai_provider || 'claude';
+
+  async function toggleQuickCapture() {
+    await actions.updateSetting('quick_capture_enabled', !quickCaptureEnabled);
+  }
+  async function changeProvider(providerId) {
+    const provider = AI_PROVIDERS.find((p) => p.id === providerId);
+    await actions.updateSetting('ai_provider', providerId);
+    await actions.updateSetting('ai_model', provider.defaultModel);
+  }
+
+  async function addAdmin() {
+    if (!newAdminEmail.trim()) return;
+    setBusy(true); setError('');
+    try {
+      await actions.promoteToAdmin(newAdminEmail.trim());
+      setNewAdminEmail('');
+      await refreshAll();
+    } catch (e) {
+      setError(e.message || 'No se pudo promover a este usuario.');
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function removeAdmin(userId) {
+    if (!confirm('¿Quitar permisos de superusuario a esta persona?')) return;
+    await actions.removeAdmin(userId);
+    await refreshAll();
+  }
+
+  return (
+    <div className="pb-4 pt-2">
+      <div className="flex items-center gap-2 mb-1">
+        <ShieldAlert size={18} color={T.coral} />
+        <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: T.ink }}>Administración</p>
+      </div>
+      <p style={{ fontSize: 12.5, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-4">
+        Panel de superusuario — estos cambios afectan a toda la plataforma, no solo a tu hogar.
+      </p>
+
+      <Card style={{ marginBottom: 14 }}>
+        <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: T.ink }} className="mb-3">Registro rápido con IA</p>
+        <button onClick={toggleQuickCapture} className="flex items-center justify-between w-full rounded-xl p-3" style={{ background: T.bg }}>
+          <span style={{ fontSize: 13.5, color: T.ink, fontFamily: FONT_BODY }}>{quickCaptureEnabled ? 'Activado para todo el mundo' : 'Desactivado para todo el mundo'}</span>
+          {quickCaptureEnabled ? <ToggleRight size={26} color={T.teal} /> : <ToggleLeft size={26} color={T.inkSoft} />}
+        </button>
+      </Card>
+
+      <Card style={{ marginBottom: 14 }}>
+        <div className="flex items-center gap-2 mb-3">
+          <Bot size={15} color={T.ink} />
+          <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: T.ink }}>Proveedor de IA</p>
+        </div>
+        <div className="flex flex-col gap-2">
+          {AI_PROVIDERS.map((p) => (
+            <label key={p.id} className="flex items-center gap-2 rounded-xl p-3" style={{ background: currentProvider === p.id ? T.tealSoft : T.bg, border: `1px solid ${currentProvider === p.id ? T.teal : T.border}` }}>
+              <input type="radio" checked={currentProvider === p.id} onChange={() => changeProvider(p.id)} />
+              <span style={{ fontSize: 13, color: T.ink, fontFamily: FONT_BODY }}>{p.label}</span>
+            </label>
+          ))}
+        </div>
+        <p style={{ fontSize: 11, color: T.inkSoft, fontFamily: FONT_BODY }} className="mt-3">
+          Modelo actual: <span style={{ fontFamily: FONT_MONO }}>{settings.ai_model}</span>. Cada proveedor necesita su propia clave configurada en Vercel ({'\u00a0'}<span style={{ fontFamily: FONT_MONO }}>ANTHROPIC_API_KEY</span> / <span style={{ fontFamily: FONT_MONO }}>OPENAI_API_KEY</span> / <span style={{ fontFamily: FONT_MONO }}>GOOGLE_API_KEY</span>).
+        </p>
+      </Card>
+
+      <Card style={{ marginBottom: 14 }}>
+        <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: T.ink }} className="mb-3">Superusuarios</p>
+        {admins?.map((a) => (
+          <div key={a.userId} className="flex items-center justify-between mb-2">
+            <span style={{ fontSize: 13, color: T.ink, fontFamily: FONT_BODY }}>{a.name}</span>
+            <button onClick={() => removeAdmin(a.userId)}><Trash2 size={14} color={T.inkSoft} /></button>
+          </div>
+        ))}
+        <div className="flex gap-2 mt-2">
+          <input style={{ ...inputStyle, flex: 1 }} type="email" placeholder="correo@ejemplo.com" value={newAdminEmail} onChange={(e) => setNewAdminEmail(e.target.value)} />
+          <button onClick={addAdmin} style={{ background: T.teal, borderRadius: 10, padding: '0 14px' }}>
+            <Plus color="#fff" size={18} />
+          </button>
+        </div>
+        <p style={{ fontSize: 11, color: T.inkSoft, fontFamily: FONT_BODY }} className="mt-2">La persona debe tener ya una cuenta creada en la app.</p>
+        {error && <p style={{ color: T.danger, fontSize: 12 }} className="mt-2">{error}</p>}
+      </Card>
+
+      <Card>
+        <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: T.ink }} className="mb-3">Hogares en la plataforma ({households?.length ?? '…'})</p>
+        {households?.map((h) => (
+          <div key={h.id} className="flex items-center justify-between mb-2">
+            <div>
+              <p style={{ fontSize: 13, color: T.ink, fontFamily: FONT_BODY }}>{h.name}</p>
+              <p style={{ fontSize: 10.5, color: T.inkSoft }}>{formatDate(h.createdAt.slice(0, 10))} · {h.currency}</p>
+            </div>
+            <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: T.inkSoft }}>{h.memberCount} integrante{h.memberCount === 1 ? '' : 's'}</span>
+          </div>
+        ))}
+        <p style={{ fontSize: 10.5, color: T.inkSoft, fontFamily: FONT_BODY }} className="mt-2">Solo se muestran metadatos — no el detalle financiero de cada hogar.</p>
+      </Card>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* BANDEJA DE NOTIFICACIONES                                              */
+/* ---------------------------------------------------------------------- */
+const NOTIFICATION_ICONS = {
+  budget_projection: { icon: AlertTriangle, color: T.gold, bg: T.goldSoft },
+  goal_pace: { icon: Target, color: T.coral, bg: T.coralSoft },
+  extra_income: { icon: TrendingUp, color: T.teal, bg: T.tealSoft },
+  credit_due: { icon: Calendar, color: T.ink, bg: T.bg },
+  surplus_opportunity: { icon: Sparkles, color: T.gold, bg: T.goldSoft },
+};
+
+function relativeDay(iso) {
+  const d = daysUntil(iso.slice(0, 10)) * -1; // días desde que se creó (negativo hacia atrás con daysUntil)
+  if (d <= 0) return 'Hoy';
+  if (d === 1) return 'Ayer';
+  if (d < 7) return `Hace ${d} días`;
+  return formatDate(iso.slice(0, 10));
+}
+
+function NotificationsPanel({ data, actions, onClose }) {
+  const list = data.notifications || [];
+
+  return (
+    <Modal title="Notificaciones" wide onClose={onClose}>
+      {list.length === 0 && (
+        <EmptyState icon={<Bell size={32} color={T.teal} />} title="Sin notificaciones por ahora" subtitle="Aquí aparecerán alertas de presupuestos, objetivos, créditos y oportunidades cuando la app las detecte." />
+      )}
+      {list.length > 0 && (
+        <div className="flex items-center justify-between mb-3">
+          <span style={{ fontSize: 12, color: T.inkSoft, fontFamily: FONT_BODY }}>{data.unreadCount} sin leer</span>
+          {data.unreadCount > 0 && (
+            <button onClick={() => actions.markAllNotificationsRead()}>
+              <span style={{ fontSize: 12, color: T.teal, fontFamily: FONT_BODY, fontWeight: 500 }}>Marcar todas como leídas</span>
+            </button>
+          )}
+        </div>
+      )}
+      <div className="flex flex-col gap-2">
+        {list.map((n) => {
+          const conf = NOTIFICATION_ICONS[n.type] || { icon: Info, color: T.ink, bg: T.bg };
+          const Icon = conf.icon;
+          return (
+            <div key={n.id} className="rounded-xl p-3 flex items-start gap-2.5" style={{ background: n.read ? T.surface : conf.bg, border: `1px solid ${n.read ? T.border : conf.bg}` }}>
+              <div style={{ width: 30, height: 30, borderRadius: 8, background: T.surface, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Icon size={15} color={conf.color} />
+              </div>
+              <div className="flex-1">
+                <div className="flex items-start justify-between gap-2">
+                  <p style={{ fontSize: 13, color: T.ink, fontFamily: FONT_BODY, fontWeight: n.read ? 500 : 700 }}>{n.title}</p>
+                  {!n.read && <div style={{ width: 7, height: 7, borderRadius: 4, background: T.coral, flexShrink: 0, marginTop: 4 }} />}
+                </div>
+                <p style={{ fontSize: 12, color: T.inkSoft, fontFamily: FONT_BODY }} className="mt-0.5">{n.body}</p>
+                <div className="flex items-center justify-between mt-1.5">
+                  <span style={{ fontSize: 10.5, color: T.inkSoft }}>{relativeDay(n.createdAt)}</span>
+                  <div className="flex items-center gap-3">
+                    {!n.read && (
+                      <button onClick={() => actions.markNotificationRead(n.id)}>
+                        <span style={{ fontSize: 11, color: T.teal, fontFamily: FONT_BODY, fontWeight: 500 }}>Marcar leída</span>
+                      </button>
+                    )}
+                    <button onClick={() => actions.deleteNotification(n.id)}><Trash2 size={12} color={T.inkSoft} /></button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </Modal>
   );
 }

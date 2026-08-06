@@ -421,3 +421,102 @@ export async function saveManualUvr(date, value) {
   const { error } = await supabase.from('uvr_rates').upsert({ date, value });
   if (error) throw error;
 }
+
+/* ---------------------------------------------------------------------- */
+/* SUPERUSUARIO Y CONFIGURACIÓN GLOBAL                                    */
+/* ---------------------------------------------------------------------- */
+export async function amIPlatformAdmin(userId) {
+  const { data, error } = await supabase.from('platform_admins').select('user_id').eq('user_id', userId).maybeSingle();
+  if (error) throw error;
+  return !!data;
+}
+
+export async function getSettings() {
+  const { data, error } = await supabase.from('app_settings').select('*');
+  if (error) throw error;
+  const obj = {};
+  data.forEach((row) => { obj[row.key] = row.value; });
+  return obj;
+}
+
+export async function updateSetting(key, value, userId) {
+  const { error } = await supabase.from('app_settings')
+    .upsert({ key, value, updated_by: userId, updated_at: new Date().toISOString() });
+  if (error) throw error;
+}
+
+export async function listAllHouseholdsAdmin() {
+  const { data, error } = await supabase.from('households')
+    .select('id, name, currency, created_at, household_members(user_id)');
+  if (error) throw error;
+  return data
+    .map((h) => ({ id: h.id, name: h.name, currency: h.currency, createdAt: h.created_at, memberCount: h.household_members?.length || 0 }))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function listPlatformAdmins() {
+  const { data, error } = await supabase.from('platform_admins')
+    .select('user_id, created_at, profiles(full_name)')
+    .order('created_at');
+  if (error) throw error;
+  return data.map((a) => ({ userId: a.user_id, name: a.profiles?.full_name || 'Usuario', createdAt: a.created_at }));
+}
+
+export async function promoteToAdmin(email) {
+  const { error } = await supabase.rpc('admin_promote_by_email', { p_email: email });
+  if (error) throw new Error(error.message.replace(/^.*: /, ''));
+}
+
+export async function removeAdmin(userId) {
+  const { error } = await supabase.from('platform_admins').delete().eq('user_id', userId);
+  if (error) throw error;
+}
+
+/* ---------------------------------------------------------------------- */
+/* NOTIFICACIONES                                                          */
+/* ---------------------------------------------------------------------- */
+export async function loadNotifications(householdId) {
+  const { data, error } = await supabase
+    .from('notifications')
+    .select('*')
+    .eq('household_id', householdId)
+    .order('created_at', { ascending: false })
+    .limit(50);
+  if (error) throw error;
+  return data.map((n) => ({
+    id: n.id, type: n.type, title: n.title, body: n.body, data: n.data,
+    read: n.read, createdAt: n.created_at, userId: n.user_id,
+  }));
+}
+
+export async function markNotificationRead(id) {
+  const { error } = await supabase.from('notifications').update({ read: true }).eq('id', id);
+  if (error) throw error;
+}
+
+export async function markAllNotificationsRead(householdId, userId) {
+  const { error } = await supabase.from('notifications')
+    .update({ read: true })
+    .eq('household_id', householdId)
+    .or(`user_id.is.null,user_id.eq.${userId}`);
+  if (error) throw error;
+}
+
+export async function deleteNotification(id) {
+  const { error } = await supabase.from('notifications').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// Inserta nuevas alertas detectadas, ignorando silenciosamente las que ya existen
+// (dedupe_key evita que la misma alerta se repita cada vez que alguien abre la app)
+export async function upsertNotifications(householdId, rows) {
+  if (!rows.length) return;
+  const { error } = await supabase.from('notifications').upsert(
+    rows.map((r) => ({
+      household_id: householdId, user_id: r.userId || null, type: r.type,
+      title: r.title, body: r.body, data: r.data || null, dedupe_key: r.dedupeKey,
+    })),
+    { onConflict: 'household_id,dedupe_key', ignoreDuplicates: true }
+  );
+  if (error) throw error;
+}
