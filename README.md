@@ -116,6 +116,20 @@ Cada alerta se genera **una sola vez** por período (mes, o por movimiento/cuota
 
 **Limitación honesta**: como el motor corre en el navegador al abrir la app (no hay un cron real en el servidor en esta fase), si nadie abre la app en varios días, esas alertas no se generan hasta que alguien entre. Para alertas verdaderamente independientes de que alguien abra la app, se necesitaría un Vercel Cron Job llamando a una función serverless — técnicamente posible en un salto futuro si se vuelve necesario.
 
+## Refresco de UX y diseño
+
+Tras una auditoría completa de la app (ver hallazgos abajo), apliqué:
+
+**Críticos:**
+- **Confirmación antes de eliminar** en todos lados — antes solo existía en Créditos, "Salir del hogar" y "Quitar superusuario"; ahora también en Movimientos, Objetivos, Presupuestos, Cuentas y Categorías
+- **Área táctil accesible (40×40px mínimo)** en todo ícono interactivo de la app, vía un componente `IconButton` nuevo — antes había íconos de 10-18px sin padding, muy por debajo del mínimo recomendado (44×44px)
+- **Emoji reemplazados por íconos SVG** (Lucide) en categorías — con compatibilidad hacia atrás: si ya tenías categorías creadas con emoji, se siguen viendo bien, no se rompe nada
+
+**Refresco visual:**
+- Tipografía de cuerpo: **IBM Plex Sans** (antes Inter) — catalogada específicamente como "financial, trustworthy" en la base de datos de diseño consultada
+- Paleta ajustada: ámbar más cálido en vez del dorado apagado, mejor contraste en textos secundarios
+- Instalación en iPhone corregida: ahora detecta iOS/Safari y muestra el paso a paso ("Compartir → Agregar a inicio") directamente en la app, en vez de no mostrar nada
+
 ## Notas técnicas
 - `src/lib/supabaseClient.js` — cliente de Supabase
 - `src/lib/db.js` — toda la lógica de acceso a datos (auth, hogar, invitaciones, CRUD)

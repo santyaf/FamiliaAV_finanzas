@@ -53,12 +53,12 @@ export async function createHousehold(userId, name, currency) {
 
   // categorías por defecto
   const defaults = [
-    ['Salario', 'income', '💼'], ['Negocio / Freelance', 'income', '🧾'], ['Rentas', 'income', '🏠'],
-    ['Inversiones', 'income', '📈'], ['Otros ingresos', 'income', '➕'],
-    ['Vivienda', 'expense', '🏠'], ['Alimentación', 'expense', '🍎'], ['Transporte', 'expense', '🚗'],
-    ['Salud', 'expense', '⚕️'], ['Educación', 'expense', '🎓'], ['Ocio y entretenimiento', 'expense', '🎬'],
-    ['Ropa', 'expense', '👕'], ['Servicios (luz/agua/internet)', 'expense', '💡'],
-    ['Deudas y préstamos', 'expense', '💳'], ['Ahorro / Inversión', 'expense', '🐷'], ['Otros gastos', 'expense', '➖'],
+    ['Salario', 'income', 'briefcase'], ['Negocio / Freelance', 'income', 'receipt'], ['Rentas', 'income', 'home'],
+    ['Inversiones', 'income', 'trending-up'], ['Otros ingresos', 'income', 'plus'],
+    ['Vivienda', 'expense', 'home'], ['Alimentación', 'expense', 'utensils'], ['Transporte', 'expense', 'car'],
+    ['Salud', 'expense', 'heart-pulse'], ['Educación', 'expense', 'graduation-cap'], ['Ocio y entretenimiento', 'expense', 'film'],
+    ['Ropa', 'expense', 'shirt'], ['Servicios (luz/agua/internet)', 'expense', 'lightbulb'],
+    ['Deudas y préstamos', 'expense', 'credit-card'], ['Ahorro / Inversión', 'expense', 'piggy-bank'], ['Otros gastos', 'expense', 'minus'],
   ];
   await supabase.from('categories').insert(
     defaults.map(([name, type, icon]) => ({ household_id: household.id, name, type, icon }))

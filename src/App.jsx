@@ -4,7 +4,8 @@ import {
   TrendingUp, TrendingDown, X, Check, AlertTriangle, Star, Repeat, Calendar,
   Trash2, Pencil, ChevronRight, Plus, DollarSign, Landmark, Sparkles, ArrowRight,
   MessageCircle, Camera, Loader2, Image as ImageIcon, Info, LogOut, QrCode, Copy, UserPlus, History, CreditCard, Percent, ShieldCheck,
-  ShieldAlert, ToggleLeft, ToggleRight, Bot, Bell
+  ShieldAlert, ToggleLeft, ToggleRight, Bot, Bell,
+  Briefcase, Receipt, Utensils, Car, HeartPulse, GraduationCap, Film, Shirt, Lightbulb, Minus, Tag
 } from 'lucide-react';
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -17,23 +18,33 @@ import * as db from './lib/db';
 /* TOKENS DE DISEÑO                                                        */
 /* ---------------------------------------------------------------------- */
 const T = {
-  bg: '#F3F5F1',
+  bg: '#F4F6F2',
   surface: '#FFFFFF',
-  ink: '#1B2B3A',
-  inkSoft: '#5B6B76',
-  border: '#DFE3DC',
-  teal: '#2F6E68',
-  tealSoft: '#E4EFEC',
-  coral: '#E0673F',
-  coralSoft: '#FBE9E2',
-  gold: '#B98A22',
-  goldSoft: '#F5EBD3',
-  danger: '#C1443A',
+  ink: '#16232E',
+  inkSoft: '#556270',
+  border: '#DEE3DA',
+  teal: '#256359',
+  tealSoft: '#E1EFEB',
+  coral: '#D35B36',
+  coralSoft: '#FAE7DF',
+  amber: '#B4690E',
+  amberSoft: '#F7EAD4',
+  danger: '#B33B33',
+  dangerSoft: '#F8E2DF',
+  focus: '#2F6E68',
 };
-const MEMBER_COLORS = ['#2F6E68', '#E0673F', '#5B7FA6', '#B98A22', '#8E5B9F', '#4A9B6E', '#B5533C', '#3D6B8C'];
+// alias por compatibilidad con nombres usados en todo el archivo
+T.gold = T.amber;
+T.goldSoft = T.amberSoft;
+
+const MEMBER_COLORS = ['#256359', '#D35B36', '#4C6FA0', '#B4690E', '#7E5192', '#3F8C63', '#A1462F', '#375D82'];
 const FONT_DISPLAY = "'Space Grotesk', system-ui, sans-serif";
-const FONT_BODY = "'Inter', system-ui, sans-serif";
+const FONT_BODY = "'IBM Plex Sans', system-ui, sans-serif";
 const FONT_MONO = "'IBM Plex Mono', monospace";
+const GOOGLE_FONTS_IMPORT = "@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap');";
+
+// tamaño mínimo de área táctil (accesibilidad — ver auditoría UX)
+const TAP_MIN = 40;
 
 const CURRENCIES = [
   { code: 'USD', label: 'USD - Dólar' },
@@ -46,23 +57,42 @@ const CURRENCIES = [
 ];
 
 const DEFAULT_CATEGORIES = [
-  { id: 'cat-salario', name: 'Salario', type: 'income', icon: '💼' },
-  { id: 'cat-negocio', name: 'Negocio / Freelance', type: 'income', icon: '🧾' },
-  { id: 'cat-rentas', name: 'Rentas', type: 'income', icon: '🏠' },
-  { id: 'cat-inv-in', name: 'Inversiones', type: 'income', icon: '📈' },
-  { id: 'cat-otro-in', name: 'Otros ingresos', type: 'income', icon: '➕' },
-  { id: 'cat-vivienda', name: 'Vivienda', type: 'expense', icon: '🏠' },
-  { id: 'cat-alimentacion', name: 'Alimentación', type: 'expense', icon: '🍎' },
-  { id: 'cat-transporte', name: 'Transporte', type: 'expense', icon: '🚗' },
-  { id: 'cat-salud', name: 'Salud', type: 'expense', icon: '⚕️' },
-  { id: 'cat-educacion', name: 'Educación', type: 'expense', icon: '🎓' },
-  { id: 'cat-ocio', name: 'Ocio y entretenimiento', type: 'expense', icon: '🎬' },
-  { id: 'cat-ropa', name: 'Ropa', type: 'expense', icon: '👕' },
-  { id: 'cat-servicios', name: 'Servicios (luz/agua/internet)', type: 'expense', icon: '💡' },
-  { id: 'cat-deudas', name: 'Deudas y préstamos', type: 'expense', icon: '💳' },
-  { id: 'cat-ahorro', name: 'Ahorro / Inversión', type: 'expense', icon: '🐷' },
-  { id: 'cat-otro-ex', name: 'Otros gastos', type: 'expense', icon: '➖' },
+  { id: 'cat-salario', name: 'Salario', type: 'income', icon: 'briefcase' },
+  { id: 'cat-negocio', name: 'Negocio / Freelance', type: 'income', icon: 'receipt' },
+  { id: 'cat-rentas', name: 'Rentas', type: 'income', icon: 'home' },
+  { id: 'cat-inv-in', name: 'Inversiones', type: 'income', icon: 'trending-up' },
+  { id: 'cat-otro-in', name: 'Otros ingresos', type: 'income', icon: 'plus' },
+  { id: 'cat-vivienda', name: 'Vivienda', type: 'expense', icon: 'home' },
+  { id: 'cat-alimentacion', name: 'Alimentación', type: 'expense', icon: 'utensils' },
+  { id: 'cat-transporte', name: 'Transporte', type: 'expense', icon: 'car' },
+  { id: 'cat-salud', name: 'Salud', type: 'expense', icon: 'heart-pulse' },
+  { id: 'cat-educacion', name: 'Educación', type: 'expense', icon: 'graduation-cap' },
+  { id: 'cat-ocio', name: 'Ocio y entretenimiento', type: 'expense', icon: 'film' },
+  { id: 'cat-ropa', name: 'Ropa', type: 'expense', icon: 'shirt' },
+  { id: 'cat-servicios', name: 'Servicios (luz/agua/internet)', type: 'expense', icon: 'lightbulb' },
+  { id: 'cat-deudas', name: 'Deudas y préstamos', type: 'expense', icon: 'credit-card' },
+  { id: 'cat-ahorro', name: 'Ahorro / Inversión', type: 'expense', icon: 'piggy-bank' },
+  { id: 'cat-otro-ex', name: 'Otros gastos', type: 'expense', icon: 'minus' },
 ];
+
+// Íconos SVG (Lucide) por categoría — reemplaza los emoji que se veían distinto
+// según el sistema operativo y no transmitían la seriedad de una app financiera.
+// Se mantiene compatibilidad: si el valor guardado no coincide con una clave
+// conocida (categorías creadas antes de este cambio), se muestra como texto/emoji.
+const CATEGORY_ICON_MAP = {
+  briefcase: Briefcase, receipt: Receipt, home: Home, 'trending-up': TrendingUp, plus: Plus,
+  utensils: Utensils, car: Car, 'heart-pulse': HeartPulse, 'graduation-cap': GraduationCap,
+  film: Film, shirt: Shirt, lightbulb: Lightbulb, 'credit-card': CreditCard,
+  'piggy-bank': PiggyBank, minus: Minus, tag: Tag,
+};
+const CATEGORY_ICON_OPTIONS = Object.keys(CATEGORY_ICON_MAP);
+
+function CategoryIcon({ icon, size = 16, color = T.ink }) {
+  const Icon = CATEGORY_ICON_MAP[icon];
+  if (Icon) return <Icon size={size} color={color} />;
+  if (icon) return <span style={{ fontSize: size }}>{icon}</span>; // compatibilidad con categorías antiguas (emoji)
+  return <Tag size={size} color={color} />;
+}
 
 const STORAGE_KEY = 'hf-data-v1';
 
@@ -300,9 +330,7 @@ function Modal({ title, onClose, children, wide }) {
       >
         <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: T.border }}>
           <h3 style={{ fontFamily: FONT_DISPLAY, color: T.ink }} className="text-lg font-semibold">{title}</h3>
-          <button onClick={onClose} className="p-1 rounded-full hover:bg-black/5">
-            <X size={20} color={T.inkSoft} />
-          </button>
+          <IconButton icon={X} onClick={onClose} label="Cerrar" />
         </div>
         <div className="p-5">{children}</div>
       </div>
@@ -338,6 +366,34 @@ function GhostButton({ children, onClick, style, full }) {
       className={`${full ? 'w-full' : ''} rounded-xl font-medium`}
       style={{ background: 'transparent', color: T.ink, border: `1px solid ${T.border}`, padding: '10px 18px', fontFamily: FONT_BODY, fontSize: 15, ...style }}>
       {children}
+    </button>
+  );
+}
+
+// Botón de ícono con área táctil accesible (mínimo 40x40px) y confirmación
+// opcional para acciones destructivas — ver auditoría UX: antes había íconos
+// de 12-18px sueltos, sin padding, y "eliminar" sin confirmar en la mayoría
+// de las pantallas. Este componente unifica ambos problemas en un solo lugar.
+function IconButton({ icon: Icon, onClick, size = 17, color = T.inkSoft, variant = 'default', confirmMessage, label, style }) {
+  const isDanger = variant === 'danger';
+  function handleClick(e) {
+    e.stopPropagation();
+    if (confirmMessage && !window.confirm(confirmMessage)) return;
+    onClick(e);
+  }
+  return (
+    <button
+      onClick={handleClick}
+      aria-label={label}
+      title={label}
+      className="flex items-center justify-center rounded-full transition-transform active:scale-90"
+      style={{
+        width: TAP_MIN, height: TAP_MIN, flexShrink: 0,
+        background: isDanger ? T.dangerSoft : 'transparent',
+        ...style,
+      }}
+    >
+      <Icon size={size} color={isDanger ? T.danger : color} />
     </button>
   );
 }
@@ -472,7 +528,7 @@ function ResetPasswordScreen({ onDone }) {
 function LoadingScreen() {
   return (
     <div style={{ background: T.bg, minHeight: '100vh' }} className="flex items-center justify-center">
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap');`}</style>
+      <style>{`${GOOGLE_FONTS_IMPORT}`}</style>
       <p style={{ fontFamily: FONT_BODY, color: T.inkSoft }}>Cargando…</p>
     </div>
   );
@@ -481,7 +537,7 @@ function LoadingScreen() {
 function AuthShell({ children }) {
   return (
     <div style={{ background: T.bg, minHeight: '100vh', fontFamily: FONT_BODY }} className="flex flex-col items-center px-5 py-10">
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap');`}</style>
+      <style>{`${GOOGLE_FONTS_IMPORT}`}</style>
       <div className="w-full max-w-md">
         <div className="flex items-center gap-2 mb-8">
           <div style={{ width: 40, height: 40, borderRadius: 12, background: T.teal, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -812,7 +868,7 @@ function MainApp({ data, update, actions }) {
 
   return (
     <div style={{ background: T.bg, minHeight: '100vh', fontFamily: FONT_BODY, paddingBottom: 84 }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap');`}</style>
+      <style>{`${GOOGLE_FONTS_IMPORT}`}</style>
 
       {/* Header */}
       <div className="px-5 pt-6 pb-4 sticky top-0 z-10" style={{ background: T.bg }}>
@@ -823,16 +879,16 @@ function MainApp({ data, update, actions }) {
           </div>
           <div className="flex items-center gap-2">
             <ViewModeToggle data={data} update={update} />
-            <button onClick={() => setModal({ type: 'notifications' })} title="Notificaciones" className="relative p-2 rounded-full" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
-              <Bell size={16} color={T.inkSoft} />
+            <button onClick={() => setModal({ type: 'notifications' })} aria-label="Notificaciones" title="Notificaciones" className="relative flex items-center justify-center rounded-full active:scale-90 transition-transform" style={{ width: TAP_MIN, height: TAP_MIN, background: T.surface, border: `1px solid ${T.border}` }}>
+              <Bell size={17} color={T.inkSoft} />
               {data.unreadCount > 0 && (
-                <span className="absolute flex items-center justify-center" style={{ top: -4, right: -4, minWidth: 16, height: 16, borderRadius: 8, background: T.coral, padding: '0 3px' }}>
+                <span className="absolute flex items-center justify-center" style={{ top: 0, right: 0, minWidth: 16, height: 16, borderRadius: 8, background: T.coral, padding: '0 3px' }}>
                   <span style={{ fontSize: 9.5, color: '#fff', fontFamily: FONT_BODY, fontWeight: 700 }}>{data.unreadCount > 9 ? '9+' : data.unreadCount}</span>
                 </span>
               )}
             </button>
-            <button onClick={actions.signOut} title="Cerrar sesión" className="p-2 rounded-full" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
-              <LogOut size={16} color={T.inkSoft} />
+            <button onClick={actions.signOut} aria-label="Cerrar sesión" title="Cerrar sesión" className="flex items-center justify-center rounded-full active:scale-90 transition-transform" style={{ width: TAP_MIN, height: TAP_MIN, background: T.surface, border: `1px solid ${T.border}` }}>
+              <LogOut size={17} color={T.inkSoft} />
             </button>
           </div>
         </div>
@@ -1038,7 +1094,7 @@ function Dashboard({ data, update, actions, visibleTransactions, visibleMemberId
           {budgetAlerts.map((b) => {
             const cat = data.categories.find((c) => c.id === b.categoryId);
             return <p key={b.id} style={{ fontSize: 12.5, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-0.5">
-              {cat?.icon} {cat?.name}: usaste {Math.round(b.pct)}% ({formatMoney(b.spent, currency)} de {formatMoney(b.limit, currency)})
+              <span className="inline-flex items-center gap-1"><CategoryIcon icon={cat?.icon} size={13} color={T.inkSoft} /> {cat?.name}</span>: usaste {Math.round(b.pct)}% ({formatMoney(b.spent, currency)} de {formatMoney(b.limit, currency)})
             </p>;
           })}
         </Card>
@@ -1053,7 +1109,7 @@ function Dashboard({ data, update, actions, visibleTransactions, visibleMemberId
             return (
               <div key={t.id} className="flex items-center justify-between py-1.5">
                 <div className="flex items-center gap-2">
-                  <span>{cat?.icon}</span>
+                  <CategoryIcon icon={cat?.icon} size={16} color={T.inkSoft} />
                   <div>
                     <p style={{ fontSize: 13.5, color: T.ink, fontFamily: FONT_BODY }}>{t.description || cat?.name}</p>
                     <p style={{ fontSize: 11.5, color: T.inkSoft }}>{d === 0 ? 'Hoy' : d === 1 ? 'Mañana' : `En ${d} días`} · {formatDate(t.next)}</p>
@@ -1082,7 +1138,7 @@ function Dashboard({ data, update, actions, visibleTransactions, visibleMemberId
           <div className="flex flex-col gap-1 mt-1">
             {catData.slice(0, 5).map((c, i) => (
               <div key={c.name} className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5"><div style={{ width: 8, height: 8, borderRadius: 4, background: pieColors[i % pieColors.length] }} /><span style={{ fontSize: 12.5, color: T.inkSoft }}>{c.icon} {c.name}</span></div>
+                <div className="flex items-center gap-1.5"><div style={{ width: 8, height: 8, borderRadius: 4, background: pieColors[i % pieColors.length] }} /><span className="inline-flex items-center gap-1" style={{ fontSize: 12.5, color: T.inkSoft }}><CategoryIcon icon={c.icon} size={12} color={T.inkSoft} /> {c.name}</span></div>
                 <span style={{ fontFamily: FONT_MONO, fontSize: 12.5, color: T.ink }}>{formatMoney(c.value, currency)}</span>
               </div>
             ))}
@@ -1158,7 +1214,7 @@ function Movimientos({ data, actions, visibleTransactions, setModal }) {
               <div className="flex items-start justify-between">
                 <div className="flex items-start gap-2.5">
                   <div style={{ width: 36, height: 36, borderRadius: 10, background: t.type === 'income' ? T.tealSoft : T.coralSoft, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17 }}>
-                    {cat?.icon || '💰'}
+                    <CategoryIcon icon={cat?.icon} size={18} color={t.type === 'income' ? T.teal : T.coral} />
                   </div>
                   <div>
                     <p style={{ fontSize: 14, color: T.ink, fontFamily: FONT_BODY, fontWeight: 500 }}>{t.description || cat?.name}</p>
@@ -1180,8 +1236,8 @@ function Movimientos({ data, actions, visibleTransactions, setModal }) {
                     {t.type === 'income' ? '+' : '-'}{formatMoney(t.amount, currency)}
                   </span>
                   <div className="flex items-center gap-2">
-                    <button onClick={() => setModal({ type: 'editTransaction', payload: t })}><Pencil size={14} color={T.inkSoft} /></button>
-                    <button onClick={() => removeTransaction(t.id)}><Trash2 size={14} color={T.inkSoft} /></button>
+                    <IconButton icon={Pencil} onClick={() => setModal({ type: 'editTransaction', payload: t })} label="Editar movimiento" />
+                    <IconButton icon={Trash2} variant="danger" onClick={() => removeTransaction(t.id)} confirmMessage="¿Eliminar este movimiento? Esta acción no se puede deshacer." label="Eliminar movimiento" />
                   </div>
                 </div>
               </div>
@@ -1449,7 +1505,7 @@ function TransactionModal({ data, actions, payload, onClose }) {
       </Field>
       <Field label="Categoría">
         <select style={inputStyle} value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-          {cats.map((c) => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
+          {cats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
       </Field>
       <Field label="Cuenta">
@@ -1620,7 +1676,7 @@ function EditTransactionModal({ data, actions, payload: original, onClose }) {
       </Field>
       <Field label="Categoría">
         <select style={inputStyle} value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-          {cats.map((c) => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
+          {cats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
       </Field>
       <Field label="Cuenta">
@@ -1750,7 +1806,7 @@ function Objetivos({ data, actions, setModal }) {
               <div className="flex gap-2 mt-3">
                 <GhostButton onClick={() => setModal({ type: 'vote', payload: g })} style={{ flex: 1, fontSize: 12.5, padding: '8px' }}>Votar prioridad</GhostButton>
                 <PrimaryButton onClick={() => setModal({ type: 'contribute', payload: g })} style={{ flex: 1, fontSize: 12.5, padding: '8px' }}>Aportar</PrimaryButton>
-                <button onClick={() => removeGoal(g.id)}><Trash2 size={16} color={T.inkSoft} /></button>
+                <IconButton icon={Trash2} variant="danger" onClick={() => removeGoal(g.id)} confirmMessage={`¿Eliminar el objetivo "${g.name}"? Se perderá todo el progreso registrado.`} label="Eliminar objetivo" />
               </div>
             </Card>
           );
@@ -1875,8 +1931,8 @@ function Presupuestos({ data, actions, setModal }) {
           return (
             <Card key={b.id}>
               <div className="flex items-center justify-between mb-1.5">
-                <span style={{ fontFamily: FONT_BODY, fontWeight: 500, fontSize: 14, color: T.ink }}>{cat?.icon} {cat?.name}</span>
-                <button onClick={() => removeBudget(b.id)}><Trash2 size={14} color={T.inkSoft} /></button>
+                <span className="flex items-center gap-1.5" style={{ fontFamily: FONT_BODY, fontWeight: 500, fontSize: 14, color: T.ink }}><CategoryIcon icon={cat?.icon} size={16} /> {cat?.name}</span>
+                <IconButton icon={Trash2} variant="danger" onClick={() => removeBudget(b.id)} confirmMessage="¿Eliminar este presupuesto?" label="Eliminar presupuesto" />
               </div>
               <p style={{ fontSize: 11, color: T.inkSoft }} className="mb-2">{scopeLabel}</p>
               <ProgressBar value={pct} color={pct >= 100 ? T.danger : pct >= 80 ? T.gold : T.teal} />
@@ -1907,7 +1963,7 @@ function BudgetModal({ data, actions, onClose }) {
     <Modal title="Nuevo presupuesto" onClose={onClose}>
       <Field label="Categoría">
         <select style={inputStyle} value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-          {expenseCats.map((c) => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
+          {expenseCats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
       </Field>
       <Field label="Límite mensual">
@@ -2016,7 +2072,7 @@ function Cuentas({ data, actions, setModal }) {
                   <p style={{ fontSize: 11, color: T.inkSoft }}>{a.type === 'shared' ? 'Compartida' : 'Individual'} · {a.ownerIds.map((id) => data.members.find((m) => m.id === id)?.name).join(', ')}</p>
                 </div>
               </div>
-              <button onClick={() => removeAccount(a.id)}><Trash2 size={15} color={T.inkSoft} /></button>
+              <IconButton icon={Trash2} variant="danger" onClick={() => removeAccount(a.id)} confirmMessage={`¿Eliminar la cuenta "${a.name}"? Los movimientos ya registrados en ella no se borrarán.`} label="Eliminar cuenta" />
             </div>
             <p style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 18, color: T.ink }} className="mt-2">{formatMoney(balanceOf(a), currency)}</p>
           </Card>
@@ -2161,7 +2217,7 @@ function CreditDetail({ data, actions, credit, setModal, onBack, onDeleted }) {
             <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: T.ink }}>{credit.name}</p>
             <p style={{ fontSize: 12, color: T.inkSoft }}>{CREDIT_TYPE_LABELS[credit.creditType] || 'Crédito'} · {credit.currency} · {credit.amortizationSystem === 'frances' ? 'Sistema francés' : 'Sistema alemán'}</p>
           </div>
-          <button onClick={remove}><Trash2 size={16} color={T.inkSoft} /></button>
+          <IconButton icon={Trash2} variant="danger" onClick={remove} label="Eliminar crédito" />
         </div>
         <div className="grid grid-cols-2 gap-3 mt-3">
           <div>
@@ -2486,7 +2542,11 @@ function UvrCard({ actions }) {
 /* ---------------------------------------------------------------------- */
 function InstallAppCard() {
   const [deferredPrompt, setDeferredPrompt] = useState(null);
-  const [installed, setInstalled] = useState(window.matchMedia?.('(display-mode: standalone)').matches);
+  const [installed, setInstalled] = useState(window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone === true);
+  const [showIosSteps, setShowIosSteps] = useState(false);
+
+  const isIos = /iphone|ipad|ipod/i.test(window.navigator.userAgent) && !window.MSStream;
+  const isSafari = /^((?!chrome|android|crios|fxios).)*safari/i.test(window.navigator.userAgent);
 
   useEffect(() => {
     function onBeforeInstall(e) {
@@ -2502,19 +2562,38 @@ function InstallAppCard() {
     };
   }, []);
 
-  if (installed || !deferredPrompt) return null;
+  if (installed) return null;
+  if (!deferredPrompt && !isIos) return null; // otro navegador de escritorio sin soporte — no mostramos nada
 
   return (
     <Card style={{ marginBottom: 14, background: T.tealSoft, border: 'none' }}>
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <div>
           <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: T.ink }}>Instalar la app</p>
           <p style={{ fontSize: 11.5, color: T.inkSoft, fontFamily: FONT_BODY }}>Agrégala a tu pantalla de inicio para usarla como una app nativa.</p>
         </div>
-        <PrimaryButton onClick={async () => { deferredPrompt.prompt(); await deferredPrompt.userChoice; setDeferredPrompt(null); }} style={{ padding: '8px 14px', fontSize: 12.5, flexShrink: 0 }}>
-          Instalar
-        </PrimaryButton>
+        {deferredPrompt ? (
+          <PrimaryButton onClick={async () => { deferredPrompt.prompt(); await deferredPrompt.userChoice; setDeferredPrompt(null); }} style={{ padding: '8px 14px', fontSize: 12.5, flexShrink: 0 }}>
+            Instalar
+          </PrimaryButton>
+        ) : (
+          <GhostButton onClick={() => setShowIosSteps((v) => !v)} style={{ padding: '8px 14px', fontSize: 12.5, flexShrink: 0 }}>
+            Cómo
+          </GhostButton>
+        )}
       </div>
+      {isIos && showIosSteps && (
+        <div className="mt-3 pt-3" style={{ borderTop: `1px solid rgba(0,0,0,0.08)` }}>
+          {!isSafari && (
+            <p style={{ fontSize: 11.5, color: T.danger, fontFamily: FONT_BODY }} className="mb-2">Abre este enlace en <b>Safari</b> — desde otros navegadores de iPhone no se puede instalar.</p>
+          )}
+          <ol className="flex flex-col gap-1.5">
+            <li style={{ fontSize: 12, color: T.ink, fontFamily: FONT_BODY }}>1. Toca el ícono de <b>Compartir</b> (el cuadrado con la flecha hacia arriba)</li>
+            <li style={{ fontSize: 12, color: T.ink, fontFamily: FONT_BODY }}>2. Baja y elige <b>"Agregar a inicio"</b></li>
+            <li style={{ fontSize: 12, color: T.ink, fontFamily: FONT_BODY }}>3. Toca <b>Agregar</b> arriba a la derecha</li>
+          </ol>
+        </div>
+      )}
     </Card>
   );
 }
@@ -2563,20 +2642,20 @@ function Ajustes({ data, update, actions, setModal }) {
       <Card>
         <div className="flex items-center justify-between mb-3">
           <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: T.ink }}>Categorías</p>
-          <button onClick={() => setModal({ type: 'category' })}><Plus size={18} color={T.teal} /></button>
+          <IconButton icon={Plus} onClick={() => setModal({ type: 'category' })} color={T.teal} label="Nueva categoría" />
         </div>
         <p style={{ fontSize: 11.5, color: T.inkSoft }} className="mb-2">Ingresos</p>
         {data.categories.filter((c) => c.type === 'income').map((c) => (
           <div key={c.id} className="flex items-center justify-between mb-1.5">
-            <span style={{ fontSize: 13, color: T.ink }}>{c.icon} {c.name}</span>
-            <button onClick={() => removeCategory(c.id)}><Trash2 size={13} color={T.inkSoft} /></button>
+            <span className="flex items-center gap-2" style={{ fontSize: 13, color: T.ink }}><CategoryIcon icon={c.icon} size={15} /> {c.name}</span>
+            <IconButton icon={Trash2} variant="danger" size={14} onClick={() => removeCategory(c.id)} confirmMessage={`¿Eliminar la categoría "${c.name}"?`} label="Eliminar categoría" />
           </div>
         ))}
         <p style={{ fontSize: 11.5, color: T.inkSoft }} className="mb-2 mt-3">Gastos</p>
         {data.categories.filter((c) => c.type === 'expense').map((c) => (
           <div key={c.id} className="flex items-center justify-between mb-1.5">
-            <span style={{ fontSize: 13, color: T.ink }}>{c.icon} {c.name}</span>
-            <button onClick={() => removeCategory(c.id)}><Trash2 size={13} color={T.inkSoft} /></button>
+            <span className="flex items-center gap-2" style={{ fontSize: 13, color: T.ink }}><CategoryIcon icon={c.icon} size={15} /> {c.name}</span>
+            <IconButton icon={Trash2} variant="danger" size={14} onClick={() => removeCategory(c.id)} confirmMessage={`¿Eliminar la categoría "${c.name}"?`} label="Eliminar categoría" />
           </div>
         ))}
       </Card>
@@ -2644,7 +2723,7 @@ function InviteModal({ data, actions, onClose }) {
 function CategoryModal({ data, actions, onClose }) {
   const [name, setName] = useState('');
   const [type, setType] = useState('expense');
-  const [icon, setIcon] = useState('🔖');
+  const [icon, setIcon] = useState(CATEGORY_ICON_OPTIONS[0]);
   async function save() {
     if (!name.trim()) return;
     await actions.addCategory({ name: name.trim(), type, icon });
@@ -2661,8 +2740,16 @@ function CategoryModal({ data, actions, onClose }) {
           <option value="income">Ingreso</option>
         </select>
       </Field>
-      <Field label="Emoji / ícono">
-        <input style={inputStyle} value={icon} onChange={(e) => setIcon(e.target.value)} placeholder="🔖" />
+      <Field label="Ícono">
+        <div className="grid grid-cols-6 gap-2">
+          {CATEGORY_ICON_OPTIONS.map((key) => (
+            <button key={key} type="button" onClick={() => setIcon(key)}
+              className="flex items-center justify-center rounded-xl"
+              style={{ width: TAP_MIN, height: TAP_MIN, background: icon === key ? T.tealSoft : T.bg, border: `1.5px solid ${icon === key ? T.teal : T.border}` }}>
+              <CategoryIcon icon={key} size={18} color={icon === key ? T.teal : T.inkSoft} />
+            </button>
+          ))}
+        </div>
       </Field>
       <PrimaryButton full onClick={save}>Crear categoría</PrimaryButton>
     </Modal>
@@ -2764,12 +2851,12 @@ function AdminPanel({ data, actions }) {
         {admins?.map((a) => (
           <div key={a.userId} className="flex items-center justify-between mb-2">
             <span style={{ fontSize: 13, color: T.ink, fontFamily: FONT_BODY }}>{a.name}</span>
-            <button onClick={() => removeAdmin(a.userId)}><Trash2 size={14} color={T.inkSoft} /></button>
+            <IconButton icon={Trash2} variant="danger" size={14} onClick={() => removeAdmin(a.userId)} label="Quitar superusuario" />
           </div>
         ))}
         <div className="flex gap-2 mt-2">
           <input style={{ ...inputStyle, flex: 1 }} type="email" placeholder="correo@ejemplo.com" value={newAdminEmail} onChange={(e) => setNewAdminEmail(e.target.value)} />
-          <button onClick={addAdmin} style={{ background: T.teal, borderRadius: 10, padding: '0 14px' }}>
+          <button onClick={addAdmin} aria-label="Agregar superusuario" className="flex items-center justify-center active:scale-90 transition-transform" style={{ background: T.teal, borderRadius: 10, minWidth: TAP_MIN, height: TAP_MIN }}>
             <Plus color="#fff" size={18} />
           </button>
         </div>
@@ -2854,7 +2941,7 @@ function NotificationsPanel({ data, actions, onClose }) {
                         <span style={{ fontSize: 11, color: T.teal, fontFamily: FONT_BODY, fontWeight: 500 }}>Marcar leída</span>
                       </button>
                     )}
-                    <button onClick={() => actions.deleteNotification(n.id)}><Trash2 size={12} color={T.inkSoft} /></button>
+                    <IconButton icon={Trash2} size={13} onClick={() => actions.deleteNotification(n.id)} label="Descartar notificación" />
                   </div>
                 </div>
               </div>
