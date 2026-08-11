@@ -14,6 +14,7 @@ import {
 } from 'recharts';
 import { supabase } from './lib/supabaseClient';
 import * as db from './lib/db';
+import { annualToMonthlyRate } from './lib/amortization';
 
 /* ---------------------------------------------------------------------- */
 /* TOKENS DE DISEÑO                                                        */
@@ -121,6 +122,12 @@ function daysUntil(d) {
   const today = new Date(todayISO() + 'T00:00:00');
   const target = new Date(d + 'T00:00:00');
   return Math.round((target - today) / 86400000);
+}
+function addOneYear(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setFullYear(d.getFullYear() + 1);
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().slice(0, 10);
 }
 
 function getNextOccurrence(t) {
@@ -373,9 +380,17 @@ const inputStyle = {
   fontFamily: FONT_BODY, fontSize: 15, color: T.ink, background: '#FCFCFA', outline: 'none',
 };
 
+async function safeClick(onClick, e) {
+  try {
+    await onClick?.(e);
+  } catch (err) {
+    alert(err?.message || 'Ocurrió un error al realizar esta acción.');
+  }
+}
+
 function PrimaryButton({ children, onClick, style, type = 'button', full }) {
   return (
-    <button type={type} onClick={onClick}
+    <button type={type} onClick={(e) => safeClick(onClick, e)}
       className={`${full ? 'w-full' : ''} rounded-xl font-medium transition-transform active:scale-[0.98]`}
       style={{ background: T.teal, color: '#fff', padding: '11px 18px', fontFamily: FONT_BODY, fontSize: 15, ...style }}>
       {children}
@@ -384,7 +399,7 @@ function PrimaryButton({ children, onClick, style, type = 'button', full }) {
 }
 function GhostButton({ children, onClick, style, full }) {
   return (
-    <button onClick={onClick}
+    <button onClick={(e) => safeClick(onClick, e)}
       className={`${full ? 'w-full' : ''} rounded-xl font-medium`}
       style={{ background: 'transparent', color: T.ink, border: `1px solid ${T.border}`, padding: '10px 18px', fontFamily: FONT_BODY, fontSize: 15, ...style }}>
       {children}
@@ -398,10 +413,14 @@ function GhostButton({ children, onClick, style, full }) {
 // de las pantallas. Este componente unifica ambos problemas en un solo lugar.
 function IconButton({ icon: Icon, onClick, size = 17, color = T.inkSoft, variant = 'default', confirmMessage, label, style }) {
   const isDanger = variant === 'danger';
-  function handleClick(e) {
+  async function handleClick(e) {
     e.stopPropagation();
     if (confirmMessage && !window.confirm(confirmMessage)) return;
-    onClick(e);
+    try {
+      await onClick(e);
+    } catch (err) {
+      alert(err?.message || 'Ocurrió un error al realizar esta acción.');
+    }
   }
   return (
     <button
@@ -866,12 +885,17 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     loadCreditExtraPayments: (creditId) => db.loadCreditExtraPayments(creditId),
     createCredit: (credit) => db.createCredit(household.householdId, session.user.id, credit),
     deleteCredit: (id) => db.deleteCredit(id),
+    updateCredit: (creditId, patch, currentCredit, payments) => db.updateCreditAndRecalc(creditId, patch, currentCredit, payments),
+    loadCreditInsurances: (creditId) => db.loadCreditInsurances(creditId),
+    addCreditInsurance: (creditId, insurance) => db.addCreditInsurance(creditId, insurance),
+    removeCreditInsurance: (id, creditId) => db.removeCreditInsurance(id, creditId),
     markInstallmentPaid: (credit, installment, accountId, memberId, categoryId) =>
       db.markInstallmentPaid(household.householdId, session.user.id, credit, installment, accountId, memberId, categoryId),
     applyExtraPayment: (credit, payments, extraAmount, strategy, applyDate, accountId, memberId, categoryId, registerAsExpense) =>
       db.applyExtraPayment(household.householdId, session.user.id, credit, payments, extraAmount, strategy, applyDate, accountId, memberId, categoryId, registerAsExpense),
     getLatestUvr: () => db.getLatestUvr(),
     saveManualUvr: (date, value) => db.saveManualUvr(date, value),
+    addMemberTransfer: wrap((t) => db.addMemberTransfer(household.householdId, session.user.id, t)),
     // configuración global / superusuario
     updateSetting: async (key, value) => { await db.updateSetting(key, value, session.user.id); await refreshSettings(); },
     listAllHouseholdsAdmin: () => db.listAllHouseholdsAdmin(),
@@ -1031,6 +1055,9 @@ function MainApp({ data, update, actions }) {
       {modal?.type === 'credit' && <CreditModal data={data} actions={actions} onClose={() => setModal(null)} onCreated={modal.onCreated} />}
       {modal?.type === 'extraPayment' && <ExtraPaymentModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} onDone={modal.onDone} />}
       {modal?.type === 'payInstallment' && <PayInstallmentModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} onDone={modal.onDone} />}
+      {modal?.type === 'editCredit' && <EditCreditModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} onDone={modal.onDone} />}
+      {modal?.type === 'creditInsurance' && <CreditInsuranceModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} onDone={modal.onDone} />}
+      {modal?.type === 'memberTransfer' && <MemberTransferModal data={data} actions={actions} onClose={() => setModal(null)} />}
     </div>
   );
 }
@@ -1332,6 +1359,9 @@ function Movimientos({ data, actions, visibleTransactions, setModal }) {
 
   return (
     <div className="pb-4">
+      <GhostButton full onClick={() => setModal({ type: 'memberTransfer' })} style={{ marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+        <ArrowLeftRight size={14} /> Transferencia entre integrantes
+      </GhostButton>
       <div className="flex gap-2 mb-4 overflow-x-auto pt-2">
         {[['todos', 'Todos'], ['income', 'Ingresos'], ['expense', 'Gastos'], ['recurring', 'Recurrentes'], ['sporadic', 'Esporádicos']].map(([id, label]) => (
           <button key={id} onClick={() => setFilter(id)} className="flex-shrink-0 rounded-full px-3 py-1.5"
@@ -1348,25 +1378,54 @@ function Movimientos({ data, actions, visibleTransactions, setModal }) {
           if (t.type === 'transfer') {
             const member = data.members.find((m) => m.id === t.memberId);
             const account = data.accounts.find((a) => a.id === t.accountId);
-            const isDeposit = t.transferDirection !== 'withdraw';
+            const isGoalTransfer = !!t.goalId;
+            if (isGoalTransfer) {
+              const isDeposit = t.transferDirection !== 'withdraw';
+              return (
+                <Card key={t.id}>
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-start gap-2.5">
+                      <div style={{ width: 36, height: 36, borderRadius: 10, background: T.amberSoft, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <PiggyBank size={18} color={T.amber} />
+                      </div>
+                      <div>
+                        <p style={{ fontSize: 14, color: T.ink, fontFamily: FONT_BODY, fontWeight: 500 }}>{t.description}</p>
+                        <p style={{ fontSize: 11.5, color: T.inkSoft }}>Transferencia a objetivo · {formatDate(t.date)}{account ? ` · ${account.name}` : ''}</p>
+                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                          {member && <MemberChip member={member} size={18} />}
+                          <span className="rounded-full px-2 py-0.5" style={{ background: T.amberSoft }}><span style={{ fontSize: 10, color: T.amber }}>No cuenta como gasto</span></span>
+                        </div>
+                      </div>
+                    </div>
+                    <span style={{ fontFamily: FONT_MONO, fontWeight: 600, fontSize: 14.5, color: T.amber }}>
+                      {isDeposit ? '→' : '←'} {formatMoney(t.amount, currency)}
+                    </span>
+                  </div>
+                </Card>
+              );
+            }
+            // transferencia entre integrantes
+            const toMember = data.members.find((m) => m.id === t.toMemberId);
+            const toAccount = data.accounts.find((a) => a.id === t.toAccountId);
             return (
               <Card key={t.id}>
                 <div className="flex items-start justify-between">
                   <div className="flex items-start gap-2.5">
-                    <div style={{ width: 36, height: 36, borderRadius: 10, background: T.amberSoft, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <PiggyBank size={18} color={T.amber} />
+                    <div style={{ width: 36, height: 36, borderRadius: 10, background: T.tealSoft, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <ArrowLeftRight size={18} color={T.teal} />
                     </div>
                     <div>
-                      <p style={{ fontSize: 14, color: T.ink, fontFamily: FONT_BODY, fontWeight: 500 }}>{t.description}</p>
-                      <p style={{ fontSize: 11.5, color: T.inkSoft }}>Transferencia a objetivo · {formatDate(t.date)}{account ? ` · ${account.name}` : ''}</p>
-                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      <p style={{ fontSize: 14, color: T.ink, fontFamily: FONT_BODY, fontWeight: 500 }}>{t.description || 'Transferencia entre integrantes'}</p>
+                      <p style={{ fontSize: 11.5, color: T.inkSoft }}>{formatDate(t.date)}{account ? ` · ${account.name}` : ''}{toAccount ? ` → ${toAccount.name}` : ''}</p>
+                      <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                         {member && <MemberChip member={member} size={18} />}
-                        <span className="rounded-full px-2 py-0.5" style={{ background: T.amberSoft }}><span style={{ fontSize: 10, color: T.amber }}>No cuenta como gasto</span></span>
+                        <ArrowRight size={11} color={T.inkSoft} />
+                        {toMember && <MemberChip member={toMember} size={18} />}
                       </div>
                     </div>
                   </div>
-                  <span style={{ fontFamily: FONT_MONO, fontWeight: 600, fontSize: 14.5, color: T.amber }}>
-                    {isDeposit ? '→' : '←'} {formatMoney(t.amount, currency)}
+                  <span style={{ fontFamily: FONT_MONO, fontWeight: 600, fontSize: 14.5, color: T.teal }}>
+                    {formatMoney(t.amount, currency)}
                   </span>
                 </div>
               </Card>
@@ -2465,14 +2524,22 @@ function Conciliacion({ data, actions }) {
 function Cuentas({ data, actions, setModal }) {
   const currency = data.currency;
   function balanceOf(acc) {
-    return data.transactions
-      .filter((t) => t.accountId === acc.id)
-      .reduce((s, t) => {
-        if (t.type === 'income') return s + t.amount;
-        if (t.type === 'expense') return s - t.amount;
-        if (t.type === 'transfer') return s + (t.transferDirection === 'withdraw' ? t.amount : -t.amount);
-        return s;
-      }, 0);
+    let total = 0;
+    data.transactions.forEach((t) => {
+      if (t.type === 'income' && t.accountId === acc.id) total += t.amount;
+      else if (t.type === 'expense' && t.accountId === acc.id) total -= t.amount;
+      else if (t.type === 'transfer') {
+        if (t.goalId) {
+          // aporte/retiro de objetivo: solo afecta la cuenta de origen
+          if (t.accountId === acc.id) total += t.transferDirection === 'withdraw' ? t.amount : -t.amount;
+        } else {
+          // transferencia entre integrantes: sale de la cuenta origen, entra a la de destino
+          if (t.accountId === acc.id) total -= t.amount;
+          if (t.toAccountId === acc.id) total += t.amount;
+        }
+      }
+    });
+    return total;
   }
   function removeAccount(id) { actions.removeAccount(id); }
 
@@ -2556,6 +2623,7 @@ function AccountModal({ data, actions, onClose }) {
 /* CRÉDITOS                                                               */
 /* ---------------------------------------------------------------------- */
 const CREDIT_TYPE_LABELS = { vivienda: 'Vivienda', vehiculo: 'Vehículo', libre_inversion: 'Libre inversión', educativo: 'Educativo', otro: 'Otro' };
+const INSURANCE_TYPE_LABELS = { vida: 'Vida (todos los créditos)', incendio_terremoto: 'Incendio y terremoto (vivienda)', desempleo: 'Desempleo', otro: 'Otro' };
 
 function Creditos({ data, actions, setModal }) {
   const [credits, setCredits] = useState(null);
@@ -2616,11 +2684,12 @@ function Creditos({ data, actions, setModal }) {
 function CreditDetail({ data, actions, credit, setModal, onBack, onDeleted }) {
   const [payments, setPayments] = useState(null);
   const [extras, setExtras] = useState(null);
+  const [insurances, setInsurances] = useState(null);
   const [showAll, setShowAll] = useState(false);
 
   async function refresh() {
-    const [p, e] = await Promise.all([actions.loadCreditPayments(credit.id), actions.loadCreditExtraPayments(credit.id)]);
-    setPayments(p); setExtras(e);
+    const [p, e, ins] = await Promise.all([actions.loadCreditPayments(credit.id), actions.loadCreditExtraPayments(credit.id), actions.loadCreditInsurances(credit.id)]);
+    setPayments(p); setExtras(e); setInsurances(ins);
   }
   useEffect(() => { refresh(); }, [credit.id]);
 
@@ -2628,6 +2697,11 @@ function CreditDetail({ data, actions, credit, setModal, onBack, onDeleted }) {
     if (!confirm(`¿Eliminar el crédito "${credit.name}"? Se borrará también su tabla de amortización.`)) return;
     await actions.deleteCredit(credit.id);
     onDeleted();
+  }
+  async function removeInsurance(id) {
+    if (!confirm('¿Eliminar este seguro? Se recalculará el valor de las cuotas pendientes.')) return;
+    await actions.removeCreditInsurance(id, credit.id);
+    await refresh();
   }
 
   const paidCount = payments?.filter((p) => p.paid).length || 0;
@@ -2637,6 +2711,7 @@ function CreditDetail({ data, actions, credit, setModal, onBack, onDeleted }) {
   const money = (v) => credit.currency === 'UVR' ? `${v.toLocaleString('es-CO', { maximumFractionDigits: 2 })} UVR` : formatMoney(v, data.currency);
 
   const visiblePayments = showAll ? payments : payments?.slice(0, 6);
+  const activeInsuranceTotal = (insurances || []).filter((i) => i.active && i.validFrom <= todayISO() && todayISO() <= i.validTo).reduce((s, i) => s + i.monthlyValue, 0);
 
   return (
     <div className="pb-4 pt-2">
@@ -2651,7 +2726,10 @@ function CreditDetail({ data, actions, credit, setModal, onBack, onDeleted }) {
             <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 17, color: T.ink }}>{credit.name}</p>
             <p style={{ fontSize: 12, color: T.inkSoft }}>{CREDIT_TYPE_LABELS[credit.creditType] || 'Crédito'} · {credit.currency} · {credit.amortizationSystem === 'frances' ? 'Sistema francés' : 'Sistema alemán'}</p>
           </div>
-          <IconButton icon={Trash2} variant="danger" onClick={remove} label="Eliminar crédito" />
+          <div className="flex items-center gap-1">
+            <IconButton icon={Pencil} onClick={() => setModal({ type: 'editCredit', payload: { credit, payments }, onDone: refresh })} label="Editar crédito" />
+            <IconButton icon={Trash2} variant="danger" onClick={remove} label="Eliminar crédito" />
+          </div>
         </div>
         <div className="grid grid-cols-2 gap-3 mt-3">
           <div>
@@ -2666,7 +2744,7 @@ function CreditDetail({ data, actions, credit, setModal, onBack, onDeleted }) {
         <ProgressBar value={(paidCount / (totalCount || 1)) * 100} color={T.teal} />
         <div className="flex items-center gap-3 mt-3">
           <span className="flex items-center gap-1"><Percent size={12} color={T.inkSoft} /><span style={{ fontSize: 11.5, color: T.inkSoft }}>{credit.annualRate}% E.A.</span></span>
-          {credit.insuranceMonthly > 0 && <span className="flex items-center gap-1"><ShieldCheck size={12} color={T.inkSoft} /><span style={{ fontSize: 11.5, color: T.inkSoft }}>Seguro {money(credit.insuranceMonthly)}/mes</span></span>}
+          {activeInsuranceTotal > 0 && <span className="flex items-center gap-1"><ShieldCheck size={12} color={T.inkSoft} /><span style={{ fontSize: 11.5, color: T.inkSoft }}>Seguros {money(activeInsuranceTotal)}/mes</span></span>}
         </div>
         {credit.status !== 'pagado' && (
           <div className="flex gap-2 mt-4">
@@ -2674,6 +2752,27 @@ function CreditDetail({ data, actions, credit, setModal, onBack, onDeleted }) {
             {nextUnpaid && <PrimaryButton full onClick={() => setModal({ type: 'payInstallment', payload: { credit, installment: nextUnpaid }, onDone: refresh })}>Pagar cuota {nextUnpaid.installmentNumber}</PrimaryButton>}
           </div>
         )}
+      </Card>
+
+      <Card style={{ marginBottom: 16 }}>
+        <div className="flex items-center justify-between mb-2">
+          <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: T.ink }}>Seguros</p>
+          <IconButton icon={Plus} onClick={() => setModal({ type: 'creditInsurance', payload: credit, onDone: refresh })} color={T.teal} label="Agregar seguro" />
+        </div>
+        {(!insurances || insurances.length === 0) && <p style={{ fontSize: 12, color: T.inkSoft }}>Sin seguros registrados. Agrega vida, incendio/terremoto (vivienda) o desempleo, con su vigencia.</p>}
+        {insurances?.map((ins) => {
+          const vigente = ins.active && ins.validFrom <= todayISO() && todayISO() <= ins.validTo;
+          return (
+            <div key={ins.id} className="flex items-center justify-between mb-2 rounded-xl p-2.5" style={{ background: vigente ? T.tealSoft : T.bg }}>
+              <div>
+                <p style={{ fontSize: 12.5, color: T.ink, fontFamily: FONT_BODY, fontWeight: 500 }}>{INSURANCE_TYPE_LABELS[ins.type]}</p>
+                <p style={{ fontSize: 10.5, color: T.inkSoft }}>{formatDate(ins.validFrom)} → {formatDate(ins.validTo)} · {money(ins.monthlyValue)}/mes{!vigente ? ' · vencido' : ''}</p>
+              </div>
+              <IconButton icon={Trash2} variant="danger" size={14} onClick={() => removeInsurance(ins.id)} label="Eliminar seguro" />
+            </div>
+          );
+        })}
+        <p style={{ fontSize: 10.5, color: T.inkSoft, fontFamily: FONT_BODY }} className="mt-1">Se suman a la cuota de cada mes cubierto por su vigencia. Al renovar (o si se endosa un valor distinto), agrega uno nuevo con la vigencia actualizada.</p>
       </Card>
 
       {extras?.length > 0 && (
@@ -2717,7 +2816,9 @@ function CreditModal({ data, actions, onClose, onCreated }) {
   const [name, setName] = useState('');
   const [creditType, setCreditType] = useState('vivienda');
   const [currency, setCurrency] = useState('COP');
+  const [defineBy, setDefineBy] = useState('total'); // total | installment
   const [principal, setPrincipal] = useState('');
+  const [installmentAmount, setInstallmentAmount] = useState('');
   const [annualRate, setAnnualRate] = useState('');
   const [termMonths, setTermMonths] = useState('');
   const [amortizationSystem, setAmortizationSystem] = useState('frances');
@@ -2732,6 +2833,17 @@ function CreditModal({ data, actions, onClose, onCreated }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  useEffect(() => { if (defineBy === 'installment') setAmortizationSystem('frances'); }, [defineBy]);
+
+  // deriva el monto total del préstamo a partir de la cuota fija (solo sistema francés)
+  function derivePrincipalFromInstallment() {
+    const cuota = parseFloat(installmentAmount), r = parseFloat(annualRate), t = parseInt(termMonths, 10);
+    if (!cuota || !r || !t) return 0;
+    const i = annualToMonthlyRate(r);
+    return i === 0 ? cuota * t : (cuota * (1 - Math.pow(1 + i, -t))) / i;
+  }
+  const derivedPrincipal = defineBy === 'installment' ? derivePrincipalFromInstallment() : null;
+
   async function fetchUvr() {
     setLoadingUvr(true);
     try {
@@ -2744,8 +2856,9 @@ function CreditModal({ data, actions, onClose, onCreated }) {
   useEffect(() => { if (currency === 'UVR' && !uvr) fetchUvr(); }, [currency]);
 
   async function save() {
-    const p = parseFloat(principal), r = parseFloat(annualRate), t = parseInt(termMonths, 10);
-    if (!name.trim() || !p || !r || !t) { setError('Completa nombre, monto, tasa y plazo.'); return; }
+    const p = defineBy === 'installment' ? derivedPrincipal : parseFloat(principal);
+    const r = parseFloat(annualRate), t = parseInt(termMonths, 10);
+    if (!name.trim() || !p || !r || !t) { setError('Completa nombre, monto (o cuota), tasa y plazo.'); return; }
     setSaving(true); setError('');
     try {
       await actions.createCredit({
@@ -2786,21 +2899,44 @@ function CreditModal({ data, actions, onClose, onCreated }) {
           {!uvr && !loadingUvr && <p style={{ fontSize: 12, color: T.danger }}>No se pudo obtener el valor UVR automáticamente. Ingresa el monto directamente en UVR; puedes registrar el valor del día en Ajustes.</p>}
         </div>
       )}
-      <Field label={`Monto del crédito (${currency})`}>
-        <input style={inputStyle} type="number" value={principal} onChange={(e) => setPrincipal(e.target.value)} placeholder="0" />
+      <Field label="¿Cómo prefieres definirlo?">
+        <div className="flex rounded-xl p-1" style={{ background: T.bg }}>
+          <button type="button" onClick={() => setDefineBy('total')} className="flex-1 rounded-lg py-2" style={{ background: defineBy === 'total' ? T.surface : 'transparent', border: defineBy === 'total' ? `1px solid ${T.border}` : 'none' }}>
+            <span style={{ fontSize: 12.5, color: T.ink, fontFamily: FONT_BODY, fontWeight: 500 }}>Monto total</span>
+          </button>
+          <button type="button" onClick={() => setDefineBy('installment')} className="flex-1 rounded-lg py-2" style={{ background: defineBy === 'installment' ? T.surface : 'transparent', border: defineBy === 'installment' ? `1px solid ${T.border}` : 'none' }}>
+            <span style={{ fontSize: 12.5, color: T.ink, fontFamily: FONT_BODY, fontWeight: 500 }}>Valor de la cuota</span>
+          </button>
+        </div>
       </Field>
+      {defineBy === 'total' ? (
+        <Field label={`Monto del crédito (${currency})`}>
+          <input style={inputStyle} type="number" value={principal} onChange={(e) => setPrincipal(e.target.value)} placeholder="0" />
+        </Field>
+      ) : (
+        <Field label={`Valor de la cuota (${currency}) — sistema francés`}>
+          <input style={inputStyle} type="number" value={installmentAmount} onChange={(e) => setInstallmentAmount(e.target.value)} placeholder="0" />
+        </Field>
+      )}
       <Field label="Tasa efectiva anual (E.A. %)">
         <input style={inputStyle} type="number" step="0.01" value={annualRate} onChange={(e) => setAnnualRate(e.target.value)} placeholder="Ej. 24.5" />
       </Field>
       <Field label="Plazo (meses)">
         <input style={inputStyle} type="number" value={termMonths} onChange={(e) => setTermMonths(e.target.value)} placeholder="Ej. 180" />
       </Field>
-      <Field label="Sistema de amortización">
-        <select style={inputStyle} value={amortizationSystem} onChange={(e) => setAmortizationSystem(e.target.value)}>
-          <option value="frances">Francés (cuota fija)</option>
-          <option value="aleman">Alemán (abono a capital fijo)</option>
-        </select>
-      </Field>
+      {defineBy === 'installment' && derivedPrincipal > 0 && (
+        <div className="rounded-xl p-3 mb-4" style={{ background: T.tealSoft }}>
+          <p style={{ fontSize: 12, color: T.teal, fontFamily: FONT_BODY }}>Monto del préstamo calculado: <b>{formatMoney(derivedPrincipal, currency === 'UVR' ? undefined : currency)}{currency === 'UVR' ? ' UVR' : ''}</b></p>
+        </div>
+      )}
+      {defineBy === 'total' && (
+        <Field label="Sistema de amortización">
+          <select style={inputStyle} value={amortizationSystem} onChange={(e) => setAmortizationSystem(e.target.value)}>
+            <option value="frances">Francés (cuota fija)</option>
+            <option value="aleman">Alemán (abono a capital fijo)</option>
+          </select>
+        </Field>
+      )}
       <Field label="Seguros mensuales (opcional)">
         <input style={inputStyle} type="number" value={insuranceMonthly} onChange={(e) => setInsuranceMonthly(e.target.value)} placeholder="0" />
       </Field>
@@ -2947,6 +3083,196 @@ function ExtraPaymentModal({ data, actions, payload, onClose, onDone }) {
       )}
       {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
       <PrimaryButton full onClick={save}>{saving ? 'Aplicando…' : 'Aplicar abono y recalcular'}</PrimaryButton>
+    </Modal>
+  );
+}
+
+function EditCreditModal({ data, actions, payload, onClose, onDone }) {
+  const { credit, payments } = payload;
+  const [name, setName] = useState(credit.name);
+  const [creditType, setCreditType] = useState(credit.creditType);
+  const [annualRate, setAnnualRate] = useState(String(credit.annualRate));
+  const [termMonths, setTermMonths] = useState(String(credit.termMonths));
+  const [amortizationSystem, setAmortizationSystem] = useState(credit.amortizationSystem);
+  const [ownerMemberId, setOwnerMemberId] = useState(credit.ownerMemberId || '');
+  const [accountId, setAccountId] = useState(credit.accountId || data.accounts[0]?.id || '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const paidCount = payments.filter((p) => p.paid).length;
+  const willRecalc = parseFloat(annualRate) !== credit.annualRate || parseInt(termMonths, 10) !== credit.termMonths || amortizationSystem !== credit.amortizationSystem;
+
+  async function save() {
+    const r = parseFloat(annualRate), t = parseInt(termMonths, 10);
+    if (!name.trim() || !r || !t) { setError('Completa nombre, tasa y plazo.'); return; }
+    if (t < paidCount) { setError(`El plazo no puede ser menor a las ${paidCount} cuotas que ya están pagadas.`); return; }
+    if (willRecalc && !confirm('Esto recalculará las cuotas pendientes (las ya pagadas no se tocan). ¿Continuar?')) return;
+    setSaving(true); setError('');
+    try {
+      await actions.updateCredit(credit.id, {
+        name: name.trim(), creditType, annualRate: r, termMonths: t, amortizationSystem,
+        ownerMemberId: ownerMemberId || null, accountId: accountId || null,
+      }, credit, payments);
+      onDone?.();
+      onClose();
+    } catch (e) {
+      setError(e.message || 'No se pudo actualizar el crédito.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal title="Editar crédito" onClose={onClose}>
+      <Field label="Nombre">
+        <input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} />
+      </Field>
+      <Field label="Tipo">
+        <select style={inputStyle} value={creditType} onChange={(e) => setCreditType(e.target.value)}>
+          {Object.entries(CREDIT_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+        </select>
+      </Field>
+      <Field label="Tasa efectiva anual (E.A. %)">
+        <input style={inputStyle} type="number" step="0.01" value={annualRate} onChange={(e) => setAnnualRate(e.target.value)} />
+      </Field>
+      <Field label={`Plazo total (meses) — ya pagaste ${paidCount}`}>
+        <input style={inputStyle} type="number" value={termMonths} onChange={(e) => setTermMonths(e.target.value)} />
+      </Field>
+      <Field label="Sistema de amortización">
+        <select style={inputStyle} value={amortizationSystem} onChange={(e) => setAmortizationSystem(e.target.value)}>
+          <option value="frances">Francés (cuota fija)</option>
+          <option value="aleman">Alemán (abono a capital fijo)</option>
+        </select>
+      </Field>
+      <Field label="Responsable">
+        <select style={inputStyle} value={ownerMemberId} onChange={(e) => setOwnerMemberId(e.target.value)}>
+          <option value="">Compartido por todo el hogar</option>
+          {data.members.map((m) => <option key={m.id} value={m.id}>Solo {m.name} (privado)</option>)}
+        </select>
+      </Field>
+      <Field label="Cuenta desde donde se paga">
+        <select style={inputStyle} value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+          {data.accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+        </select>
+      </Field>
+      {willRecalc && (
+        <div className="flex items-start gap-2 rounded-xl p-3 mb-4" style={{ background: T.amberSoft }}>
+          <Info size={14} color={T.amber} style={{ marginTop: 2, flexShrink: 0 }} />
+          <p style={{ fontSize: 11.5, color: T.ink, fontFamily: FONT_BODY }}>Cambiaste la tasa, el plazo o el sistema — las cuotas pendientes se recalcularán desde el saldo actual. Las ya pagadas no cambian.</p>
+        </div>
+      )}
+      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+      <PrimaryButton full onClick={save}>{saving ? 'Guardando…' : 'Guardar cambios'}</PrimaryButton>
+    </Modal>
+  );
+}
+
+function CreditInsuranceModal({ data, actions, payload: credit, onClose, onDone }) {
+  const [type, setType] = useState('vida');
+  const [monthlyValue, setMonthlyValue] = useState('');
+  const [validFrom, setValidFrom] = useState(todayISO());
+  const [validTo, setValidTo] = useState(addOneYear(todayISO()));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  async function save() {
+    const v = parseFloat(monthlyValue);
+    if (!v || !validFrom || !validTo) { setError('Completa el valor mensual y la vigencia.'); return; }
+    setSaving(true); setError('');
+    try {
+      await actions.addCreditInsurance(credit.id, { type, monthlyValue: v, validFrom, validTo });
+      onDone?.();
+      onClose();
+    } catch (e) {
+      setError(e.message || 'No se pudo agregar el seguro.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal title="Agregar seguro" onClose={onClose}>
+      <Field label="Tipo de seguro">
+        <select style={inputStyle} value={type} onChange={(e) => setType(e.target.value)}>
+          {Object.entries(INSURANCE_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+        </select>
+      </Field>
+      <Field label={`Valor mensual (${credit.currency})`}>
+        <input style={inputStyle} type="number" value={monthlyValue} onChange={(e) => setMonthlyValue(e.target.value)} placeholder="0" />
+      </Field>
+      <Field label="Vigente desde">
+        <input style={inputStyle} type="date" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} />
+      </Field>
+      <Field label="Vigente hasta (renovación)">
+        <input style={inputStyle} type="date" value={validTo} onChange={(e) => setValidTo(e.target.value)} />
+      </Field>
+      <p style={{ fontSize: 11, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-4">Cuando cambie el valor (renovación o endoso), agrega un seguro nuevo con la vigencia actualizada en vez de editar este.</p>
+      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+      <PrimaryButton full onClick={save}>{saving ? 'Guardando…' : 'Agregar seguro'}</PrimaryButton>
+    </Modal>
+  );
+}
+
+function MemberTransferModal({ data, actions, onClose }) {
+  const [amount, setAmount] = useState('');
+  const [description, setDescription] = useState('');
+  const [fromMemberId, setFromMemberId] = useState(data.members[0]?.id || '');
+  const [fromAccountId, setFromAccountId] = useState(data.accounts[0]?.id || '');
+  const [toMemberId, setToMemberId] = useState(data.members[1]?.id || data.members[0]?.id || '');
+  const [toAccountId, setToAccountId] = useState(data.accounts[0]?.id || '');
+  const [date, setDate] = useState(todayISO());
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  async function save() {
+    const amt = parseFloat(amount);
+    if (!amt || amt <= 0) { setError('Ingresa un monto válido.'); return; }
+    if (fromMemberId === toMemberId && fromAccountId === toAccountId) { setError('Elige un integrante o cuenta de destino distinto.'); return; }
+    setSaving(true); setError('');
+    try {
+      await actions.addMemberTransfer({ amount: amt, description, fromMemberId, fromAccountId, toMemberId, toAccountId, date });
+      onClose();
+    } catch (e) {
+      setError(e.message || 'No se pudo registrar la transferencia.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal title="Transferencia entre integrantes" onClose={onClose}>
+      <Field label="Descripción (opcional)">
+        <input style={inputStyle} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ej. Mesada, préstamo entre hermanos…" />
+      </Field>
+      <Field label="Monto">
+        <input style={inputStyle} type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />
+      </Field>
+      <Field label="De (integrante)">
+        <select style={inputStyle} value={fromMemberId} onChange={(e) => setFromMemberId(e.target.value)}>
+          {data.members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+        </select>
+      </Field>
+      <Field label="Desde la cuenta">
+        <select style={inputStyle} value={fromAccountId} onChange={(e) => setFromAccountId(e.target.value)}>
+          {data.accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+        </select>
+      </Field>
+      <Field label="Para (integrante)">
+        <select style={inputStyle} value={toMemberId} onChange={(e) => setToMemberId(e.target.value)}>
+          {data.members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+        </select>
+      </Field>
+      <Field label="Hacia la cuenta">
+        <select style={inputStyle} value={toAccountId} onChange={(e) => setToAccountId(e.target.value)}>
+          {data.accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+        </select>
+      </Field>
+      <Field label="Fecha">
+        <input style={inputStyle} type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+      </Field>
+      <p style={{ fontSize: 11, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-4">No cuenta como ingreso ni gasto — solo mueve dinero entre cuentas/integrantes del hogar.</p>
+      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+      <PrimaryButton full onClick={save}>{saving ? 'Guardando…' : 'Registrar transferencia'}</PrimaryButton>
     </Modal>
   );
 }

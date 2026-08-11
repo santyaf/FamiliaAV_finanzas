@@ -133,6 +133,7 @@ function dbTxToJs(t) {
       id: t.id, type: 'transfer', description: t.description, amount: Number(t.amount),
       accountId: t.account_id, memberId: t.member_id, date: t.date,
       goalId: t.goal_id, transferDirection: t.transfer_direction,
+      toMemberId: t.to_member_id, toAccountId: t.to_account_id,
     };
   }
   return {
@@ -442,6 +443,105 @@ export async function createCredit(householdId, userId, credit) {
 
 export async function deleteCredit(id) {
   const { error } = await supabase.from('credits').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// Edita un crédito y, si cambió algo que afecta el cálculo (tasa, plazo,
+// sistema), recalcula las cuotas NO pagadas desde el saldo actual — las ya
+// pagadas quedan intactas (son historia real, no se tocan).
+export async function updateCreditAndRecalc(creditId, patch, currentCredit, payments) {
+  const { error: e1 } = await supabase.from('credits').update({
+    name: patch.name, credit_type: patch.creditType, owner_member_id: patch.ownerMemberId || null,
+    account_id: patch.accountId || null, annual_rate: patch.annualRate, term_months: patch.termMonths,
+    amortization_system: patch.amortizationSystem,
+  }).eq('id', creditId);
+  if (e1) throw e1;
+
+  const affectsSchedule = (
+    patch.annualRate !== currentCredit.annualRate ||
+    patch.termMonths !== currentCredit.termMonths ||
+    patch.amortizationSystem !== currentCredit.amortizationSystem
+  );
+  if (!affectsSchedule) return;
+
+  const paidRows = payments.filter((p) => p.paid).sort((a, b) => a.installmentNumber - b.installmentNumber);
+  const unpaidCount = payments.length - paidRows.length;
+  const currentBalance = paidRows.length ? paidRows[paidRows.length - 1].balanceAfter : currentCredit.principal;
+  const remainingMonths = Math.max(1, patch.termMonths - paidRows.length);
+  const nextInstallmentNumber = paidRows.length + 1;
+  const fromDate = paidRows.length ? paidRows[paidRows.length - 1].dueDate : currentCredit.startDate;
+
+  const newRows = generateSchedule({
+    principal: currentBalance, annualRate: patch.annualRate, termMonths: remainingMonths,
+    system: patch.amortizationSystem, insuranceMonthly: currentCredit.insuranceMonthly,
+    startDate: fromDate, startInstallment: nextInstallmentNumber,
+  });
+
+  const { error: eDel } = await supabase.from('credit_payments').delete().eq('credit_id', creditId).eq('paid', false);
+  if (eDel) throw eDel;
+  const { error: eIns } = await supabase.from('credit_payments').insert(
+    newRows.map((r) => ({
+      credit_id: creditId, installment_number: r.installmentNumber, due_date: r.dueDate,
+      capital: r.capital, interest: r.interest, insurance: r.insurance, total: r.total, balance_after: r.balanceAfter,
+    }))
+  );
+  if (eIns) throw eIns;
+}
+
+/* ---------------------- SEGUROS DE CRÉDITO (con vigencia) ---------------------- */
+export async function loadCreditInsurances(creditId) {
+  const { data, error } = await supabase.from('credit_insurances').select('*').eq('credit_id', creditId).order('valid_from');
+  if (error) throw error;
+  return data.map((i) => ({
+    id: i.id, type: i.insurance_type, monthlyValue: Number(i.monthly_value),
+    validFrom: i.valid_from, validTo: i.valid_to, active: i.active,
+  }));
+}
+
+export async function addCreditInsurance(creditId, insurance) {
+  const { error } = await supabase.from('credit_insurances').insert({
+    credit_id: creditId, insurance_type: insurance.type, monthly_value: insurance.monthlyValue,
+    valid_from: insurance.validFrom, valid_to: insurance.validTo,
+  });
+  if (error) throw error;
+  await recalcInsuranceOnPayments(creditId);
+}
+
+export async function removeCreditInsurance(id, creditId) {
+  const { error } = await supabase.from('credit_insurances').delete().eq('id', id);
+  if (error) throw error;
+  await recalcInsuranceOnPayments(creditId);
+}
+
+// Recalcula el campo "insurance"/"total" de cada cuota NO pagada, sumando los
+// seguros activos cuya vigencia cubre la fecha de esa cuota. Las cuotas ya
+// pagadas conservan el valor de seguro que tenían en su momento (historia real).
+async function recalcInsuranceOnPayments(creditId) {
+  const [{ data: insurances, error: e1 }, { data: payments, error: e2 }] = await Promise.all([
+    supabase.from('credit_insurances').select('*').eq('credit_id', creditId).eq('active', true),
+    supabase.from('credit_payments').select('*').eq('credit_id', creditId).eq('paid', false),
+  ]);
+  if (e1) throw e1;
+  if (e2) throw e2;
+
+  const updates = payments.map((p) => {
+    const dueDate = p.due_date;
+    const insuranceTotal = insurances
+      .filter((i) => i.valid_from <= dueDate && dueDate <= i.valid_to)
+      .reduce((s, i) => s + Number(i.monthly_value), 0);
+    return { id: p.id, insurance: insuranceTotal, total: Number(p.capital) + Number(p.interest) + insuranceTotal };
+  });
+  await Promise.all(updates.map((u) => supabase.from('credit_payments').update({ insurance: u.insurance, total: u.total }).eq('id', u.id)));
+}
+
+/* ---------------------- TRANSFERENCIAS ENTRE INTEGRANTES ---------------------- */
+export async function addMemberTransfer(householdId, userId, { amount, description, fromMemberId, fromAccountId, toMemberId, toAccountId, date }) {
+  const { error } = await supabase.from('transactions').insert({
+    household_id: householdId, type: 'transfer', description: description || 'Transferencia entre integrantes',
+    amount, account_id: fromAccountId || null, member_id: fromMemberId,
+    to_member_id: toMemberId, to_account_id: toAccountId || null,
+    date, created_by: userId,
+  });
   if (error) throw error;
 }
 

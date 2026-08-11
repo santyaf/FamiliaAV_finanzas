@@ -166,6 +166,19 @@ Tras una auditoría completa de la app (ver hallazgos abajo), apliqué:
 ### ⚠️ Vuelve a correr `supabase-schema.sql` completo
 Agrega transferencias tipo "bolsillo", objetivos individuales/familiares, solicitudes de aprobación, y notificaciones parametrizables. Es seguro re-ejecutarlo.
 
+## Fase 5 — Arreglos y créditos más completos
+
+**Bug corregido: "eliminar cuenta" no hacía nada**
+Causa real: la restricción de llave foránea no tenía `ON DELETE` (si la cuenta tenía movimientos o créditos asociados, el borrado fallaba), combinado con que los botones de la app no capturaban errores de acciones asíncronas. Corregí ambas cosas — la restricción ahora usa `ON DELETE SET NULL` (los movimientos quedan sin cuenta asociada, pero no se borran), y `IconButton`/`PrimaryButton`/`GhostButton` ahora muestran un aviso si algo falla, en vez de fallar en silencio. Esto probablemente arregla otros botones "que no hacían nada" en cualquier parte de la app.
+
+**Créditos**
+- Editables: cambia nombre, tasa, plazo, sistema, responsable o cuenta — si algo afecta el cálculo, recalcula las cuotas pendientes desde el saldo actual (las ya pagadas no se tocan)
+- Se pueden definir por el monto total del préstamo **o por el valor de la cuota** (sistema francés), calculando el monto correspondiente
+- **Seguros con vigencia**: vida, incendio/terremoto (vivienda) o desempleo, cada uno con su valor mensual y fecha desde/hasta — se suman a la cuota de cada mes cubierto; para una renovación o endoso, se agrega un seguro nuevo con la vigencia actualizada
+
+**Movimientos**
+- Nuevo botón "Transferencia entre integrantes" — mueve dinero entre cuentas/personas del hogar sin contar como ingreso ni gasto
+
 ## Notas técnicas
 - `src/lib/supabaseClient.js` — cliente de Supabase
 - `src/lib/db.js` — toda la lógica de acceso a datos (auth, hogar, invitaciones, CRUD)
