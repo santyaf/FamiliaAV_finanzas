@@ -133,7 +133,7 @@ function dbTxToJs(t) {
       id: t.id, type: 'transfer', description: t.description, amount: Number(t.amount),
       accountId: t.account_id, memberId: t.member_id, date: t.date,
       goalId: t.goal_id, transferDirection: t.transfer_direction,
-      toMemberId: t.to_member_id, toAccountId: t.to_account_id,
+      toMemberId: t.to_member_id, toAccountId: t.to_account_id, settlesDebt: t.settles_debt,
     };
   }
   return {
@@ -535,12 +535,12 @@ async function recalcInsuranceOnPayments(creditId) {
 }
 
 /* ---------------------- TRANSFERENCIAS ENTRE INTEGRANTES ---------------------- */
-export async function addMemberTransfer(householdId, userId, { amount, description, fromMemberId, fromAccountId, toMemberId, toAccountId, date }) {
+export async function addMemberTransfer(householdId, userId, { amount, description, fromMemberId, fromAccountId, toMemberId, toAccountId, date, settlesDebt }) {
   const { error } = await supabase.from('transactions').insert({
     household_id: householdId, type: 'transfer', description: description || 'Transferencia entre integrantes',
     amount, account_id: fromAccountId || null, member_id: fromMemberId,
     to_member_id: toMemberId, to_account_id: toAccountId || null,
-    date, created_by: userId,
+    date, created_by: userId, settles_debt: !!settlesDebt,
   });
   if (error) throw error;
 }

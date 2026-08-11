@@ -191,6 +191,13 @@ function computeBalances(transactions, members) {
       bal[t.to] = (bal[t.to] || 0) - t.amount;
       return;
     }
+    // una transferencia entre integrantes (no ligada a un objetivo) también
+    // cuenta como un pago entre ellos, igual que marcar una conciliación como pagada
+    if (t.type === 'transfer' && !t.goalId && t.toMemberId && t.settlesDebt) {
+      bal[t.memberId] = (bal[t.memberId] || 0) + t.amount;
+      bal[t.toMemberId] = (bal[t.toMemberId] || 0) - t.amount;
+      return;
+    }
     if (t.type === 'expense' && t.isShared && t.participants?.length) {
       const payerShare = t.participants.find((p) => p.memberId === t.memberId)?.share || 0;
       bal[t.memberId] = (bal[t.memberId] || 0) + (t.amount - payerShare);
@@ -1171,6 +1178,19 @@ function Dashboard({ data, update, actions, visibleTransactions, visibleMemberId
   const familyTotals = monthTotals(family);
   const personalTotals = monthTotals(personal);
 
+  // las transferencias entre integrantes (no ligadas a un objetivo) no son ingreso/gasto,
+  // pero sí mueven plata de/hacia mi bolsillo personal — se reflejan aparte, con transparencia
+  let personalTransferNet = 0;
+  data.transactions.forEach((t) => {
+    if (t.type !== 'transfer' || t.goalId) return;
+    const occ = occurrencesInMonth(t, mKey);
+    if (!occ) return;
+    if (t.memberId === myId) personalTransferNet -= t.amount * occ;
+    if (t.toMemberId === myId) personalTransferNet += t.amount * occ;
+  });
+  personalTotals.transferNet = personalTransferNet;
+  personalTotals.balance += personalTransferNet;
+
   let income = 0, expense = 0;
   visibleTransactions.forEach((t) => {
     if (t.type === 'settlement' || t.type === 'transfer') return;
@@ -1228,7 +1248,10 @@ function Dashboard({ data, update, actions, visibleTransactions, visibleMemberId
         <Card style={{ background: T.goldSoft, border: 'none' }}>
           <div className="flex items-center gap-1.5 mb-1"><Wallet size={14} color={T.gold} /><span style={{ fontSize: 12, color: T.gold, fontFamily: FONT_BODY, fontWeight: 600 }}>Mis finanzas personales</span></div>
           <div className="flex items-center justify-between">
-            <span style={{ fontSize: 11, color: T.inkSoft }}>Ingresos {formatMoney(personalTotals.income, currency)} · Gastos {formatMoney(personalTotals.expense, currency)}</span>
+            <span style={{ fontSize: 11, color: T.inkSoft }}>
+              Ingresos {formatMoney(personalTotals.income, currency)} · Gastos {formatMoney(personalTotals.expense, currency)}
+              {personalTotals.transferNet !== 0 && ` · Transferencias ${personalTotals.transferNet > 0 ? '+' : ''}${formatMoney(personalTotals.transferNet, currency)}`}
+            </span>
             <span style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 17, color: personalTotals.balance >= 0 ? T.teal : T.danger }}>{formatMoney(personalTotals.balance, currency)}</span>
           </div>
           <p style={{ fontSize: 10, color: T.inkSoft, fontFamily: FONT_BODY }} className="mt-1">Solo tú puedes ver este bloque</p>
@@ -1421,6 +1444,7 @@ function Movimientos({ data, actions, visibleTransactions, setModal }) {
                         {member && <MemberChip member={member} size={18} />}
                         <ArrowRight size={11} color={T.inkSoft} />
                         {toMember && <MemberChip member={toMember} size={18} />}
+                        {t.settlesDebt && <span className="rounded-full px-2 py-0.5" style={{ background: T.tealSoft }}><span style={{ fontSize: 10, color: T.teal }}>Salda deuda</span></span>}
                       </div>
                     </div>
                   </div>
@@ -3221,6 +3245,7 @@ function MemberTransferModal({ data, actions, onClose }) {
   const [toMemberId, setToMemberId] = useState(data.members[1]?.id || data.members[0]?.id || '');
   const [toAccountId, setToAccountId] = useState(data.accounts[0]?.id || '');
   const [date, setDate] = useState(todayISO());
+  const [settlesDebt, setSettlesDebt] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -3230,7 +3255,7 @@ function MemberTransferModal({ data, actions, onClose }) {
     if (fromMemberId === toMemberId && fromAccountId === toAccountId) { setError('Elige un integrante o cuenta de destino distinto.'); return; }
     setSaving(true); setError('');
     try {
-      await actions.addMemberTransfer({ amount: amt, description, fromMemberId, fromAccountId, toMemberId, toAccountId, date });
+      await actions.addMemberTransfer({ amount: amt, description, fromMemberId, fromAccountId, toMemberId, toAccountId, date, settlesDebt });
       onClose();
     } catch (e) {
       setError(e.message || 'No se pudo registrar la transferencia.');
@@ -3270,7 +3295,11 @@ function MemberTransferModal({ data, actions, onClose }) {
       <Field label="Fecha">
         <input style={inputStyle} type="date" value={date} onChange={(e) => setDate(e.target.value)} />
       </Field>
-      <p style={{ fontSize: 11, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-4">No cuenta como ingreso ni gasto — solo mueve dinero entre cuentas/integrantes del hogar.</p>
+      <label className="flex items-start gap-2 mb-4 rounded-xl p-3" style={{ background: settlesDebt ? T.tealSoft : T.bg }}>
+        <input type="checkbox" checked={settlesDebt} onChange={(e) => setSettlesDebt(e.target.checked)} style={{ marginTop: 2 }} />
+        <span style={{ fontSize: 13, color: T.ink, fontFamily: FONT_BODY }}>Esta transferencia salda una deuda de gastos compartidos (afecta el balance en Conciliación)</span>
+      </label>
+      <p style={{ fontSize: 11, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-4">No cuenta como ingreso ni gasto, pero sí se refleja en tu balance personal. Marca la casilla solo si además está pagando una deuda de un gasto compartido.</p>
       {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
       <PrimaryButton full onClick={save}>{saving ? 'Guardando…' : 'Registrar transferencia'}</PrimaryButton>
     </Modal>

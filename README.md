@@ -179,6 +179,18 @@ Causa real: la restricción de llave foránea no tenía `ON DELETE` (si la cuent
 **Movimientos**
 - Nuevo botón "Transferencia entre integrantes" — mueve dinero entre cuentas/personas del hogar sin contar como ingreso ni gasto
 
+## Fase 6 — Transferencias entre integrantes: visibilidad y efecto en balances
+
+**Bug corregido**: quien **recibía** una transferencia no podía verla en Movimientos (las políticas de seguridad solo consideraban a quien la enviaba). Ya lo corregí — ambas partes la ven.
+
+**Cambio de comportamiento** (a pedido tuyo): una transferencia entre integrantes ahora:
+- Se trata como un pago entre ellos en **Conciliación** — si quien la recibe tenía una deuda pendiente de un gasto compartido, se reduce, igual que si hubieras usado "Marcar como pagado"
+- Se refleja en el bloque **"Mis finanzas personales"** del Dashboard, como una línea aparte de "Transferencias" (no se mezcla con ingresos/gastos reales, pero sí ajusta tu balance disponible)
+
+## Fase 7 — Saldar deuda con una transferencia ahora es opcional
+
+Agregué la casilla "Esta transferencia salda una deuda de gastos compartidos" en el modal de transferencia entre integrantes. **Por defecto viene desmarcada** — la transferencia se registra normal (afecta tu balance personal) pero **no** toca el balance de Conciliación, a menos que marques la casilla explícitamente. Cuando la marcas, aparece la etiqueta "Salda deuda" en Movimientos para que quede claro cuál transferencia sí afectó esa deuda.
+
 ## Notas técnicas
 - `src/lib/supabaseClient.js` — cliente de Supabase
 - `src/lib/db.js` — toda la lógica de acceso a datos (auth, hogar, invitaciones, CRUD)
