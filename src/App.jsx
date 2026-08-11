@@ -1199,7 +1199,20 @@ function Dashboard({ data, update, actions, visibleTransactions, visibleMemberId
     if (t.type === 'income') income += t.amount * occ;
     else expense += t.amount * occ;
   });
-  const balance = income - expense;
+  // en vista Individual, las transferencias hacia/desde ese integrante sí deben
+  // afectar su balance (en Unificado se excluyen porque entre dos integrantes
+  // del mismo hogar el efecto neto es cero para el hogar completo)
+  let transferNetForView = 0;
+  if (data.viewMode === 'individual' && visibleMemberId) {
+    data.transactions.forEach((t) => {
+      if (t.type !== 'transfer' || t.goalId) return;
+      const occ = occurrencesInMonth(t, mKey);
+      if (!occ) return;
+      if (t.memberId === visibleMemberId) transferNetForView -= t.amount * occ;
+      if (t.toMemberId === visibleMemberId) transferNetForView += t.amount * occ;
+    });
+  }
+  const balance = income - expense + transferNetForView;
 
   const byCategory = {};
   visibleTransactions.forEach((t) => {
@@ -1275,6 +1288,9 @@ function Dashboard({ data, update, actions, visibleTransactions, visibleMemberId
           <span style={{ fontFamily: FONT_BODY, color: T.inkSoft, fontSize: 13 }}>Balance de {data.viewMode === 'unified' ? 'el hogar' : 'este integrante'}</span>
           <span style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 22, color: balance >= 0 ? T.teal : T.danger }}>{formatMoney(balance, currency)}</span>
         </div>
+        {transferNetForView !== 0 && (
+          <p style={{ fontSize: 10.5, color: T.inkSoft, fontFamily: FONT_BODY }} className="mt-1">Incluye {transferNetForView > 0 ? '+' : ''}{formatMoney(transferNetForView, currency)} de transferencias entre integrantes</p>
+        )}
       </Card>
 
       {budgetAlerts.length > 0 && (
@@ -1448,9 +1464,12 @@ function Movimientos({ data, actions, visibleTransactions, setModal }) {
                       </div>
                     </div>
                   </div>
-                  <span style={{ fontFamily: FONT_MONO, fontWeight: 600, fontSize: 14.5, color: T.teal }}>
-                    {formatMoney(t.amount, currency)}
-                  </span>
+                  <div className="flex flex-col items-end gap-2">
+                    <span style={{ fontFamily: FONT_MONO, fontWeight: 600, fontSize: 14.5, color: T.teal }}>
+                      {formatMoney(t.amount, currency)}
+                    </span>
+                    <IconButton icon={Trash2} variant="danger" onClick={() => removeTransaction(t.id)} confirmMessage="¿Eliminar esta transferencia? El dinero volverá al balance de quien la envió." label="Eliminar transferencia" />
+                  </div>
                 </div>
               </Card>
             );

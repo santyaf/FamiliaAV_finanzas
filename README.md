@@ -191,6 +191,11 @@ Causa real: la restricción de llave foránea no tenía `ON DELETE` (si la cuent
 
 Agregué la casilla "Esta transferencia salda una deuda de gastos compartidos" en el modal de transferencia entre integrantes. **Por defecto viene desmarcada** — la transferencia se registra normal (afecta tu balance personal) pero **no** toca el balance de Conciliación, a menos que marques la casilla explícitamente. Cuando la marcas, aparece la etiqueta "Salda deuda" en Movimientos para que quede claro cuál transferencia sí afectó esa deuda.
 
+## Fase 8 — Eliminar transferencias, y que se reflejen en la vista Individual
+
+- Las transferencias entre integrantes ahora se pueden **eliminar** desde Movimientos. Como todos los balances se calculan en vivo (nada queda guardado por separado), al borrarla el dinero automáticamente "vuelve" al balance de quien la envió — no hace falta ningún paso extra.
+- El bloque **"Según la vista seleccionada"** del Dashboard (el que cambia con el toggle Unificado/Individual) ahora sí incluye el efecto de las transferencias cuando estás viendo a un integrante específico — antes solo se veía en "Mis finanzas personales", no ahí. En vista Unificada se sigue excluyendo a propósito, porque entre dos integrantes del mismo hogar el efecto neto es cero para el hogar completo.
+
 ## Notas técnicas
 - `src/lib/supabaseClient.js` — cliente de Supabase
 - `src/lib/db.js` — toda la lógica de acceso a datos (auth, hogar, invitaciones, CRUD)
