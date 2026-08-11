@@ -15,6 +15,13 @@ export async function signIn(email, password) {
   if (error) throw error;
   return data;
 }
+export async function signInWithGoogle() {
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: `${window.location.origin}${window.location.pathname}` },
+  });
+  if (error) throw error;
+}
 export async function signOut() {
   await supabase.auth.signOut();
 }
@@ -110,7 +117,7 @@ export async function loadHouseholdData(householdId) {
   votesRes.data.forEach((v) => { (votesByGoal[v.goal_id] ||= {})[v.member_id] = v.priority; });
   const goals = goalsRes.data.map((g) => ({
     id: g.id, name: g.name, targetAmount: Number(g.target_amount), currentAmount: Number(g.current_amount),
-    targetDate: g.target_date, votes: votesByGoal[g.id] || {},
+    targetDate: g.target_date, votes: votesByGoal[g.id] || {}, ownerMemberId: g.owner_member_id,
   }));
   const budgets = budgetsRes.data.map((b) => ({ id: b.id, categoryId: b.category_id, limit: Number(b.limit_amount), scope: b.scope }));
 
@@ -120,6 +127,13 @@ export async function loadHouseholdData(householdId) {
 function dbTxToJs(t) {
   if (t.type === 'settlement') {
     return { id: t.id, type: 'settlement', from: t.settlement_from, to: t.settlement_to, amount: Number(t.amount), date: t.date };
+  }
+  if (t.type === 'transfer') {
+    return {
+      id: t.id, type: 'transfer', description: t.description, amount: Number(t.amount),
+      accountId: t.account_id, memberId: t.member_id, date: t.date,
+      goalId: t.goal_id, transferDirection: t.transfer_direction,
+    };
   }
   return {
     id: t.id, type: t.type, description: t.description, amount: Number(t.amount),
@@ -202,7 +216,7 @@ export async function addSettlement(householdId, userId, from, to, amount) {
 export async function addGoal(householdId, goal) {
   const { error } = await supabase.from('goals').insert({
     household_id: householdId, name: goal.name, target_amount: goal.targetAmount,
-    current_amount: 0, target_date: goal.targetDate,
+    current_amount: 0, target_date: goal.targetDate, owner_member_id: goal.ownerMemberId || null,
   });
   if (error) throw error;
 }
@@ -215,14 +229,98 @@ export async function voteGoal(goalId, memberId, priority) {
     .upsert({ goal_id: goalId, member_id: memberId, priority }, { onConflict: 'goal_id,member_id' });
   if (error) throw error;
 }
-export async function contributeGoal(householdId, userId, goal, amount, memberId, accountId, ahorroCategoryId) {
-  await addTransaction(householdId, userId, {
-    type: 'expense', description: `Aporte a "${goal.name}"`, amount, categoryId: ahorroCategoryId,
-    accountId, memberId, date: new Date().toISOString().slice(0, 10), recurring: false, frequency: null,
-    isShared: false, participants: null,
+
+// "Bolsillo": aportar mueve dinero de una cuenta hacia el objetivo como TRANSFERENCIA,
+// no como gasto — no afecta los reportes de ingresos/gastos, pero sí reduce el saldo
+// disponible de la cuenta (igual que retirar dinero de tu bolsillo para guardarlo aparte).
+export async function contributeGoal(householdId, userId, goal, amount, memberId, accountId) {
+  const { error: e1 } = await supabase.from('transactions').insert({
+    household_id: householdId, type: 'transfer', description: `Aporte a "${goal.name}"`, amount,
+    account_id: accountId, member_id: memberId, goal_id: goal.id, transfer_direction: 'deposit',
+    date: new Date().toISOString().slice(0, 10), created_by: userId,
   });
-  const { error } = await supabase.from('goals').update({ current_amount: goal.currentAmount + amount }).eq('id', goal.id);
+  if (e1) throw e1;
+  const { error: e2 } = await supabase.from('goals').update({ current_amount: goal.currentAmount + amount }).eq('id', goal.id);
+  if (e2) throw e2;
+}
+
+// Retirar dinero de un objetivo (individual: directo; familiar: pasa por solicitud/aprobación, ver abajo)
+async function applyGoalWithdraw(householdId, userId, goal, amount, memberId, accountId) {
+  const { error: e1 } = await supabase.from('transactions').insert({
+    household_id: householdId, type: 'transfer', description: `Retiro de "${goal.name}"`, amount,
+    account_id: accountId, member_id: memberId, goal_id: goal.id, transfer_direction: 'withdraw',
+    date: new Date().toISOString().slice(0, 10), created_by: userId,
+  });
+  if (e1) throw e1;
+  const { error: e2 } = await supabase.from('goals').update({ current_amount: Math.max(0, goal.currentAmount - amount) }).eq('id', goal.id);
+  if (e2) throw e2;
+}
+
+export async function editOrWithdrawGoal(householdId, userId, goal, action) {
+  // objetivo individual (o sin dueño explícito, tratado como el propio usuario) -> se aplica directo
+  if (goal.ownerMemberId) {
+    if (action.type === 'edit_target') {
+      const { error } = await supabase.from('goals').update({
+        target_amount: action.newTargetAmount, target_date: action.newTargetDate,
+      }).eq('id', goal.id);
+      if (error) throw error;
+    } else if (action.type === 'withdraw') {
+      await applyGoalWithdraw(householdId, userId, goal, action.withdrawAmount, action.withdrawMemberId, action.withdrawAccountId);
+    }
+    return { immediate: true };
+  }
+  // objetivo familiar -> crea una solicitud que requiere aprobación unánime
+  const { error } = await supabase.from('goal_change_requests').insert({
+    goal_id: goal.id, household_id: householdId, requested_by: userId, change_type: action.type,
+    new_target_amount: action.newTargetAmount ?? null, new_target_date: action.newTargetDate ?? null,
+    withdraw_amount: action.withdrawAmount ?? null, withdraw_account_id: action.withdrawAccountId ?? null,
+    withdraw_member_id: action.withdrawMemberId ?? null,
+  });
   if (error) throw error;
+  return { immediate: false };
+}
+
+export async function loadPendingGoalRequests(householdId) {
+  const { data, error } = await supabase.from('goal_change_requests')
+    .select('*, goals(name, target_amount, target_date, current_amount, owner_member_id), profiles!goal_change_requests_requested_by_fkey(full_name), goal_change_votes(member_id, approve)')
+    .eq('household_id', householdId).eq('status', 'pending').order('created_at');
+  if (error) throw error;
+  return data.map((r) => ({
+    id: r.id, goalId: r.goal_id, changeType: r.change_type,
+    newTargetAmount: r.new_target_amount ? Number(r.new_target_amount) : null, newTargetDate: r.new_target_date,
+    withdrawAmount: r.withdraw_amount ? Number(r.withdraw_amount) : null,
+    withdrawAccountId: r.withdraw_account_id, withdrawMemberId: r.withdraw_member_id,
+    requestedBy: r.requested_by, requestedByName: r.profiles?.full_name || 'Alguien',
+    goalName: r.goals?.name, votes: r.goal_change_votes || [],
+  }));
+}
+
+export async function voteOnGoalRequest(requestId, memberId, approve) {
+  const { error } = await supabase.from('goal_change_votes')
+    .upsert({ request_id: requestId, member_id: memberId, approve }, { onConflict: 'request_id,member_id' });
+  if (error) throw error;
+}
+
+export async function resolveGoalRequestIfReady(householdId, userId, request, householdMemberCount, goal) {
+  const votes = await supabase.from('goal_change_votes').select('member_id, approve').eq('request_id', request.id);
+  if (votes.error) throw votes.error;
+  const rejected = votes.data.some((v) => v.approve === false);
+  const approvedCount = votes.data.filter((v) => v.approve).length;
+
+  if (rejected) {
+    await supabase.from('goal_change_requests').update({ status: 'rejected', resolved_at: new Date().toISOString() }).eq('id', request.id);
+    return 'rejected';
+  }
+  if (approvedCount >= householdMemberCount) {
+    if (request.changeType === 'edit_target') {
+      await supabase.from('goals').update({ target_amount: request.newTargetAmount, target_date: request.newTargetDate }).eq('id', request.goalId);
+    } else if (request.changeType === 'withdraw') {
+      await applyGoalWithdraw(householdId, userId, goal, request.withdrawAmount, request.withdrawMemberId, request.withdrawAccountId);
+    }
+    await supabase.from('goal_change_requests').update({ status: 'approved', resolved_at: new Date().toISOString() }).eq('id', request.id);
+    return 'approved';
+  }
+  return 'pending';
 }
 
 export async function addBudget(householdId, budget) {
@@ -236,11 +334,19 @@ export async function removeBudget(id) {
   if (error) throw error;
 }
 
-export async function addAccount(householdId, account) {
-  const { error } = await supabase.from('accounts').insert({
+export async function addAccount(householdId, userId, account) {
+  const { data: row, error } = await supabase.from('accounts').insert({
     household_id: householdId, name: account.name, type: account.type, owner_ids: account.ownerIds,
-  });
+  }).select().single();
   if (error) throw error;
+  if (account.initialBalance && account.initialBalance > 0) {
+    await supabase.from('transactions').insert({
+      household_id: householdId, type: 'income', description: 'Saldo inicial',
+      amount: account.initialBalance, account_id: row.id, member_id: account.ownerIds?.[0] || userId,
+      date: new Date().toISOString().slice(0, 10), is_shared: account.type === 'shared', created_by: userId,
+    });
+  }
+  return row.id;
 }
 export async function removeAccount(id) {
   const { error } = await supabase.from('accounts').delete().eq('id', id);
@@ -321,10 +427,13 @@ export async function createCredit(householdId, userId, credit) {
     principal: credit.principal, annualRate: credit.annualRate, termMonths: credit.termMonths,
     system: credit.amortizationSystem, insuranceMonthly: credit.insuranceMonthly, startDate: credit.startDate,
   });
+  const alreadyPaid = Math.min(credit.installmentsAlreadyPaid || 0, schedule.length);
   const { error: e2 } = await supabase.from('credit_payments').insert(
-    schedule.map((r) => ({
+    schedule.map((r, i) => ({
       credit_id: row.id, installment_number: r.installmentNumber, due_date: r.dueDate,
       capital: r.capital, interest: r.interest, insurance: r.insurance, total: r.total, balance_after: r.balanceAfter,
+      // las cuotas ya pagadas antes de usar la app se marcan pagadas, sin generar un gasto retroactivo
+      paid: i < alreadyPaid,
     }))
   );
   if (e2) throw e2;
@@ -447,10 +556,14 @@ export async function updateSetting(key, value, userId) {
 
 export async function listAllHouseholdsAdmin() {
   const { data, error } = await supabase.from('households')
-    .select('id, name, currency, created_at, household_members(user_id)');
+    .select('id, name, currency, created_at, household_members(user_id, role, profiles(full_name))');
   if (error) throw error;
   return data
-    .map((h) => ({ id: h.id, name: h.name, currency: h.currency, createdAt: h.created_at, memberCount: h.household_members?.length || 0 }))
+    .map((h) => ({
+      id: h.id, name: h.name, currency: h.currency, createdAt: h.created_at,
+      memberCount: h.household_members?.length || 0,
+      memberNames: (h.household_members || []).map((m) => m.profiles?.full_name || 'Integrante').join(', '),
+    }))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
@@ -518,5 +631,17 @@ export async function upsertNotifications(householdId, rows) {
     })),
     { onConflict: 'household_id,dedupe_key', ignoreDuplicates: true }
   );
+  if (error) throw error;
+}
+
+export async function getUserNotificationPrefs(userId) {
+  const { data, error } = await supabase.from('user_notification_prefs').select('type, enabled').eq('user_id', userId);
+  if (error) throw error;
+  const obj = {};
+  data.forEach((r) => { obj[r.type] = r.enabled; });
+  return obj;
+}
+export async function setUserNotificationPref(userId, type, enabled) {
+  const { error } = await supabase.from('user_notification_prefs').upsert({ user_id: userId, type, enabled }, { onConflict: 'user_id,type' });
   if (error) throw error;
 }

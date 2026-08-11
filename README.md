@@ -130,6 +130,42 @@ Tras una auditoría completa de la app (ver hallazgos abajo), apliqué:
 - Paleta ajustada: ámbar más cálido en vez del dorado apagado, mejor contraste en textos secundarios
 - Instalación en iPhone corregida: ahora detecta iOS/Safari y muestra el paso a paso ("Compartir → Agregar a inicio") directamente en la app, en vez de no mostrar nada
 
+## Fase 4 — Lote de mejoras de UX y funcionalidad
+
+**Cuentas**
+- Mostrar/ocultar contraseña en login, registro y "nueva contraseña"
+- Login con Google (código listo — activa el proveedor en Supabase Auth + configura credenciales en Google Cloud Console)
+
+**Cuentas bancarias y créditos**
+- Saldo inicial al crear una cuenta
+- Créditos que ya están en curso (con cuotas ya pagadas), sin generar gastos retroactivos
+
+**Objetivos como "bolsillo"**
+- Aportar/retirar ahora es una **transferencia**, no un gasto — no cuenta en los reportes de ingresos/gastos, pero sí reduce el saldo disponible de la cuenta
+- Objetivos **individuales** (solo su dueño los ve y controla) vs. **familiares** (todo el hogar los ve y vota)
+- Editar la meta o retirar dinero: individual = confirmación directa; familiar = requiere **aprobación unánime** de todos los integrantes (sección "Solicitudes pendientes" con Aprobar/Rechazar)
+
+**Movimientos**
+- Reparto de gastos compartidos: partes iguales (como antes), **porcentaje personalizado**, o **proporcional a ingresos** (promedio de los últimos 3 meses de cada integrante)
+
+**Presupuestos**
+- Sugerencias automáticas basadas en el promedio de gasto real de los últimos 3 meses, para categorías sin presupuesto configurado, con botón "Usar" para convertirlas en presupuesto real
+
+**Navegación**
+- Menú inferior agrupado en 4 opciones principales + "Más" (máximo 5 botones, sin scroll lateral)
+- Deslizar hacia abajo para actualizar los datos (pull-to-refresh, ya que la PWA instalada no tiene el gesto nativo del navegador)
+
+**Admin**
+- "Hogares en la plataforma" ahora muestra los nombres de los integrantes de cada hogar, no solo el conteo, y maneja errores de carga explícitamente
+- Proveedor de IA ahora tiene la opción "Ninguna" (sincronizada con el interruptor de Registro rápido)
+- Notificaciones parametrizables por tipo, a nivel de toda la plataforma
+
+**UVR**
+- Enlace directo a la fuente oficial del Banco de la República para consultar el valor manualmente
+
+### ⚠️ Vuelve a correr `supabase-schema.sql` completo
+Agrega transferencias tipo "bolsillo", objetivos individuales/familiares, solicitudes de aprobación, y notificaciones parametrizables. Es seguro re-ejecutarlo.
+
 ## Notas técnicas
 - `src/lib/supabaseClient.js` — cliente de Supabase
 - `src/lib/db.js` — toda la lógica de acceso a datos (auth, hogar, invitaciones, CRUD)
