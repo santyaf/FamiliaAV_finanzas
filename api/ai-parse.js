@@ -2,6 +2,9 @@
 //   { provider: 'claude'|'openai'|'gemini', model, system, content: [{type:'text',text} | {type:'image', source:{media_type, data}}] }
 // y siempre devuelve { text: "<respuesta cruda del modelo>" } o { error }.
 // Así el frontend no necesita saber los detalles de cada API.
+// Requiere sesión de Supabase válida — ver _auth.js.
+
+import { requireAuth } from './_auth.js';
 
 async function callClaude({ apiKey, model, system, content }) {
   const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -79,6 +82,8 @@ export default async function handler(req, res) {
     res.status(405).json({ error: 'Método no permitido' });
     return;
   }
+  if (await requireAuth(req, res)) return;
+
   const { provider, model, system, content } = req.body || {};
   const chosen = PROVIDERS[provider] || PROVIDERS.claude;
   const apiKey = process.env[chosen.envKey];

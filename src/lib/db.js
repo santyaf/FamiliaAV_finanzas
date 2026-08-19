@@ -296,32 +296,21 @@ export async function loadPendingGoalRequests(householdId) {
   }));
 }
 
-export async function voteOnGoalRequest(requestId, memberId, approve) {
-  const { error } = await supabase.from('goal_change_votes')
-    .upsert({ request_id: requestId, member_id: memberId, approve }, { onConflict: 'request_id,member_id' });
-  if (error) throw error;
-}
-
-export async function resolveGoalRequestIfReady(householdId, userId, request, householdMemberCount, goal) {
-  const votes = await supabase.from('goal_change_votes').select('member_id, approve').eq('request_id', request.id);
-  if (votes.error) throw votes.error;
-  const rejected = votes.data.some((v) => v.approve === false);
-  const approvedCount = votes.data.filter((v) => v.approve).length;
-
-  if (rejected) {
-    await supabase.from('goal_change_requests').update({ status: 'rejected', resolved_at: new Date().toISOString() }).eq('id', request.id);
-    return 'rejected';
-  }
-  if (approvedCount >= householdMemberCount) {
-    if (request.changeType === 'edit_target') {
-      await supabase.from('goals').update({ target_amount: request.newTargetAmount, target_date: request.newTargetDate }).eq('id', request.goalId);
-    } else if (request.changeType === 'withdraw') {
-      await applyGoalWithdraw(householdId, userId, goal, request.withdrawAmount, request.withdrawMemberId, request.withdrawAccountId);
-    }
-    await supabase.from('goal_change_requests').update({ status: 'approved', resolved_at: new Date().toISOString() }).eq('id', request.id);
-    return 'approved';
-  }
-  return 'pending';
+// Registra el voto del usuario y, si con ese voto se alcanza unanimidad,
+// aplica el cambio (editar meta / retirar dinero) — todo en una sola
+// transacción atómica en la base de datos (función vote_and_resolve_goal_request,
+// FASE 8 de supabase-schema.sql). Antes esto se hacía en dos pasos desde el
+// cliente (voteOnGoalRequest + resolveGoalRequestIfReady) y contaba con un
+// número de integrantes que mandaba el propio navegador — cualquier
+// integrante técnico podía saltarse la aprobación unánime. Ahora la base de
+// datos cuenta los votos reales y aplica el cambio ella misma; el cliente
+// solo dispara la función y refresca.
+export async function voteOnGoalRequest(requestId, approve) {
+  const { data, error } = await supabase.rpc('vote_and_resolve_goal_request', {
+    p_request_id: requestId, p_approve: approve,
+  });
+  if (error) throw new Error(error.message.replace(/^.*: /, ''));
+  return data; // 'approved' | 'rejected' | 'pending'
 }
 
 export async function addBudget(householdId, budget) {
@@ -615,7 +604,10 @@ export async function applyExtraPayment(householdId, userId, credit, payments, e
 /* ---------------------- UVR ---------------------- */
 export async function getLatestUvr() {
   try {
-    const res = await fetch('/api/uvr');
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch('/api/uvr', {
+      headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+    });
     const json = await res.json();
     if (json.error) throw new Error(json.error);
     await supabase.from('uvr_rates').upsert({ date: json.date, value: json.value });

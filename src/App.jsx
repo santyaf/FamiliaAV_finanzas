@@ -871,9 +871,12 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     contributeGoal: wrap((goal, amount, memberId, accountId) => db.contributeGoal(household.householdId, session.user.id, goal, amount, memberId, accountId)),
     editOrWithdrawGoal: wrap((goal, action) => db.editOrWithdrawGoal(household.householdId, session.user.id, goal, action)),
     loadPendingGoalRequests: () => db.loadPendingGoalRequests(household.householdId),
+    // El conteo de votos y la aplicación del cambio ahora ocurren dentro de
+    // la base de datos (vote_and_resolve_goal_request, FASE 8 del esquema),
+    // no en el cliente — ver db.js. `goal` ya no hace falta aquí, se deja el
+    // parámetro para no tener que tocar los sitios que llaman a esta acción.
     voteOnGoalRequest: async (request, goal, approve) => {
-      await db.voteOnGoalRequest(request.id, session.user.id, approve);
-      await db.resolveGoalRequestIfReady(household.householdId, session.user.id, request, data.members.length, goal);
+      await db.voteOnGoalRequest(request.id, approve);
       await refresh();
     },
     addBudget: wrap((b) => db.addBudget(household.householdId, b)),
@@ -1541,9 +1544,13 @@ function stripJsonFences(text) {
 }
 
 async function callAI({ system, content, provider, model }) {
+  const { data: { session } } = await supabase.auth.getSession();
   const response = await fetch('/api/ai-parse', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+    },
     body: JSON.stringify({ provider, model, system, content }),
   });
   const json = await response.json();

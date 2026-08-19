@@ -3,8 +3,13 @@
 // No se pudo confirmar con 100% de certeza el nombre exacto de las columnas
 // del JSON, así que se detectan por heurística en vez de asumir nombres fijos.
 // Si algo fallara, el frontend cae a valores en caché (uvr_rates) o entrada manual.
+// Requiere sesión de Supabase válida — ver _auth.js (evita que cualquiera use
+// este endpoint como proxy anónimo, aunque el dato en sí sea público).
+
+import { requireAuth } from './_auth.js';
 
 export default async function handler(req, res) {
+  if (await requireAuth(req, res)) return;
   try {
     const response = await fetch('https://www.datos.gov.co/resource/mtic-nvgq.json?$order=:id%20DESC&$limit=5');
     if (!response.ok) throw new Error(`Respuesta ${response.status} del portal de datos abiertos`);
