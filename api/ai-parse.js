@@ -51,7 +51,7 @@ async function callGemini({ apiKey, model, system, content }) {
     return null;
   }).filter(Boolean);
 
-  const modelName = model || 'gemini-2.0-flash';
+  const modelName = model || 'gemini-3.6-flash';
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`,
     {

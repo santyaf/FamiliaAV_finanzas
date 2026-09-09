@@ -938,8 +938,8 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
 /* ---------------------------------------------------------------------- */
 const TABS = [
   { id: 'dashboard', label: 'Inicio', icon: Home },
-  { id: 'rapido', label: 'Registro rápido', icon: MessageCircle, requiresQuickCapture: true },
   { id: 'movimientos', label: 'Movimientos', icon: List },
+  { id: 'rapido', label: 'Registro rápido', icon: MessageCircle, requiresQuickCapture: true },
   { id: 'creditos', label: 'Créditos', icon: CreditCard },
   { id: 'objetivos', label: 'Objetivos', icon: Target },
   { id: 'presupuestos', label: 'Presupuestos', icon: PiggyBank },
@@ -949,21 +949,25 @@ const TABS = [
   { id: 'admin', label: 'Admin', icon: ShieldAlert, requiresAdmin: true },
 ];
 // Máximo 5 botones visibles en el nav inferior (evita el scroll lateral incómodo en
-// celular) — el resto queda agrupado detrás de "Más".
-const PRIMARY_TAB_IDS = ['dashboard', 'movimientos', 'creditos', 'objetivos'];
+// celular) — el resto queda agrupado detrás de "Más". Cuando el Registro rápido está
+// activado ocupa el 3er lugar (después de Movimientos, antes de Créditos) y Objetivos
+// pasa a "Más" para no superar los 5 botones.
+const PRIMARY_TAB_IDS_BASE = ['dashboard', 'movimientos', 'creditos', 'objetivos'];
+const PRIMARY_TAB_IDS_WITH_QUICK = ['dashboard', 'movimientos', 'rapido', 'creditos'];
 
 function MainApp({ data, update, actions }) {
   const [tab, setTab] = useState('dashboard');
   const [modal, setModal] = useState(null); // {type: 'transaction'|'goal'|'invite'|'account'|'budget'|'vote'|'contribute'|'category', payload}
 
   const quickCaptureEnabled = data.settings?.quick_capture_enabled !== false;
+  const primaryTabIds = quickCaptureEnabled ? PRIMARY_TAB_IDS_WITH_QUICK : PRIMARY_TAB_IDS_BASE;
   const visibleTabs = TABS.filter((t) => {
     if (t.requiresAdmin && !data.isPlatformAdmin) return false;
     if (t.requiresQuickCapture && !quickCaptureEnabled) return false;
     return true;
   });
-  const primaryTabs = visibleTabs.filter((t) => PRIMARY_TAB_IDS.includes(t.id));
-  const overflowTabs = visibleTabs.filter((t) => !PRIMARY_TAB_IDS.includes(t.id));
+  const primaryTabs = visibleTabs.filter((t) => primaryTabIds.includes(t.id));
+  const overflowTabs = visibleTabs.filter((t) => !primaryTabIds.includes(t.id));
   const isOverflowActive = overflowTabs.some((t) => t.id === tab);
 
   const currency = data.currency;
@@ -3746,7 +3750,7 @@ const AI_PROVIDERS = [
   { id: 'none', label: 'Ninguna (Registro rápido desactivado)', defaultModel: null },
   { id: 'claude', label: 'Claude (Anthropic)', defaultModel: 'claude-sonnet-4-6' },
   { id: 'openai', label: 'ChatGPT (OpenAI)', defaultModel: 'gpt-4o-mini' },
-  { id: 'gemini', label: 'Gemini (Google)', defaultModel: 'gemini-2.0-flash' },
+  { id: 'gemini', label: 'Gemini (Google)', defaultModel: 'gemini-3.6-flash' },
 ];
 const NOTIFICATION_TYPE_LABELS = {
   notif_budget_projection_enabled: 'Proyección temprana de presupuesto',
