@@ -18,6 +18,8 @@
 // se parsea el XML con expresiones regulares (el XML es generado por máquina
 // y su estructura es estable).
 
+import { requireAuth } from './_auth.js';
+
 const SDMX_BASE = 'https://totoro.banrep.gov.co/nsi-jax-ws/rest/data';
 const HEADERS = {
   // el servidor tiene detección de bots (perfdrive); un User-Agent de
@@ -55,6 +57,8 @@ async function fetchFlow(flowId, params = '') {
 }
 
 export default async function handler(req, res) {
+  if (await requireAuth(req, res)) return;
+
   try {
     let obs = [];
     try {
