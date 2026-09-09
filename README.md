@@ -16,10 +16,23 @@
 4. (Opcional pero recomendado mientras pruebas) En **Authentication → Providers → Email**, puedes desactivar temporalmente "Confirm email" para no depender de la bandeja de correo durante las pruebas.
 
 ## 2. Variables de entorno
-Copia `.env.example` a `.env.local` para desarrollo local, y agrega las mismas variables en **Vercel → Settings → Environment Variables**:
-- `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_ANON_KEY`
-- `ANTHROPIC_API_KEY` (solo para el Registro rápido con IA)
+Copia `.env.example` a `.env.local` para desarrollo local, y agrega las mismas
+variables en **Vercel → Settings → Environment Variables**. `.env.example` tiene
+el detalle de cada una; el resumen:
+
+| Variable | Obligatoria | Dónde |
+|---|---|---|
+| `VITE_SUPABASE_URL` | sí | Vercel + `.env.local` |
+| `VITE_SUPABASE_ANON_KEY` | sí | Vercel + `.env.local` |
+| `SUPABASE_SERVICE_ROLE_KEY` | sí (recordatorios) | **solo Vercel** — secreta |
+| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_API_KEY` | opcional (Registro rápido) | solo Vercel — la del proveedor que uses |
+| `VITE_VAPID_PUBLIC_KEY` | sí (push, Fase 9) | Vercel + `.env.local` |
+| `VAPID_PRIVATE_KEY` | sí (push, Fase 9) | **solo Vercel** — secreta |
+| `REMINDER_CRON_SECRET` | sí (push, Fase 9) | Vercel **y** GitHub Actions secret |
+
+Además, en **GitHub → repo → Settings → Secrets and variables → Actions**:
+`VERCEL_APP_URL` (la URL de tu app, sin `/` final) y `REMINDER_CRON_SECRET`
+(el mismo valor que pusiste en Vercel). Ver la sección "Fase 9" más abajo.
 
 ## 3. Desarrollo local
 ```bash
