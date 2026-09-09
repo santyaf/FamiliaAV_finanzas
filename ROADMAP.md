@@ -28,14 +28,15 @@ Sin esto, cada fase siguiente es más lenta y más riesgosa.
 
 | Ítem | Por qué | Esfuerzo |
 |---|---|---|
-| ~~**Re-proteger `/api/ai-parse` y `/api/uvr`**~~ ✅ hecho | Ya exigen sesión de Supabase (`requireAuth`). Pendiente opcional: rate-limit por usuario además de la auth. | — |
-| **Tests de la lógica pura** | `amortization.js`, `computeBalances`, `simplifyDebts`, `computeIncomeShares`, `buildNotificationCandidates`, `getNextOccurrence` — es donde un bug cuesta plata real. Vitest, sin tocar UI. | M |
-| **Partir `App.jsx` (3.978 líneas)** | Un archivo así frena cada cambio y confunde a cualquier colaborador (humano o IA). Separar por sección: `sections/`, `components/`, `lib/`. | M |
+| ~~**Re-proteger `/api/ai-parse` y `/api/uvr`**~~ ✅ | Ya exigen sesión de Supabase (`requireAuth`). Pendiente opcional: rate-limit por usuario además de la auth. | — |
+| **Tests de la lógica pura** 🟡 en progreso | ✅ `amortization.js` + `finance.js` (`computeBalances`, `simplifyDebts`, `computeIncomeShares`, `getNextOccurrence`, `occurrencesInMonth`, `goalPriorityScore`) con ~40 casos Vitest. Falta: `buildNotificationCandidates`. | M |
+| **Partir `App.jsx` (3.978 líneas)** 🟡 empezado | ✅ Extraídas las funciones puras de cálculo a `src/lib/finance.js`. Falta: separar las ~30 secciones de UI en `src/sections/` y los componentes compartidos en `src/components/`. | M |
 | **Routing real con deep-links** | Hoy la pestaña vive en `useState`: no hay URL por sección, el botón "atrás" del celular sale de la app, no se puede compartir un enlace a "Créditos". `react-router` o un router hash liviano. | M |
-| **Error boundary + reporte de errores** | Hoy un error de render deja pantalla en blanco sin rastro. Sentry (free tier) + un fallback amable. | S |
-| **CI en cada PR** | lint + build + tests antes de mergear. GitHub Actions (ya tienes el workflow de recordatorios, es agregar otro). | S |
+| ~~**Error boundary**~~ ✅ | `src/components/ErrorBoundary.jsx` — ante un error de render muestra "Recargar" en vez de pantalla en blanco. Pendiente: enganchar Sentry (free tier) en `componentDidCatch`. | S |
+| **CI en cada push/PR** 🟡 listo, falta activar | `.github/workflows/ci.yml` corre `npm test` + `npm run build`. **Requiere activar GitHub Actions** en Settings → Actions del repo (igual que el workflow de recordatorios). | S |
 | **Cola offline de escrituras** | La app se usa "en la calle". Hoy si no hay señal, guardar un movimiento falla en silencio. IndexedDB + reintento al recuperar conexión. | L |
 | **Migraciones versionadas** | Hoy el esquema se aplica corriendo `supabase-schema.sql` completo a mano. Pasar a `supabase/migrations/*.sql` numeradas (como ya lo hace el otro proyecto del repo). | M |
+| **`package-lock.json`** | El repo no tiene lockfile → los builds no son 100% reproducibles. Generar uno (`npm install`) y commitearlo; luego el CI puede usar `npm ci`. | S |
 
 ---
 
