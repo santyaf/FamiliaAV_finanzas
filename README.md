@@ -196,6 +196,56 @@ Agregué la casilla "Esta transferencia salda una deuda de gastos compartidos" e
 - Las transferencias entre integrantes ahora se pueden **eliminar** desde Movimientos. Como todos los balances se calculan en vivo (nada queda guardado por separado), al borrarla el dinero automáticamente "vuelve" al balance de quien la envió — no hace falta ningún paso extra.
 - El bloque **"Según la vista seleccionada"** del Dashboard (el que cambia con el toggle Unificado/Individual) ahora sí incluye el efecto de las transferencias cuando estás viendo a un integrante específico — antes solo se veía en "Mis finanzas personales", no ahí. En vista Unificada se sigue excluyendo a propósito, porque entre dos integrantes del mismo hogar el efecto neto es cero para el hogar completo.
 
+## Fase 9 — Notificaciones push: recordatorios parametrizables
+
+Cada usuario puede crear **varios** recordatorios ("Registrar mis gastos", "Revisar el presupuesto"...), cada uno con su propia hora, días de la semana, y activar/desactivar — desde Ajustes → Recordatorios. Funcionan aunque la app esté cerrada.
+
+### Por qué esto necesitó más que solo código
+
+Vercel, en el plan gratis (Hobby), **solo permite correr su cron nativo una vez al día**, con hasta una hora de margen de error. Eso no sirve para que cada usuario elija su hora exacta. La solución: un **workflow de GitHub Actions** (gratis, ya en tu repo) que llama cada 5 minutos a una función en tu Vercel, la cual revisa qué recordatorios están vencidos (según la hora local de cada usuario) y envía las notificaciones.
+
+### 1. Genera tus propias claves VAPID (obligatorias para Web Push)
+
+Ya te di un par funcional en `.env.example`, pero **genera las tuyas** para producción (son gratis y toma un minuto):
+```bash
+npx web-push generate-vapid-keys
+```
+
+### 2. Variables de entorno en Vercel
+Agrega estas 4 (ver `.env.example` para más detalle de cada una):
+- `VITE_VAPID_PUBLIC_KEY`
+- `VAPID_PRIVATE_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY` — la sacas de Supabase → Settings → API → `service_role` (⚠️ nunca la pongas con prefijo `VITE_`, esa sí se expone al navegador)
+- `REMINDER_CRON_SECRET` — invéntate una clave larga y aleatoria
+
+### 3. Secrets en GitHub (para el workflow)
+En tu repo → Settings → Secrets and variables → Actions, agrega:
+- `VERCEL_APP_URL` — la URL de tu app, ej. `https://tuapp.vercel.app` (sin `/` al final)
+- `REMINDER_CRON_SECRET` — el mismo valor exacto que pusiste en Vercel
+
+### 4. Corre `supabase-schema.sql` completo de nuevo
+Agrega las tablas `push_subscriptions`, `reminder_schedules` y `reminder_sent_log`.
+
+### 5. Probar
+- En la app, ve a Ajustes → Recordatorios → "Activar notificaciones push" (el navegador te va a pedir permiso)
+- Crea un recordatorio para dentro de unos minutos
+- En GitHub → pestaña **Actions** → "Enviar recordatorios push" → **Run workflow** (botón manual, no hace falta esperar los 5 minutos) para probarlo ya mismo
+
+### Limitaciones honestas que debes saber
+- Los workflows programados de GitHub Actions son "mejor esfuerzo" — pueden atrasarse varios minutos en momentos de mucha carga en GitHub, no son exactos al segundo
+- GitHub **desactiva automáticamente** los workflows programados si el repositorio no tiene actividad (commits) por 60 días — si notas que dejaron de llegar recordatorios después de un tiempo sin tocar el código, entra a la pestaña Actions y reactívalo manualmente
+- Safari en iPhone soporta Web Push solo si la app está **instalada** en la pantalla de inicio (no funciona desde una pestaña normal del navegador) — asegúrate de haber usado la tarjeta "Instalar app" antes de activar los recordatorios en iPhone
+
+## Fase 10 — Guardas a nivel de base de datos para objetivos familiares
+
+Al ejecutar el SQL directamente contra tu proyecto (por primera vez en esta conversación, vía conexión a Supabase), encontré funciones que ya existían en tu base pero no en este archivo — alguien las agregó por fuera de este flujo. Las documenté aquí y actualicé el código para ser compatible:
+
+- `guard_family_goal_changes` / `guard_family_goal_withdraw_tx`: triggers que bloquean, a nivel de base de datos, cualquier intento de editar la meta o retirar dinero de un objetivo **familiar** sin pasar por una solicitud aprobada — una segunda capa de protección además de la que ya existía en la app
+- `vote_and_resolve_goal_request(request_id, approve)`: función que vota y resuelve en una sola transacción atómica (evita condiciones de carrera). **Reemplacé el flujo anterior de dos pasos en `db.js`/`App.jsx` por esta función**, porque los triggers de arriba bloqueaban el enfoque anterior
+- `rls_auto_enable`: activa RLS automáticamente en cualquier tabla nueva que se cree, como red de seguridad extra
+
+También corregí la alerta de seguridad "Function Search Path Mutable" fijando `search_path` en las 10 funciones que la tenían mutable.
+
 ## Notas técnicas
 - `src/lib/supabaseClient.js` — cliente de Supabase
 - `src/lib/db.js` — toda la lógica de acceso a datos (auth, hogar, invitaciones, CRUD)

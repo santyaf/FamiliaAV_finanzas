@@ -1,0 +1,16 @@
+name: Enviar recordatorios push
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch: {}   # permite dispararlo manualmente desde la pestaña Actions, para probar
+
+jobs:
+  send-reminders:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Llamar a la función de recordatorios en Vercel
+        run: |
+          curl -sf -X POST "${{ secrets.VERCEL_APP_URL }}/api/send-reminders" \
+            -H "Authorization: Bearer ${{ secrets.REMINDER_CRON_SECRET }}" \
+            || echo "La llamada falló — revisa los secrets del repo o los logs de Vercel."

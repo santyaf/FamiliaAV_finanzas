@@ -6,7 +6,8 @@ import {
   MessageCircle, Camera, Loader2, Image as ImageIcon, Info, LogOut, QrCode, Copy, UserPlus, History, CreditCard, Percent, ShieldCheck,
   ShieldAlert, ToggleLeft, ToggleRight, Bot, Bell,
   Briefcase, Receipt, Utensils, Car, HeartPulse, GraduationCap, Film, Shirt, Lightbulb, Minus, Tag,
-  Eye, EyeOff, ExternalLink, MoreHorizontal, ThumbsUp, ThumbsDown, Users2
+  Eye, EyeOff, ExternalLink, MoreHorizontal, ThumbsUp, ThumbsDown, Users2,
+  BellRing, BellOff, Clock
 } from 'lucide-react';
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -129,6 +130,13 @@ function addOneYear(dateStr) {
   d.setDate(d.getDate() - 1);
   return d.toISOString().slice(0, 10);
 }
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
+}
+const DAY_LABELS = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
 
 function getNextOccurrence(t) {
   const today = new Date(todayISO() + 'T00:00:00');
@@ -871,13 +879,10 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     contributeGoal: wrap((goal, amount, memberId, accountId) => db.contributeGoal(household.householdId, session.user.id, goal, amount, memberId, accountId)),
     editOrWithdrawGoal: wrap((goal, action) => db.editOrWithdrawGoal(household.householdId, session.user.id, goal, action)),
     loadPendingGoalRequests: () => db.loadPendingGoalRequests(household.householdId),
-    // El conteo de votos y la aplicación del cambio ahora ocurren dentro de
-    // la base de datos (vote_and_resolve_goal_request, FASE 8 del esquema),
-    // no en el cliente — ver db.js. `goal` ya no hace falta aquí, se deja el
-    // parámetro para no tener que tocar los sitios que llaman a esta acción.
-    voteOnGoalRequest: async (request, goal, approve) => {
-      await db.voteOnGoalRequest(request.id, approve);
+    voteOnGoalRequest: async (request, approve) => {
+      const status = await db.voteAndResolveGoalRequest(request.id, approve);
       await refresh();
+      return status;
     },
     addBudget: wrap((b) => db.addBudget(household.householdId, b)),
     removeBudget: wrap((id) => db.removeBudget(id)),
@@ -912,6 +917,13 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     listPlatformAdmins: () => db.listPlatformAdmins(),
     promoteToAdmin: (email) => db.promoteToAdmin(email),
     removeAdmin: (userId) => db.removeAdmin(userId),
+    // notificaciones push / recordatorios
+    savePushSubscription: (sub) => db.savePushSubscription(session.user.id, sub),
+    removePushSubscription: (endpoint) => db.removePushSubscription(endpoint),
+    loadReminderSchedules: () => db.loadReminderSchedules(session.user.id),
+    addReminderSchedule: (schedule) => db.addReminderSchedule(session.user.id, schedule),
+    updateReminderSchedule: (id, patch) => db.updateReminderSchedule(id, patch),
+    removeReminderSchedule: (id) => db.removeReminderSchedule(id),
     // notificaciones
     markNotificationRead: async (id) => { await db.markNotificationRead(id); await refreshNotifications(); },
     markAllNotificationsRead: async () => { await db.markAllNotificationsRead(household.householdId, session.user.id); await refreshNotifications(); },
@@ -1068,6 +1080,7 @@ function MainApp({ data, update, actions }) {
       {modal?.type === 'editCredit' && <EditCreditModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} onDone={modal.onDone} />}
       {modal?.type === 'creditInsurance' && <CreditInsuranceModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} onDone={modal.onDone} />}
       {modal?.type === 'memberTransfer' && <MemberTransferModal data={data} actions={actions} onClose={() => setModal(null)} />}
+      {modal?.type === 'reminder' && <ReminderModal actions={actions} onClose={() => setModal(null)} onDone={modal.onDone} />}
     </div>
   );
 }
@@ -1544,13 +1557,9 @@ function stripJsonFences(text) {
 }
 
 async function callAI({ system, content, provider, model }) {
-  const { data: { session } } = await supabase.auth.getSession();
   const response = await fetch('/api/ai-parse', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ provider, model, system, content }),
   });
   const json = await response.json();
@@ -2102,8 +2111,8 @@ function Objetivos({ data, actions, setModal }) {
 
   function removeGoal(id) { actions.removeGoal(id); }
 
-  async function vote(request, goal, approve) {
-    await actions.voteOnGoalRequest(request, goal, approve);
+  async function vote(request, approve) {
+    await actions.voteOnGoalRequest(request, approve);
     await refreshRequests();
   }
 
@@ -2121,7 +2130,6 @@ function Objetivos({ data, actions, setModal }) {
         <Card style={{ marginBottom: 16, background: T.amberSoft, border: 'none' }}>
           <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: T.ink }} className="mb-2">Solicitudes pendientes de aprobación</p>
           {requests.map((r) => {
-            const goal = data.goals.find((g) => g.id === r.goalId);
             const already = r.votes.find((v) => v.member_id === myId);
             return (
               <div key={r.id} className="rounded-xl p-3 mb-2" style={{ background: T.surface }}>
@@ -2132,10 +2140,10 @@ function Objetivos({ data, actions, setModal }) {
                 <p style={{ fontSize: 11, color: T.inkSoft }} className="mb-2">{r.votes.filter((v) => v.approve).length}/{data.members.length} aprobaciones — se necesita unanimidad</p>
                 {already ? (
                   <p style={{ fontSize: 11.5, color: T.teal }}>Ya {already.approve ? 'aprobaste' : 'rechazaste'} esta solicitud</p>
-                ) : goal && (
+                ) : (
                   <div className="flex gap-2">
-                    <GhostButton onClick={() => vote(r, goal, false)} style={{ flex: 1, fontSize: 12, padding: '7px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><ThumbsDown size={13} /> Rechazar</GhostButton>
-                    <PrimaryButton onClick={() => vote(r, goal, true)} style={{ flex: 1, fontSize: 12, padding: '7px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><ThumbsUp size={13} /> Aprobar</PrimaryButton>
+                    <GhostButton onClick={() => vote(r, false)} style={{ flex: 1, fontSize: 12, padding: '7px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><ThumbsDown size={13} /> Rechazar</GhostButton>
+                    <PrimaryButton onClick={() => vote(r, true)} style={{ flex: 1, fontSize: 12, padding: '7px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><ThumbsUp size={13} /> Aprobar</PrimaryButton>
                   </div>
                 )}
               </div>
@@ -3435,6 +3443,143 @@ function InstallAppCard() {
   );
 }
 
+function RemindersCard({ actions, setModal }) {
+  const [permission, setPermission] = useState(typeof Notification !== 'undefined' ? Notification.permission : 'unsupported');
+  const [subscribing, setSubscribing] = useState(false);
+  const [schedules, setSchedules] = useState(null);
+  const [error, setError] = useState('');
+
+  async function refresh() {
+    setSchedules(await actions.loadReminderSchedules());
+  }
+  useEffect(() => { refresh(); }, []);
+
+  async function enablePush() {
+    setSubscribing(true); setError('');
+    try {
+      if (typeof Notification === 'undefined' || !('serviceWorker' in navigator)) {
+        throw new Error('Este navegador no soporta notificaciones push.');
+      }
+      const perm = await Notification.requestPermission();
+      setPermission(perm);
+      if (perm !== 'granted') throw new Error('No diste permiso para las notificaciones.');
+      const reg = await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(import.meta.env.VITE_VAPID_PUBLIC_KEY),
+        });
+      }
+      await actions.savePushSubscription(sub.toJSON());
+    } catch (e) {
+      setError(e.message || 'No se pudo activar las notificaciones.');
+    } finally {
+      setSubscribing(false);
+    }
+  }
+
+  async function toggleSchedule(s) {
+    await actions.updateReminderSchedule(s.id, { enabled: !s.enabled });
+    await refresh();
+  }
+  async function removeSchedule(id) {
+    await actions.removeReminderSchedule(id);
+    await refresh();
+  }
+
+  return (
+    <Card style={{ marginBottom: 14 }}>
+      <div className="flex items-center gap-2 mb-1">
+        <BellRing size={16} color={T.ink} />
+        <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: T.ink }}>Recordatorios</p>
+      </div>
+      <p style={{ fontSize: 11.5, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-3">Notificaciones push para que no se te olvide registrar tus movimientos — funcionan aunque tengas la app cerrada.</p>
+
+      {permission !== 'granted' && (
+        <GhostButton full onClick={enablePush} style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+          <BellRing size={14} /> {subscribing ? 'Activando…' : 'Activar notificaciones push en este dispositivo'}
+        </GhostButton>
+      )}
+      {permission === 'denied' && (
+        <p style={{ fontSize: 11, color: T.danger, fontFamily: FONT_BODY }} className="mb-3">Bloqueaste las notificaciones para este sitio — actívalas desde la configuración del navegador para poder usar recordatorios.</p>
+      )}
+      {error && <p style={{ fontSize: 11.5, color: T.danger, fontFamily: FONT_BODY }} className="mb-3">{error}</p>}
+
+      {schedules?.map((s) => (
+        <div key={s.id} className="flex items-center justify-between rounded-xl p-2.5 mb-2" style={{ background: s.enabled ? T.tealSoft : T.bg }}>
+          <div>
+            <p style={{ fontSize: 13, color: T.ink, fontFamily: FONT_BODY, fontWeight: 500 }}>{s.label}</p>
+            <p style={{ fontSize: 10.5, color: T.inkSoft }}>
+              {s.timeOfDay} · {s.daysOfWeek.length === 7 ? 'Todos los días' : s.daysOfWeek.map((d) => DAY_LABELS[d]).join(' ')}
+            </p>
+          </div>
+          <div className="flex items-center gap-1">
+            <IconButton icon={s.enabled ? BellRing : BellOff} size={16} onClick={() => toggleSchedule(s)} color={s.enabled ? T.teal : T.inkSoft} label={s.enabled ? 'Desactivar' : 'Activar'} />
+            <IconButton icon={Trash2} variant="danger" size={14} onClick={() => removeSchedule(s.id)} confirmMessage="¿Eliminar este recordatorio?" label="Eliminar recordatorio" />
+          </div>
+        </div>
+      ))}
+
+      <GhostButton full onClick={() => setModal({ type: 'reminder', onDone: refresh })} style={{ marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+        <Plus size={14} /> Nuevo recordatorio
+      </GhostButton>
+    </Card>
+  );
+}
+
+function ReminderModal({ actions, onClose, onDone }) {
+  const [label, setLabel] = useState('Registrar movimientos');
+  const [time, setTime] = useState('20:00');
+  const [days, setDays] = useState([0, 1, 2, 3, 4, 5, 6]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+  function toggleDay(d) {
+    setDays((prev) => prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort());
+  }
+
+  async function save() {
+    if (!days.length) { setError('Elige al menos un día.'); return; }
+    setSaving(true); setError('');
+    try {
+      await actions.addReminderSchedule({ label: label.trim() || 'Registrar movimientos', timeOfDay: time, timezone, daysOfWeek: days });
+      onDone?.();
+      onClose();
+    } catch (e) {
+      setError(e.message || 'No se pudo crear el recordatorio.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal title="Nuevo recordatorio" onClose={onClose}>
+      <Field label="Mensaje">
+        <input style={inputStyle} value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Ej. Registrar movimientos" />
+      </Field>
+      <Field label="Hora (tu zona horaria detectada es esta)">
+        <input style={inputStyle} type="time" value={time} onChange={(e) => setTime(e.target.value)} />
+      </Field>
+      <p style={{ fontSize: 10.5, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-2">Zona horaria: <span style={{ fontFamily: FONT_MONO }}>{timezone}</span></p>
+      <Field label="Días">
+        <div className="flex gap-1.5">
+          {DAY_LABELS.map((label, i) => (
+            <button key={i} type="button" onClick={() => toggleDay(i)}
+              className="flex items-center justify-center rounded-full"
+              style={{ width: 36, height: 36, background: days.includes(i) ? T.teal : T.bg, border: `1px solid ${days.includes(i) ? T.teal : T.border}` }}>
+              <span style={{ fontSize: 12.5, color: days.includes(i) ? '#fff' : T.inkSoft, fontWeight: 600 }}>{label}</span>
+            </button>
+          ))}
+        </div>
+      </Field>
+      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+      <PrimaryButton full onClick={save}>{saving ? 'Guardando…' : 'Crear recordatorio'}</PrimaryButton>
+    </Modal>
+  );
+}
+
 function Ajustes({ data, update, actions, setModal }) {
   function removeCategory(id) {
     actions.removeCategory(id);
@@ -3444,6 +3589,7 @@ function Ajustes({ data, update, actions, setModal }) {
       <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: T.ink }} className="mb-3">Ajustes</p>
 
       <InstallAppCard />
+      <RemindersCard actions={actions} setModal={setModal} />
 
       <Card style={{ marginBottom: 14 }}>
         <Field label="Nombre del hogar">

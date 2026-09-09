@@ -296,16 +296,12 @@ export async function loadPendingGoalRequests(householdId) {
   }));
 }
 
-// Registra el voto del usuario y, si con ese voto se alcanza unanimidad,
-// aplica el cambio (editar meta / retirar dinero) — todo en una sola
-// transacción atómica en la base de datos (función vote_and_resolve_goal_request,
-// FASE 8 de supabase-schema.sql). Antes esto se hacía en dos pasos desde el
-// cliente (voteOnGoalRequest + resolveGoalRequestIfReady) y contaba con un
-// número de integrantes que mandaba el propio navegador — cualquier
-// integrante técnico podía saltarse la aprobación unánime. Ahora la base de
-// datos cuenta los votos reales y aplica el cambio ella misma; el cliente
-// solo dispara la función y refresca.
-export async function voteOnGoalRequest(requestId, approve) {
+// Vota y resuelve en una sola llamada atómica del lado de la base de datos —
+// evita la condición de carrera de votar y luego revisar aparte si ya se
+// puede aplicar, y es la única forma de aplicar el cambio real: la base de
+// datos tiene triggers que bloquean cualquier edición directa a un objetivo
+// familiar que no pase por esta función.
+export async function voteAndResolveGoalRequest(requestId, approve) {
   const { data, error } = await supabase.rpc('vote_and_resolve_goal_request', {
     p_request_id: requestId, p_approve: approve,
   });
@@ -604,10 +600,7 @@ export async function applyExtraPayment(householdId, userId, credit, payments, e
 /* ---------------------- UVR ---------------------- */
 export async function getLatestUvr() {
   try {
-    const { data: { session } } = await supabase.auth.getSession();
-    const res = await fetch('/api/uvr', {
-      headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
-    });
+    const res = await fetch('/api/uvr');
     const json = await res.json();
     if (json.error) throw new Error(json.error);
     await supabase.from('uvr_rates').upsert({ date: json.date, value: json.value });
@@ -735,5 +728,59 @@ export async function getUserNotificationPrefs(userId) {
 }
 export async function setUserNotificationPref(userId, type, enabled) {
   const { error } = await supabase.from('user_notification_prefs').upsert({ user_id: userId, type, enabled }, { onConflict: 'user_id,type' });
+  if (error) throw error;
+}
+
+/* ---------------------------------------------------------------------- */
+/* NOTIFICACIONES PUSH — RECORDATORIOS PARAMETRIZABLES POR USUARIO         */
+/* ---------------------------------------------------------------------- */
+export async function savePushSubscription(userId, subscription) {
+  const { error } = await supabase.from('push_subscriptions').upsert({
+    user_id: userId, endpoint: subscription.endpoint,
+    p256dh: subscription.keys.p256dh, auth: subscription.keys.auth,
+  }, { onConflict: 'endpoint' });
+  if (error) throw error;
+}
+
+export async function removePushSubscription(endpoint) {
+  const { error } = await supabase.from('push_subscriptions').delete().eq('endpoint', endpoint);
+  if (error) throw error;
+}
+
+export async function hasPushSubscription(userId, endpoint) {
+  const { data, error } = await supabase.from('push_subscriptions').select('id').eq('user_id', userId).eq('endpoint', endpoint).maybeSingle();
+  if (error) throw error;
+  return !!data;
+}
+
+export async function loadReminderSchedules(userId) {
+  const { data, error } = await supabase.from('reminder_schedules').select('*').eq('user_id', userId).order('time_of_day');
+  if (error) throw error;
+  return data.map((r) => ({
+    id: r.id, label: r.label, timeOfDay: r.time_of_day, timezone: r.timezone,
+    daysOfWeek: r.days_of_week, enabled: r.enabled,
+  }));
+}
+
+export async function addReminderSchedule(userId, schedule) {
+  const { error } = await supabase.from('reminder_schedules').insert({
+    user_id: userId, label: schedule.label, time_of_day: schedule.timeOfDay,
+    timezone: schedule.timezone, days_of_week: schedule.daysOfWeek,
+  });
+  if (error) throw error;
+}
+
+export async function updateReminderSchedule(id, patch) {
+  const dbPatch = {};
+  if ('label' in patch) dbPatch.label = patch.label;
+  if ('timeOfDay' in patch) dbPatch.time_of_day = patch.timeOfDay;
+  if ('daysOfWeek' in patch) dbPatch.days_of_week = patch.daysOfWeek;
+  if ('enabled' in patch) dbPatch.enabled = patch.enabled;
+  const { error } = await supabase.from('reminder_schedules').update(dbPatch).eq('id', id);
+  if (error) throw error;
+}
+
+export async function removeReminderSchedule(id) {
+  const { error } = await supabase.from('reminder_schedules').delete().eq('id', id);
   if (error) throw error;
 }
