@@ -49,8 +49,9 @@ export default async function handler(req, res) {
   const supabase = createClient(process.env.VITE_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
   try {
+    // El "subject" del JWT VAPID: Apple exige un mailto: o una URL https válida.
     webpush.setVapidDetails(
-      'mailto:soporte@finanzas-del-hogar.app',
+      process.env.VAPID_SUBJECT || 'https://finanzasav.vercel.app',
       process.env.VITE_VAPID_PUBLIC_KEY,
       process.env.VAPID_PRIVATE_KEY,
     );
