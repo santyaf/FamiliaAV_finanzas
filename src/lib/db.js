@@ -600,7 +600,10 @@ export async function applyExtraPayment(householdId, userId, credit, payments, e
 /* ---------------------- UVR ---------------------- */
 export async function getLatestUvr() {
   try {
-    const res = await fetch('/api/uvr');
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch('/api/uvr', {
+      headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+    });
     const json = await res.json();
     if (json.error) throw new Error(json.error);
     await supabase.from('uvr_rates').upsert({ date: json.date, value: json.value });
