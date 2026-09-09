@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # El repo aún no tiene package-lock.json, así que se usa `npm install`
+      # (igual que hace Vercel). Cuando se agregue el lockfile, cambiar a `npm ci`.
+      - name: Instalar dependencias
+        run: npm install --no-audit --no-fund
+
+      - name: Tests
+        run: npm test
+
+      - name: Build de producción
+        run: npm run build

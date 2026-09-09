@@ -12,6 +12,10 @@ import {
 import { supabase } from './lib/supabaseClient';
 import * as db from './lib/db';
 import { annualToMonthlyRate } from './lib/amortization';
+import {
+  todayISO, monthKey, thisMonthKey, daysUntil, getNextOccurrence, occurrencesInMonth,
+  computeIncomeShares, computeBalances, simplifyDebts, goalPriorityScore,
+} from './lib/finance';
 
 /* ---------------------------------------------------------------------- */
 /* TOKENS DE DISEÑO                                                        */
@@ -99,9 +103,6 @@ const STORAGE_KEY = 'hf-data-v1';
 /* UTILIDADES                                                              */
 /* ---------------------------------------------------------------------- */
 const uid = (p) => `${p}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-const todayISO = () => new Date().toISOString().slice(0, 10);
-const monthKey = (d) => (d || todayISO()).slice(0, 7);
-const thisMonthKey = () => monthKey(todayISO());
 
 function formatMoney(amount, currency = 'USD') {
   try {
@@ -114,11 +115,6 @@ function formatDate(d) {
   if (!d) return '';
   const date = new Date(d + 'T00:00:00');
   return date.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' });
-}
-function daysUntil(d) {
-  const today = new Date(todayISO() + 'T00:00:00');
-  const target = new Date(d + 'T00:00:00');
-  return Math.round((target - today) / 86400000);
 }
 function addOneYear(dateStr) {
   const d = new Date(dateStr + 'T00:00:00');
@@ -133,114 +129,12 @@ function urlBase64ToUint8Array(base64String) {
   return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
 }
 const DAY_LABELS = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
-
-function getNextOccurrence(t) {
-  const today = new Date(todayISO() + 'T00:00:00');
-  let d = new Date(t.date + 'T00:00:00');
-  if (t.frequency === 'semanal') {
-    while (d < today) d.setDate(d.getDate() + 7);
-  } else if (t.frequency === 'quincenal') {
-    while (d < today) d.setDate(d.getDate() + 14);
-  } else if (t.frequency === 'anual') {
-    while (d < today) d.setFullYear(d.getFullYear() + 1);
-  } else {
-    // mensual
-    while (d < today) d.setMonth(d.getMonth() + 1);
-  }
-  return d.toISOString().slice(0, 10);
-}
-
-function occurrencesInMonth(t, mKey) {
-  // cuántas veces cae una transacción recurrente en el mes dado
-  if (!t.recurring) return t.date && monthKey(t.date) === mKey ? 1 : 0;
-  const [y, m] = mKey.split('-').map(Number);
-  const start = new Date(t.date + 'T00:00:00');
-  if (t.frequency === 'anual') {
-    return start.getMonth() + 1 === m ? 1 : 0;
-  }
-  if (start > new Date(y, m, 0)) return 0; // aún no inicia ese mes
-  if (t.frequency === 'mensual') return 1;
-  if (t.frequency === 'quincenal') return 2;
-  if (t.frequency === 'semanal') return 4;
-  return 1;
-}
-
-// Reparto "proporcional a ingresos": usa el promedio de ingresos de cada
-// integrante en los últimos 3 meses. Si nadie tiene ingresos registrados,
-// cae de vuelta a partes iguales.
-function computeIncomeShares(transactions, memberIds) {
-  const cutoff = new Date(todayISO() + 'T00:00:00');
-  cutoff.setMonth(cutoff.getMonth() - 3);
-  const totals = {};
-  memberIds.forEach((id) => { totals[id] = 0; });
-  transactions.forEach((t) => {
-    if (t.type !== 'income' || !memberIds.includes(t.memberId)) return;
-    if (new Date(t.date + 'T00:00:00') < cutoff) return;
-    totals[t.memberId] += t.amount;
-  });
-  const sum = Object.values(totals).reduce((a, b) => a + b, 0);
-  if (sum <= 0) {
-    const eq = 100 / memberIds.length;
-    return Object.fromEntries(memberIds.map((id) => [id, eq]));
-  }
-  return Object.fromEntries(memberIds.map((id) => [id, (totals[id] / sum) * 100]));
-}
-
-function computeBalances(transactions, members) {
-  const bal = {};
-  members.forEach((m) => (bal[m.id] = 0));
-  transactions.forEach((t) => {
-    if (t.type === 'settlement') {
-      bal[t.from] = (bal[t.from] || 0) + t.amount;
-      bal[t.to] = (bal[t.to] || 0) - t.amount;
-      return;
-    }
-    // una transferencia entre integrantes (no ligada a un objetivo) también
-    // cuenta como un pago entre ellos, igual que marcar una conciliación como pagada
-    if (t.type === 'transfer' && !t.goalId && t.toMemberId && t.settlesDebt) {
-      bal[t.memberId] = (bal[t.memberId] || 0) + t.amount;
-      bal[t.toMemberId] = (bal[t.toMemberId] || 0) - t.amount;
-      return;
-    }
-    if (t.type === 'expense' && t.isShared && t.participants?.length) {
-      const payerShare = t.participants.find((p) => p.memberId === t.memberId)?.share || 0;
-      bal[t.memberId] = (bal[t.memberId] || 0) + (t.amount - payerShare);
-      t.participants.forEach((p) => {
-        if (p.memberId !== t.memberId) bal[p.memberId] = (bal[p.memberId] || 0) - p.share;
-      });
-    }
-  });
-  return bal;
-}
-
-function simplifyDebts(balances) {
-  const creditors = [];
-  const debtors = [];
-  Object.entries(balances).forEach(([id, v]) => {
-    if (v > 0.5) creditors.push({ id, v });
-    else if (v < -0.5) debtors.push({ id, v: -v });
-  });
-  creditors.sort((a, b) => b.v - a.v);
-  debtors.sort((a, b) => b.v - a.v);
-  const transfers = [];
-  let i = 0, j = 0;
-  while (i < debtors.length && j < creditors.length) {
-    const amt = Math.min(debtors[i].v, creditors[j].v);
-    transfers.push({ from: debtors[i].id, to: creditors[j].id, amount: Math.round(amt * 100) / 100 });
-    debtors[i].v -= amt;
-    creditors[j].v -= amt;
-    if (debtors[i].v < 0.5) i++;
-    if (creditors[j].v < 0.5) j++;
-  }
-  return transfers;
-}
-
-function goalPriorityScore(goal) {
-  const votes = Object.values(goal.votes || {});
-  if (!votes.length) return 2;
-  return votes.reduce((a, b) => a + b, 0) / votes.length;
-}
 const PRIORITY_LABEL = { 3: 'Alta', 2: 'Media', 1: 'Baja' };
+
+// Las funciones puras de cálculo (computeBalances, simplifyDebts,
+// computeIncomeShares, getNextOccurrence, occurrencesInMonth, goalPriorityScore,
+// daysUntil, todayISO/monthKey/thisMonthKey) viven ahora en ./lib/finance.js
+// y se importan arriba — así se pueden probar de forma aislada (ver finance.test.js).
 
 /* ---------------------------------------------------------------------- */
 /* MOTOR DE DETECCIÓN DE ALERTAS (corre en el cliente, una vez por sesión) */
