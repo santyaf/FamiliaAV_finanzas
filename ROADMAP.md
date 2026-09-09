@@ -11,6 +11,7 @@ Estado a 2026-09-09. Continúa la numeración de fases del README (la última fu
 - **Repo al día** — `supabase-schema.sql` y `.env.example` versionados; tabla de variables de entorno en el README.
 - **Registro rápido arreglado** — el modelo `gemini-2.0-flash` fue descontinuado por Google; se cambió a `gemini-3.6-flash` (código + base). Verificado contra producción.
 - **UVR arreglado** — `datos.gov.co` dejó de exponer el dataset como tabla; ahora `api/uvr.js` consulta el servicio SDMX oficial del Banco de la República (`DF_UVR_DAILY_LATEST`, serie CRVU). Verificado: UVR 2026-09-09 = 417.9009.
+- **Endpoints `/api` re-protegidos** — la Fase 9/10 había dejado `/api/ai-parse` y `/api/uvr` sin verificación de sesión (cualquiera con la URL podía gastar la cuota de IA). Vuelven a exigir `Authorization: Bearer <token>` de Supabase. Se eliminó `api/claude.js` (legado, sin auth, sin uso). Verificado: sin token → 401.
 - **Navegación + rendimiento** (rama `rediseno-navegacion`, en preview) — barra inferior de 5: Inicio · Movimientos · Registro rápido · **Gestión** · Ajustes. "Gestión" agrupa Créditos/Objetivos/Presupuestos/Conciliación/Cuentas en un grid con descripción. Admin pasó a Ajustes. Se eliminó `recharts` (bundle de ~923 KB → ~565 KB; gzip 250 KB → 152 KB).
 
 ### Pendiente de configuración (solo el dueño puede hacerlo)
@@ -27,7 +28,7 @@ Sin esto, cada fase siguiente es más lenta y más riesgosa.
 
 | Ítem | Por qué | Esfuerzo |
 |---|---|---|
-| **Re-proteger `/api/ai-parse` y `/api/uvr`** | Fase 9/10 les quitó la verificación de sesión. Hoy cualquiera con la URL puede quemar tu cuota de Gemini/Claude. Volver a exigir sesión de Supabase **o** rate-limit por IP. | S |
+| ~~**Re-proteger `/api/ai-parse` y `/api/uvr`**~~ ✅ hecho | Ya exigen sesión de Supabase (`requireAuth`). Pendiente opcional: rate-limit por usuario además de la auth. | — |
 | **Tests de la lógica pura** | `amortization.js`, `computeBalances`, `simplifyDebts`, `computeIncomeShares`, `buildNotificationCandidates`, `getNextOccurrence` — es donde un bug cuesta plata real. Vitest, sin tocar UI. | M |
 | **Partir `App.jsx` (3.978 líneas)** | Un archivo así frena cada cambio y confunde a cualquier colaborador (humano o IA). Separar por sección: `sections/`, `components/`, `lib/`. | M |
 | **Routing real con deep-links** | Hoy la pestaña vive en `useState`: no hay URL por sección, el botón "atrás" del celular sale de la app, no se puede compartir un enlace a "Créditos". `react-router` o un router hash liviano. | M |
