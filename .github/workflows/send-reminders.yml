@@ -3,14 +3,44 @@ name: Enviar recordatorios push
 on:
   schedule:
     - cron: '*/5 * * * *'
-  workflow_dispatch: {}   # permite dispararlo manualmente desde la pestaña Actions, para probar
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Modo de la corrida manual'
+        type: choice
+        default: normal
+        options: [normal, dry, force]
 
 jobs:
   send-reminders:
     runs-on: ubuntu-latest
     steps:
       - name: Llamar a la función de recordatorios en Vercel
+        env:
+          APP_URL: ${{ secrets.VERCEL_APP_URL }}
+          CRON_SECRET: ${{ secrets.REMINDER_CRON_SECRET }}
+          MODE: ${{ github.event.inputs.mode || 'normal' }}
         run: |
-          curl -sf -X POST "${{ secrets.VERCEL_APP_URL }}/api/send-reminders" \
-            -H "Authorization: Bearer ${{ secrets.REMINDER_CRON_SECRET }}" \
-            || echo "La llamada falló — revisa los secrets del repo o los logs de Vercel."
+          if [ -z "$APP_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "::error::Faltan los secrets VERCEL_APP_URL y/o REMINDER_CRON_SECRET en el repo."
+            exit 1
+          fi
+
+          QS=""
+          [ "$MODE" = "dry" ] && QS="?dry=1"
+          [ "$MODE" = "force" ] && QS="?force=1"
+
+          echo "POST $APP_URL/api/send-reminders$QS"
+          HTTP=$(curl -s -o body.json -w '%{http_code}' -m 30 -X POST \
+            "$APP_URL/api/send-reminders$QS" \
+            -H "Authorization: Bearer $CRON_SECRET")
+
+          echo "HTTP $HTTP"
+          echo "Respuesta:"
+          cat body.json | (jq . 2>/dev/null || cat body.json)
+          echo
+
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::La función respondió $HTTP (ver la respuesta arriba)."
+            exit 1
+          fi
