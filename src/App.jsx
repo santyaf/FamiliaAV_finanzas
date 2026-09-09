@@ -7,12 +7,8 @@ import {
   ShieldAlert, ToggleLeft, ToggleRight, Bot, Bell,
   Briefcase, Receipt, Utensils, Car, HeartPulse, GraduationCap, Film, Shirt, Lightbulb, Minus, Tag,
   Eye, EyeOff, ExternalLink, MoreHorizontal, ThumbsUp, ThumbsDown, Users2,
-  BellRing, BellOff, Clock
+  BellRing, BellOff, Clock, LayoutGrid, ChevronLeft
 } from 'lucide-react';
-import {
-  PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  LineChart, Line, CartesianGrid, Legend
-} from 'recharts';
 import { supabase } from './lib/supabaseClient';
 import * as db from './lib/db';
 import { annualToMonthlyRate } from './lib/amortization';
@@ -936,39 +932,40 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
 /* ---------------------------------------------------------------------- */
 /* MAIN APP                                                                */
 /* ---------------------------------------------------------------------- */
+// Barra inferior: como máximo 5 botones (evita el scroll lateral en celular).
+// "Registro rápido" solo aparece si el hogar lo tiene activado; cuando está
+// desactivado la barra queda con 4. Créditos, Objetivos, Presupuestos,
+// Conciliación y Cuentas ya no están en la barra: viven dentro de "Gestión".
+// Administración vive dentro de Ajustes (solo la ve un superusuario).
 const TABS = [
   { id: 'dashboard', label: 'Inicio', icon: Home },
   { id: 'movimientos', label: 'Movimientos', icon: List },
   { id: 'rapido', label: 'Registro rápido', icon: MessageCircle, requiresQuickCapture: true },
-  { id: 'creditos', label: 'Créditos', icon: CreditCard },
-  { id: 'objetivos', label: 'Objetivos', icon: Target },
-  { id: 'presupuestos', label: 'Presupuestos', icon: PiggyBank },
-  { id: 'conciliacion', label: 'Conciliación', icon: ArrowLeftRight },
-  { id: 'cuentas', label: 'Cuentas', icon: Landmark },
+  { id: 'gestion', label: 'Gestión', icon: LayoutGrid },
   { id: 'ajustes', label: 'Ajustes', icon: Settings },
-  { id: 'admin', label: 'Admin', icon: ShieldAlert, requiresAdmin: true },
 ];
-// Máximo 5 botones visibles en el nav inferior (evita el scroll lateral incómodo en
-// celular) — el resto queda agrupado detrás de "Más". Cuando el Registro rápido está
-// activado ocupa el 3er lugar (después de Movimientos, antes de Créditos) y Objetivos
-// pasa a "Más" para no superar los 5 botones.
-const PRIMARY_TAB_IDS_BASE = ['dashboard', 'movimientos', 'creditos', 'objetivos'];
-const PRIMARY_TAB_IDS_WITH_QUICK = ['dashboard', 'movimientos', 'rapido', 'creditos'];
+
+// Secciones agrupadas dentro de "Gestión" (grid de tarjetas con descripción).
+const GESTION_SECTIONS = [
+  { id: 'creditos', label: 'Créditos', icon: CreditCard, desc: 'Préstamos en COP y UVR: cuotas, amortización, seguros y abonos a capital.' },
+  { id: 'objetivos', label: 'Objetivos', icon: Target, desc: 'Metas de ahorro familiares e individuales, con aprobación del hogar.' },
+  { id: 'presupuestos', label: 'Presupuestos', icon: PiggyBank, desc: 'Límites de gasto por categoría, para todo el hogar o por integrante.' },
+  { id: 'conciliacion', label: 'Conciliación', icon: ArrowLeftRight, desc: 'Quién le debe a quién por los gastos compartidos, y cómo saldar.' },
+  { id: 'cuentas', label: 'Cuentas', icon: Landmark, desc: 'Cuentas bancarias y efectivo, individuales o compartidas.' },
+];
+const GESTION_IDS = GESTION_SECTIONS.map((s) => s.id);
 
 function MainApp({ data, update, actions }) {
   const [tab, setTab] = useState('dashboard');
   const [modal, setModal] = useState(null); // {type: 'transaction'|'goal'|'invite'|'account'|'budget'|'vote'|'contribute'|'category', payload}
 
   const quickCaptureEnabled = data.settings?.quick_capture_enabled !== false;
-  const primaryTabIds = quickCaptureEnabled ? PRIMARY_TAB_IDS_WITH_QUICK : PRIMARY_TAB_IDS_BASE;
-  const visibleTabs = TABS.filter((t) => {
-    if (t.requiresAdmin && !data.isPlatformAdmin) return false;
-    if (t.requiresQuickCapture && !quickCaptureEnabled) return false;
-    return true;
-  });
-  const primaryTabs = visibleTabs.filter((t) => primaryTabIds.includes(t.id));
-  const overflowTabs = visibleTabs.filter((t) => !primaryTabIds.includes(t.id));
-  const isOverflowActive = overflowTabs.some((t) => t.id === tab);
+  const navTabs = TABS.filter((t) => !(t.requiresQuickCapture && !quickCaptureEnabled));
+  // "Gestión" queda resaltado en la barra mientras estés en cualquiera de sus secciones.
+  const inGestion = tab === 'gestion' || GESTION_IDS.includes(tab);
+  const backTo = GESTION_IDS.includes(tab) ? { id: 'gestion', label: 'Gestión' }
+    : tab === 'admin' ? { id: 'ajustes', label: 'Ajustes' }
+    : null;
 
   const currency = data.currency;
   const membersById = useMemo(() => Object.fromEntries(data.members.map((m) => [m.id, m])), [data.members]);
@@ -1021,16 +1018,24 @@ function MainApp({ data, update, actions }) {
       </div>
 
       <div className="px-5">
+        {backTo && (
+          <button onClick={() => setTab(backTo.id)} className="flex items-center gap-1 mb-2 -ml-1 active:opacity-60"
+            style={{ minHeight: 40 }}>
+            <ChevronLeft size={18} color={T.inkSoft} />
+            <span style={{ fontSize: 13, color: T.inkSoft, fontFamily: FONT_BODY, fontWeight: 500 }}>{backTo.label}</span>
+          </button>
+        )}
         <PullToRefresh onRefresh={actions.refreshAll}>
           {tab === 'dashboard' && <Dashboard data={data} update={update} actions={actions} visibleTransactions={visibleTransactions} visibleMemberId={visibleMemberId} setModal={setModal} setTab={setTab} />}
           {tab === 'rapido' && quickCaptureEnabled && <QuickCapture data={data} actions={actions} setModal={setModal} />}
           {tab === 'movimientos' && <Movimientos data={data} actions={actions} visibleTransactions={visibleTransactions} setModal={setModal} />}
+          {tab === 'gestion' && <Gestion setTab={setTab} />}
           {tab === 'creditos' && <Creditos data={data} actions={actions} setModal={setModal} />}
           {tab === 'objetivos' && <Objetivos data={data} actions={actions} setModal={setModal} />}
           {tab === 'presupuestos' && <Presupuestos data={data} actions={actions} setModal={setModal} />}
           {tab === 'conciliacion' && <Conciliacion data={data} actions={actions} />}
           {tab === 'cuentas' && <Cuentas data={data} actions={actions} setModal={setModal} />}
-          {tab === 'ajustes' && <Ajustes data={data} update={update} actions={actions} setModal={setModal} />}
+          {tab === 'ajustes' && <Ajustes data={data} update={update} actions={actions} setModal={setModal} setTab={setTab} />}
           {tab === 'admin' && data.isPlatformAdmin && <AdminPanel data={data} actions={actions} />}
         </PullToRefresh>
       </div>
@@ -1038,9 +1043,9 @@ function MainApp({ data, update, actions }) {
       {/* Nav inferior */}
       <div className="fixed bottom-0 left-0 right-0 z-20" style={{ background: T.surface, borderTop: `1px solid ${T.border}` }}>
         <div className="flex justify-around px-2 py-2">
-          {primaryTabs.map((tItem) => {
+          {navTabs.map((tItem) => {
             const Icon = tItem.icon;
-            const active = tab === tItem.id;
+            const active = tItem.id === 'gestion' ? inGestion : tab === tItem.id;
             return (
               <button key={tItem.id} onClick={() => setTab(tItem.id)} className="flex flex-col items-center gap-0.5 px-2 py-1" style={{ minWidth: 56, minHeight: TAP_MIN }}>
                 <Icon size={20} color={active ? T.teal : T.inkSoft} />
@@ -1048,12 +1053,6 @@ function MainApp({ data, update, actions }) {
               </button>
             );
           })}
-          {overflowTabs.length > 0 && (
-            <button onClick={() => setModal({ type: 'moreMenu' })} className="flex flex-col items-center gap-0.5 px-2 py-1" style={{ minWidth: 56, minHeight: TAP_MIN }}>
-              <MoreHorizontal size={20} color={isOverflowActive ? T.teal : T.inkSoft} />
-              <span style={{ fontSize: 10.5, color: isOverflowActive ? T.teal : T.inkSoft, fontFamily: FONT_BODY, fontWeight: isOverflowActive ? 600 : 400 }}>Más</span>
-            </button>
-          )}
         </div>
       </div>
 
@@ -1077,7 +1076,6 @@ function MainApp({ data, update, actions }) {
       {modal?.type === 'contribute' && <ContributeModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
       {modal?.type === 'category' && <CategoryModal data={data} actions={actions} onClose={() => setModal(null)} />}
       {modal?.type === 'notifications' && <NotificationsPanel data={data} actions={actions} onClose={() => setModal(null)} />}
-      {modal?.type === 'moreMenu' && <MoreMenuModal tabs={overflowTabs} activeTab={tab} onSelect={(id) => { setTab(id); setModal(null); }} onClose={() => setModal(null)} />}
       {modal?.type === 'credit' && <CreditModal data={data} actions={actions} onClose={() => setModal(null)} onCreated={modal.onCreated} />}
       {modal?.type === 'extraPayment' && <ExtraPaymentModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} onDone={modal.onDone} />}
       {modal?.type === 'payInstallment' && <PayInstallmentModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} onDone={modal.onDone} />}
@@ -1131,24 +1129,32 @@ function PullToRefresh({ onRefresh, children }) {
   );
 }
 
-function MoreMenuModal({ tabs, activeTab, onSelect, onClose }) {
+// "Gestión" — grid de tarjetas que agrupa las secciones de administración a
+// fondo del hogar (Créditos, Objetivos, Presupuestos, Conciliación, Cuentas).
+function Gestion({ setTab }) {
   return (
-    <Modal title="Más opciones" onClose={onClose}>
-      <div className="flex flex-col gap-1.5">
-        {tabs.map((t) => {
-          const Icon = t.icon;
-          const active = t.id === activeTab;
+    <div className="pb-4 pt-2">
+      <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: T.ink }} className="mb-1">Gestión</p>
+      <p style={{ fontSize: 12.5, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-4">
+        Todas las herramientas para administrar las finanzas del hogar a fondo. Toca una para abrirla.
+      </p>
+      <div className="grid grid-cols-2 gap-3">
+        {GESTION_SECTIONS.map((s) => {
+          const Icon = s.icon;
           return (
-            <button key={t.id} onClick={() => onSelect(t.id)}
-              className="flex items-center gap-3 rounded-xl px-3"
-              style={{ minHeight: 48, background: active ? T.tealSoft : T.bg }}>
-              <Icon size={19} color={active ? T.teal : T.inkSoft} />
-              <span style={{ fontSize: 14.5, color: active ? T.teal : T.ink, fontFamily: FONT_BODY, fontWeight: active ? 600 : 500 }}>{t.label}</span>
+            <button key={s.id} onClick={() => setTab(s.id)}
+              className="text-left rounded-2xl p-4 flex flex-col gap-2 active:scale-[0.98] transition-transform"
+              style={{ background: T.surface, border: `1px solid ${T.border}`, minHeight: 148 }}>
+              <div className="rounded-xl flex items-center justify-center" style={{ width: 38, height: 38, background: T.tealSoft }}>
+                <Icon size={19} color={T.teal} />
+              </div>
+              <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: T.ink }}>{s.label}</span>
+              <span style={{ fontSize: 11, color: T.inkSoft, fontFamily: FONT_BODY, lineHeight: 1.45 }}>{s.desc}</span>
             </button>
           );
         })}
       </div>
-    </Modal>
+    </div>
   );
 }
 
@@ -1162,6 +1168,36 @@ function ViewModeToggle({ data, update }) {
         <span style={{ fontSize: 12.5, color: data.viewMode === 'individual' ? '#fff' : T.inkSoft, fontFamily: FONT_BODY, fontWeight: 500 }}>Individual</span>
       </button>
     </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* DONUT (SVG puro — antes se usaba recharts, ~250 KB de bundle para este  */
+/* único gráfico; ahora es un componente de ~25 líneas sin dependencias).  */
+/* ---------------------------------------------------------------------- */
+function DonutChart({ data, colors, size = 168, thickness = 30 }) {
+  const total = data.reduce((s, d) => s + (d.value || 0), 0);
+  const r = (size - thickness) / 2;
+  const c = size / 2;
+  const circ = 2 * Math.PI * r;
+  let acc = 0;
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label="Gastos por categoría" style={{ display: 'block', margin: '0 auto' }}>
+      <circle cx={c} cy={c} r={r} fill="none" stroke={T.border} strokeWidth={thickness} opacity={0.35} />
+      <g transform={`rotate(-90 ${c} ${c})`}>
+        {total > 0 && data.map((d, i) => {
+          const frac = (d.value || 0) / total;
+          const seg = (
+            <circle key={i} cx={c} cy={c} r={r} fill="none"
+              stroke={colors[i % colors.length]} strokeWidth={thickness}
+              strokeDasharray={`${Math.max(frac * circ - 2, 0)} ${circ}`}
+              strokeDashoffset={-acc * circ} strokeLinecap="butt" />
+          );
+          acc += frac;
+          return seg;
+        })}
+      </g>
+    </svg>
   );
 }
 
@@ -1350,15 +1386,8 @@ function Dashboard({ data, update, actions, visibleTransactions, visibleMemberId
       {catData.length > 0 && (
         <Card style={{ marginBottom: 16 }}>
           <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: T.ink }} className="mb-2">Gastos por categoría</p>
-          <div style={{ height: 200 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={catData} dataKey="value" nameKey="name" innerRadius={45} outerRadius={75} paddingAngle={2}>
-                  {catData.map((_, i) => <Cell key={i} fill={pieColors[i % pieColors.length]} />)}
-                </Pie>
-                <Tooltip formatter={(v) => formatMoney(v, currency)} />
-              </PieChart>
-            </ResponsiveContainer>
+          <div style={{ padding: '4px 0 10px' }}>
+            <DonutChart data={catData} colors={pieColors} />
           </div>
           <div className="flex flex-col gap-1 mt-1">
             {catData.slice(0, 5).map((c, i) => (
@@ -3584,7 +3613,7 @@ function ReminderModal({ actions, onClose, onDone }) {
   );
 }
 
-function Ajustes({ data, update, actions, setModal }) {
+function Ajustes({ data, update, actions, setModal, setTab }) {
   function removeCategory(id) {
     actions.removeCategory(id);
   }
@@ -3646,6 +3675,20 @@ function Ajustes({ data, update, actions, setModal }) {
           </div>
         ))}
       </Card>
+
+      {data.isPlatformAdmin && (
+        <Card style={{ marginTop: 14 }}>
+          <button onClick={() => setTab('admin')} className="flex items-center justify-between w-full active:opacity-60" style={{ minHeight: 40 }}>
+            <span className="flex items-center gap-2" style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: T.ink }}>
+              <ShieldAlert size={16} color={T.coral} /> Administración de la plataforma
+            </span>
+            <ChevronRight size={18} color={T.inkSoft} />
+          </button>
+          <p style={{ fontSize: 11.5, color: T.inkSoft, fontFamily: FONT_BODY }} className="mt-1">
+            Ajustes globales que afectan a todos los hogares (Registro rápido, proveedor de IA, notificaciones, superusuarios).
+          </p>
+        </Card>
+      )}
     </div>
   );
 }
