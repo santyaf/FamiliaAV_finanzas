@@ -23,7 +23,7 @@ Nada — todo configurado y verificado. (Si algún día rotas las claves VAPID, 
 
 ---
 
-## Fase 11 — Cimientos técnicos (habilita todo lo demás)
+## Fase 11 — Cimientos técnicos ✅ COMPLETA (habilita todo lo demás)
 
 Sin esto, cada fase siguiente es más lenta y más riesgosa.
 
@@ -31,7 +31,7 @@ Sin esto, cada fase siguiente es más lenta y más riesgosa.
 |---|---|---|
 | ~~**Re-proteger `/api/ai-parse` y `/api/uvr`**~~ ✅ | Ya exigen sesión de Supabase (`requireAuth`). Pendiente opcional: rate-limit por usuario además de la auth. | — |
 | ~~**Tests de la lógica pura**~~ ✅ | `amortization.js`, `finance.js` y `notifications.js` (`buildNotificationCandidates`) con ~50 casos Vitest, positivos y negativos. Corren en CI en cada push. | — |
-| **Partir `App.jsx`** 🟡 casi | ✅ `src/lib/` (finance, format, notifications, amortization), ✅ `src/ui/` (theme, primitives), ✅ `src/sections/` (9 archivos: Conciliacion, Cuentas, Presupuestos, Objetivos, Creditos, Movimientos, QuickCapture, Dashboard, Ajustes — con sus modales). **App.jsx: 3.978 → 998 líneas (−75%)**. Falta: AdminPanel, NotificationsPanel, pantallas de auth (AuthScreen, HouseholdSetup, ResetPasswordScreen). | S |
+| ~~**Partir `App.jsx`**~~ ✅ | `src/lib/` (finance, format, notifications, amortization + tests), `src/ui/` (theme, primitives), `src/sections/` (12 archivos con sus modales), `src/components/` (ErrorBoundary). **App.jsx: 3.978 → 495 líneas (−88%)** — solo orquestación (App, HouseholdApp, MainApp, useHashRoute). | — |
 | ~~**Routing real con deep-links**~~ ✅ | `useHashRoute` — cada sección tiene su URL (`#/creditos`), el botón "atrás" del celular funciona, se pueden compartir enlaces a una sección. | — |
 | ~~**Error boundary**~~ ✅ | `src/components/ErrorBoundary.jsx` — ante un error de render muestra "Recargar" en vez de pantalla en blanco. Pendiente: enganchar Sentry (free tier) en `componentDidCatch`. | S |
 | ~~**CI en cada push/PR**~~ ✅ | `.github/workflows/ci.yml` corre `npm test` + `npm run build` en cada push. Actions activado. | — |
