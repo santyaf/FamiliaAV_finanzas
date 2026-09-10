@@ -23,9 +23,10 @@ Nada — todo configurado y verificado. (Si algún día rotas las claves VAPID, 
 
 ---
 
-## Fase 11 — Cimientos técnicos ✅ COMPLETA (habilita todo lo demás)
+## Fase 11 — Cimientos técnicos (habilita todo lo demás)
 
 Sin esto, cada fase siguiente es más lenta y más riesgosa.
+**Lo grueso está hecho** (endpoints, tests, CI, error boundary, routing, partir App.jsx). Quedan 3 ítems de menor urgencia:
 
 | Ítem | Por qué | Esfuerzo |
 |---|---|---|
