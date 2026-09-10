@@ -25,7 +25,7 @@ export function stripJsonFences(text) {
   return text.replace(/```json/gi, '').replace(/```/g, '').trim();
 }
 
-async export function callAI({ system, content, provider, model }) {
+export async function callAI({ system, content, provider, model }) {
   const { data: { session } } = await supabase.auth.getSession();
   const response = await fetch('/api/ai-parse', {
     method: 'POST',
