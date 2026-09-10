@@ -12,13 +12,14 @@ Estado a 2026-09-09. Continúa la numeración de fases del README (la última fu
 - **Registro rápido arreglado** — el modelo `gemini-2.0-flash` fue descontinuado por Google; se cambió a `gemini-3.6-flash` (código + base). Verificado contra producción.
 - **UVR arreglado** — `datos.gov.co` dejó de exponer el dataset como tabla; ahora `api/uvr.js` consulta el servicio SDMX oficial del Banco de la República (`DF_UVR_DAILY_LATEST`, serie CRVU). Verificado: UVR 2026-09-09 = 417.9009.
 - **Endpoints `/api` re-protegidos** — la Fase 9/10 había dejado `/api/ai-parse` y `/api/uvr` sin verificación de sesión (cualquiera con la URL podía gastar la cuota de IA). Vuelven a exigir `Authorization: Bearer <token>` de Supabase. Se eliminó `api/claude.js` (legado, sin auth, sin uso). Verificado: sin token → 401.
-- **Navegación + rendimiento** (rama `rediseno-navegacion`, en preview) — barra inferior de 5: Inicio · Movimientos · Registro rápido · **Gestión** · Ajustes. "Gestión" agrupa Créditos/Objetivos/Presupuestos/Conciliación/Cuentas en un grid con descripción. Admin pasó a Ajustes. Se eliminó `recharts` (bundle de ~923 KB → ~565 KB; gzip 250 KB → 152 KB).
+- **Navegación + rendimiento** — barra inferior de 5: Inicio · Movimientos · Registro rápido · **Gestión** · Ajustes. "Gestión" agrupa Créditos/Objetivos/Presupuestos/Conciliación/Cuentas en un grid con descripción. Admin pasó a Ajustes. Se eliminó `recharts` (bundle ~923 KB → ~565 KB; gzip 250 → 152).
+- **Recordatorios push funcionando** — modelo Gemini + UVR + endpoints re-protegidos + VAPID + `REMINDER_CRON_SECRET` configurados. Envío periódico por **cron-job.org**; el workflow de GitHub quedó como botón manual (`dry`/`force`). `send-reminders.js` con diagnóstico. Verificado: llega la notificación al iPhone.
+- **Pantalla en blanco arreglada** — el service worker v1 servía el HTML cache-first para siempre → apuntaba a chunks que ya no existían. SW v3 network-first para el HTML + auto-reload al detectar despliegue nuevo.
+- **Fase 11 (cimientos)** — ✅ tests de la lógica pura (`amortization`, `finance`, `notifications` — ~50 casos), ✅ CI en cada push (`npm test` + build), ✅ error boundary, ✅ routing por hash con deep-links y botón atrás. En progreso: partir `App.jsx` en `src/sections/`.
 
-### Pendiente de configuración (solo el dueño puede hacerlo)
+### Pendiente de configuración
 
-- **Vercel → Environment Variables**: `VITE_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `REMINDER_CRON_SECRET`.
-- **GitHub → Secrets and variables → Actions**: `VERCEL_APP_URL`, `REMINDER_CRON_SECRET`.
-- Sin esto, los recordatorios push no funcionan (todo lo demás sí).
+Nada — todo configurado y verificado. (Si algún día rotas las claves VAPID, marca las variables en Vercel para *todos* los entornos, no solo Production.)
 
 ---
 
@@ -29,11 +30,11 @@ Sin esto, cada fase siguiente es más lenta y más riesgosa.
 | Ítem | Por qué | Esfuerzo |
 |---|---|---|
 | ~~**Re-proteger `/api/ai-parse` y `/api/uvr`**~~ ✅ | Ya exigen sesión de Supabase (`requireAuth`). Pendiente opcional: rate-limit por usuario además de la auth. | — |
-| **Tests de la lógica pura** 🟡 en progreso | ✅ `amortization.js` + `finance.js` (`computeBalances`, `simplifyDebts`, `computeIncomeShares`, `getNextOccurrence`, `occurrencesInMonth`, `goalPriorityScore`) con ~40 casos Vitest. Falta: `buildNotificationCandidates`. | M |
-| **Partir `App.jsx` (3.978 líneas)** 🟡 empezado | ✅ Extraídas las funciones puras de cálculo a `src/lib/finance.js`. Falta: separar las ~30 secciones de UI en `src/sections/` y los componentes compartidos en `src/components/`. | M |
-| **Routing real con deep-links** | Hoy la pestaña vive en `useState`: no hay URL por sección, el botón "atrás" del celular sale de la app, no se puede compartir un enlace a "Créditos". `react-router` o un router hash liviano. | M |
+| ~~**Tests de la lógica pura**~~ ✅ | `amortization.js`, `finance.js` y `notifications.js` (`buildNotificationCandidates`) con ~50 casos Vitest, positivos y negativos. Corren en CI en cada push. | — |
+| **Partir `App.jsx`** 🟡 empezado | ✅ Extraídas a `src/lib/`: `finance.js` (cálculo), `format.js` (moneda/fecha), `notifications.js` (motor de alertas). Falta: separar las ~30 secciones de UI en `src/sections/` y los componentes compartidos en `src/components/`. | M |
+| ~~**Routing real con deep-links**~~ ✅ | `useHashRoute` — cada sección tiene su URL (`#/creditos`), el botón "atrás" del celular funciona, se pueden compartir enlaces a una sección. | — |
 | ~~**Error boundary**~~ ✅ | `src/components/ErrorBoundary.jsx` — ante un error de render muestra "Recargar" en vez de pantalla en blanco. Pendiente: enganchar Sentry (free tier) en `componentDidCatch`. | S |
-| **CI en cada push/PR** 🟡 listo, falta activar | `.github/workflows/ci.yml` corre `npm test` + `npm run build`. **Requiere activar GitHub Actions** en Settings → Actions del repo (igual que el workflow de recordatorios). | S |
+| ~~**CI en cada push/PR**~~ ✅ | `.github/workflows/ci.yml` corre `npm test` + `npm run build` en cada push. Actions activado. | — |
 | **Cola offline de escrituras** | La app se usa "en la calle". Hoy si no hay señal, guardar un movimiento falla en silencio. IndexedDB + reintento al recuperar conexión. | L |
 | **Migraciones versionadas** | Hoy el esquema se aplica corriendo `supabase-schema.sql` completo a mano. Pasar a `supabase/migrations/*.sql` numeradas (como ya lo hace el otro proyecto del repo). | M |
 | **`package-lock.json`** | El repo no tiene lockfile → los builds no son 100% reproducibles. Generar uno (`npm install`) y commitearlo; luego el CI puede usar `npm ci`. | S |
