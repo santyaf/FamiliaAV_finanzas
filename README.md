@@ -215,7 +215,9 @@ Cada usuario puede crear **varios** recordatorios ("Registrar mis gastos", "Revi
 
 ### Por qué esto necesitó más que solo código
 
-Vercel, en el plan gratis (Hobby), **solo permite correr su cron nativo una vez al día**, con hasta una hora de margen de error. Eso no sirve para que cada usuario elija su hora exacta. La solución: un **workflow de GitHub Actions** (gratis, ya en tu repo) que llama cada 5 minutos a una función en tu Vercel, la cual revisa qué recordatorios están vencidos (según la hora local de cada usuario) y envía las notificaciones.
+Vercel, en el plan gratis (Hobby), **solo permite correr su cron nativo una vez al día**. Eso no sirve para que cada usuario elija su hora exacta. La solución: un **cron externo** (cron-job.org, gratis) que llama cada 5 minutos a `POST https://<tu-app>.vercel.app/api/send-reminders` con el header `Authorization: Bearer <REMINDER_CRON_SECRET>`. La función revisa qué recordatorios están vencidos (según la hora local de cada usuario) y envía las notificaciones.
+
+> El workflow de GitHub Actions `send-reminders.yml` quedó **solo como botón manual** (`Run workflow`, con modos `normal`/`dry`/`force`) para probar y depurar — el cron de GitHub Actions resultó demasiado irregular para esto.
 
 ### 1. Genera tus propias claves VAPID (obligatorias para Web Push)
 
@@ -231,22 +233,24 @@ Agrega estas 4 (ver `.env.example` para más detalle de cada una):
 - `SUPABASE_SERVICE_ROLE_KEY` — la sacas de Supabase → Settings → API → `service_role` (⚠️ nunca la pongas con prefijo `VITE_`, esa sí se expone al navegador)
 - `REMINDER_CRON_SECRET` — invéntate una clave larga y aleatoria
 
-### 3. Secrets en GitHub (para el workflow)
-En tu repo → Settings → Secrets and variables → Actions, agrega:
-- `VERCEL_APP_URL` — la URL de tu app, ej. `https://tuapp.vercel.app` (sin `/` al final)
-- `REMINDER_CRON_SECRET` — el mismo valor exacto que pusiste en Vercel
+### 3. Cron externo (cron-job.org u otro)
+Crea un cronjob que cada 5 minutos haga:
+- **URL**: `https://<tu-app>.vercel.app/api/send-reminders`
+- **Método**: `POST`  · **Cuerpo**: vacío
+- **Header**: `Authorization: Bearer <REMINDER_CRON_SECRET>` (el mismo valor de Vercel, con el prefijo `Bearer ` y un espacio)
+
+Para probar/depurar a mano también está el workflow de GitHub Actions "Enviar recordatorios push" (Run workflow → `dry` reporta sin enviar, `force` ignora la hora). Necesita los secrets `VERCEL_APP_URL` y `REMINDER_CRON_SECRET` en Settings → Secrets → Actions.
 
 ### 4. Corre `supabase-schema.sql` completo de nuevo
 Agrega las tablas `push_subscriptions`, `reminder_schedules` y `reminder_sent_log`.
 
 ### 5. Probar
 - En la app, ve a Ajustes → Recordatorios → "Activar notificaciones push" (el navegador te va a pedir permiso)
-- Crea un recordatorio para dentro de unos minutos
-- En GitHub → pestaña **Actions** → "Enviar recordatorios push" → **Run workflow** (botón manual, no hace falta esperar los 5 minutos) para probarlo ya mismo
+- Crea un recordatorio para dentro de unos minutos, o usa el workflow en modo `force`
+- `POST /api/send-reminders?dry=1` (con el Bearer) devuelve un JSON con el estado de cada recordatorio sin enviar nada — útil para depurar
 
 ### Limitaciones honestas que debes saber
-- Los workflows programados de GitHub Actions son "mejor esfuerzo" — pueden atrasarse varios minutos en momentos de mucha carga en GitHub, no son exactos al segundo
-- GitHub **desactiva automáticamente** los workflows programados si el repositorio no tiene actividad (commits) por 60 días — si notas que dejaron de llegar recordatorios después de un tiempo sin tocar el código, entra a la pestaña Actions y reactívalo manualmente
+- Las claves `VITE_VAPID_PUBLIC_KEY` (en el bundle) y `VAPID_PRIVATE_KEY` (servidor) **tienen que ser un par generado junto**. Si no coinciden, Apple responde `403 BadJwtToken` y no llega nada.
 - Safari en iPhone soporta Web Push solo si la app está **instalada** en la pantalla de inicio (no funciona desde una pestaña normal del navegador) — asegúrate de haber usado la tarjeta "Instalar app" antes de activar los recordatorios en iPhone
 
 ## Fase 10 — Guardas a nivel de base de datos para objetivos familiares

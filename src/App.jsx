@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   Home, List, Target, PiggyBank, Users, Settings, ArrowLeftRight, Wallet,
   TrendingUp, TrendingDown, X, Check, AlertTriangle, Star, Repeat, Calendar,
@@ -849,8 +849,36 @@ const GESTION_SECTIONS = [
 ];
 const GESTION_IDS = GESTION_SECTIONS.map((s) => s.id);
 
+// Rutas válidas (para el enrutado por hash). "dashboard" es la ruta por
+// defecto y usa el hash vacío; el resto son `#/<id>`.
+const ROUTES = new Set([...TABS.map((t) => t.id), ...GESTION_IDS, 'admin']);
+
+// Enrutado por hash: cada sección tiene su URL (`#/creditos`), el botón "atrás"
+// del navegador/celular funciona, y se pueden compartir enlaces a una sección.
+// Hash (no History API) para no necesitar rewrites en Vercel y no romper el
+// flujo de invitación por `?token=`.
+function useHashRoute(fallback) {
+  const parse = () => {
+    const r = window.location.hash.replace(/^#\/?/, '');
+    return ROUTES.has(r) ? r : fallback;
+  };
+  const [route, setRoute] = useState(parse);
+  useEffect(() => {
+    const onHash = () => setRoute(parse());
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+  const navigate = useCallback((r) => {
+    const next = ROUTES.has(r) ? r : fallback;
+    const target = next === fallback ? '' : `/${next}`;
+    if (window.location.hash.replace(/^#/, '') !== target) window.location.hash = target;
+    setRoute(next);
+  }, [fallback]);
+  return [route, navigate];
+}
+
 function MainApp({ data, update, actions }) {
-  const [tab, setTab] = useState('dashboard');
+  const [tab, setTab] = useHashRoute('dashboard');
   const [modal, setModal] = useState(null); // {type: 'transaction'|'goal'|'invite'|'account'|'budget'|'vote'|'contribute'|'category', payload}
 
   const quickCaptureEnabled = data.settings?.quick_capture_enabled !== false;

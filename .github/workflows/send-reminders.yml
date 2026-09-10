@@ -1,8 +1,9 @@
 name: Enviar recordatorios push
 
+# El envío periódico lo hace cron-job.org (más fiable que el cron de GitHub
+# Actions). Este workflow queda solo como botón manual para probar/depurar
+# desde la pestaña Actions.
 on:
-  schedule:
-    - cron: '*/5 * * * *'
   workflow_dispatch:
     inputs:
       mode:
