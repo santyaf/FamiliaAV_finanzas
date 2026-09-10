@@ -18,95 +18,22 @@ import {
 } from './lib/finance';
 import { formatMoney, formatDate } from './lib/format';
 import { buildNotificationCandidates } from './lib/notifications';
-
-/* ---------------------------------------------------------------------- */
-/* TOKENS DE DISEÑO                                                        */
-/* ---------------------------------------------------------------------- */
-const T = {
-  bg: '#F4F6F2',
-  surface: '#FFFFFF',
-  ink: '#16232E',
-  inkSoft: '#556270',
-  border: '#DEE3DA',
-  teal: '#256359',
-  tealSoft: '#E1EFEB',
-  coral: '#D35B36',
-  coralSoft: '#FAE7DF',
-  amber: '#B4690E',
-  amberSoft: '#F7EAD4',
-  danger: '#B33B33',
-  dangerSoft: '#F8E2DF',
-  focus: '#2F6E68',
-};
-// alias por compatibilidad con nombres usados en todo el archivo
-T.gold = T.amber;
-T.goldSoft = T.amberSoft;
-
-const MEMBER_COLORS = ['#256359', '#D35B36', '#4C6FA0', '#B4690E', '#7E5192', '#3F8C63', '#A1462F', '#375D82'];
-const FONT_DISPLAY = "'Space Grotesk', system-ui, sans-serif";
-const FONT_BODY = "'IBM Plex Sans', system-ui, sans-serif";
-const FONT_MONO = "'IBM Plex Mono', monospace";
-const GOOGLE_FONTS_IMPORT = "@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap');";
-
-// tamaño mínimo de área táctil (accesibilidad — ver auditoría UX)
-const TAP_MIN = 40;
-
-const CURRENCIES = [
-  { code: 'USD', label: 'USD - Dólar' },
-  { code: 'MXN', label: 'MXN - Peso mexicano' },
-  { code: 'COP', label: 'COP - Peso colombiano' },
-  { code: 'ARS', label: 'ARS - Peso argentino' },
-  { code: 'PEN', label: 'PEN - Sol peruano' },
-  { code: 'CLP', label: 'CLP - Peso chileno' },
-  { code: 'EUR', label: 'EUR - Euro' },
-];
-
-const DEFAULT_CATEGORIES = [
-  { id: 'cat-salario', name: 'Salario', type: 'income', icon: 'briefcase' },
-  { id: 'cat-negocio', name: 'Negocio / Freelance', type: 'income', icon: 'receipt' },
-  { id: 'cat-rentas', name: 'Rentas', type: 'income', icon: 'home' },
-  { id: 'cat-inv-in', name: 'Inversiones', type: 'income', icon: 'trending-up' },
-  { id: 'cat-otro-in', name: 'Otros ingresos', type: 'income', icon: 'plus' },
-  { id: 'cat-vivienda', name: 'Vivienda', type: 'expense', icon: 'home' },
-  { id: 'cat-alimentacion', name: 'Alimentación', type: 'expense', icon: 'utensils' },
-  { id: 'cat-transporte', name: 'Transporte', type: 'expense', icon: 'car' },
-  { id: 'cat-salud', name: 'Salud', type: 'expense', icon: 'heart-pulse' },
-  { id: 'cat-educacion', name: 'Educación', type: 'expense', icon: 'graduation-cap' },
-  { id: 'cat-ocio', name: 'Ocio y entretenimiento', type: 'expense', icon: 'film' },
-  { id: 'cat-ropa', name: 'Ropa', type: 'expense', icon: 'shirt' },
-  { id: 'cat-servicios', name: 'Servicios (luz/agua/internet)', type: 'expense', icon: 'lightbulb' },
-  { id: 'cat-deudas', name: 'Deudas y préstamos', type: 'expense', icon: 'credit-card' },
-  { id: 'cat-ahorro', name: 'Ahorro / Inversión', type: 'expense', icon: 'piggy-bank' },
-  { id: 'cat-otro-ex', name: 'Otros gastos', type: 'expense', icon: 'minus' },
-];
-
-// Íconos SVG (Lucide) por categoría — reemplaza los emoji que se veían distinto
-// según el sistema operativo y no transmitían la seriedad de una app financiera.
-// Se mantiene compatibilidad: si el valor guardado no coincide con una clave
-// conocida (categorías creadas antes de este cambio), se muestra como texto/emoji.
-const CATEGORY_ICON_MAP = {
-  briefcase: Briefcase, receipt: Receipt, home: Home, 'trending-up': TrendingUp, plus: Plus,
-  utensils: Utensils, car: Car, 'heart-pulse': HeartPulse, 'graduation-cap': GraduationCap,
-  film: Film, shirt: Shirt, lightbulb: Lightbulb, 'credit-card': CreditCard,
-  'piggy-bank': PiggyBank, minus: Minus, tag: Tag,
-};
-const CATEGORY_ICON_OPTIONS = Object.keys(CATEGORY_ICON_MAP);
-
-function CategoryIcon({ icon, size = 16, color = T.ink }) {
-  const Icon = CATEGORY_ICON_MAP[icon];
-  if (Icon) return <Icon size={size} color={color} />;
-  if (icon) return <span style={{ fontSize: size }}>{icon}</span>; // compatibilidad con categorías antiguas (emoji)
-  return <Tag size={size} color={color} />;
-}
-
-const STORAGE_KEY = 'hf-data-v1';
+import {
+  T, FONT_DISPLAY, FONT_BODY, FONT_MONO, GOOGLE_FONTS_IMPORT, TAP_MIN,
+  CURRENCIES, DAY_LABELS, PRIORITY_LABEL, inputStyle,
+} from './ui/theme';
+import {
+  CATEGORY_ICON_OPTIONS, CategoryIcon,
+  Modal, Field, PrimaryButton, GhostButton, IconButton, Card, ProgressBar, MemberChip, EmptyState,
+} from './ui/primitives';
 
 /* ---------------------------------------------------------------------- */
 /* UTILIDADES                                                              */
 /* ---------------------------------------------------------------------- */
-const uid = (p) => `${p}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-
-// formatMoney / formatDate viven en ./lib/format (importadas arriba).
+// Tokens de diseño y constantes → ./ui/theme
+// Componentes de UI genéricos (Modal, Field, Card, botones…) → ./ui/primitives
+// formatMoney / formatDate → ./lib/format
+// Cálculo puro (balances, deudas, amortización, alertas) → ./lib/{finance,amortization,notifications}
 
 function addOneYear(dateStr) {
   const d = new Date(dateStr + 'T00:00:00');
@@ -120,150 +47,6 @@ function urlBase64ToUint8Array(base64String) {
   const rawData = window.atob(base64);
   return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
 }
-const DAY_LABELS = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
-const PRIORITY_LABEL = { 3: 'Alta', 2: 'Media', 1: 'Baja' };
-
-// Las funciones puras de cálculo (computeBalances, simplifyDebts,
-// computeIncomeShares, getNextOccurrence, occurrencesInMonth, goalPriorityScore,
-// daysUntil, todayISO/monthKey/thisMonthKey) viven ahora en ./lib/finance.js
-// y se importan arriba — así se pueden probar de forma aislada (ver finance.test.js).
-
-// El motor de detección de alertas (buildNotificationCandidates) vive en
-// ./lib/notifications (importado arriba) — se prueba en notifications.test.js.
-
-/* ---------------------------------------------------------------------- */
-/* COMPONENTES DE UI GENÉRICOS                                             */
-/* ---------------------------------------------------------------------- */
-function Modal({ title, onClose, children, wide }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
-      style={{ background: 'rgba(27,43,58,0.45)' }} onClick={onClose}>
-      <div
-        className={`w-full ${wide ? 'sm:max-w-lg' : 'sm:max-w-md'} bg-white rounded-t-2xl sm:rounded-2xl max-h-[90vh] overflow-y-auto`}
-        style={{ background: T.surface }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: T.border }}>
-          <h3 style={{ fontFamily: FONT_DISPLAY, color: T.ink }} className="text-lg font-semibold">{title}</h3>
-          <IconButton icon={X} onClick={onClose} label="Cerrar" />
-        </div>
-        <div className="p-5">{children}</div>
-      </div>
-    </div>
-  );
-}
-
-function Field({ label, children }) {
-  return (
-    <label className="block mb-4">
-      <span className="block text-sm mb-1.5" style={{ color: T.inkSoft, fontFamily: FONT_BODY }}>{label}</span>
-      {children}
-    </label>
-  );
-}
-const inputStyle = {
-  width: '100%', padding: '10px 12px', borderRadius: 10, border: `1px solid ${T.border}`,
-  fontFamily: FONT_BODY, fontSize: 15, color: T.ink, background: '#FCFCFA', outline: 'none',
-};
-
-async function safeClick(onClick, e) {
-  try {
-    await onClick?.(e);
-  } catch (err) {
-    alert(err?.message || 'Ocurrió un error al realizar esta acción.');
-  }
-}
-
-function PrimaryButton({ children, onClick, style, type = 'button', full }) {
-  return (
-    <button type={type} onClick={(e) => safeClick(onClick, e)}
-      className={`${full ? 'w-full' : ''} rounded-xl font-medium transition-transform active:scale-[0.98]`}
-      style={{ background: T.teal, color: '#fff', padding: '11px 18px', fontFamily: FONT_BODY, fontSize: 15, ...style }}>
-      {children}
-    </button>
-  );
-}
-function GhostButton({ children, onClick, style, full }) {
-  return (
-    <button onClick={(e) => safeClick(onClick, e)}
-      className={`${full ? 'w-full' : ''} rounded-xl font-medium`}
-      style={{ background: 'transparent', color: T.ink, border: `1px solid ${T.border}`, padding: '10px 18px', fontFamily: FONT_BODY, fontSize: 15, ...style }}>
-      {children}
-    </button>
-  );
-}
-
-// Botón de ícono con área táctil accesible (mínimo 40x40px) y confirmación
-// opcional para acciones destructivas — ver auditoría UX: antes había íconos
-// de 12-18px sueltos, sin padding, y "eliminar" sin confirmar en la mayoría
-// de las pantallas. Este componente unifica ambos problemas en un solo lugar.
-function IconButton({ icon: Icon, onClick, size = 17, color = T.inkSoft, variant = 'default', confirmMessage, label, style }) {
-  const isDanger = variant === 'danger';
-  async function handleClick(e) {
-    e.stopPropagation();
-    if (confirmMessage && !window.confirm(confirmMessage)) return;
-    try {
-      await onClick(e);
-    } catch (err) {
-      alert(err?.message || 'Ocurrió un error al realizar esta acción.');
-    }
-  }
-  return (
-    <button
-      onClick={handleClick}
-      aria-label={label}
-      title={label}
-      className="flex items-center justify-center rounded-full transition-transform active:scale-90"
-      style={{
-        width: TAP_MIN, height: TAP_MIN, flexShrink: 0,
-        background: isDanger ? T.dangerSoft : 'transparent',
-        ...style,
-      }}
-    >
-      <Icon size={size} color={isDanger ? T.danger : color} />
-    </button>
-  );
-}
-
-function Card({ children, style }) {
-  return (
-    <div className="rounded-2xl p-4" style={{ background: T.surface, border: `1px solid ${T.border}`, ...style }}>
-      {children}
-    </div>
-  );
-}
-
-function ProgressBar({ value, color = T.teal, bg = '#EDEFE9', height = 8 }) {
-  const pct = Math.max(0, Math.min(100, value));
-  return (
-    <div style={{ width: '100%', height, borderRadius: height, background: bg, overflow: 'hidden' }}>
-      <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: height, transition: 'width .4s ease' }} />
-    </div>
-  );
-}
-
-function MemberChip({ member, size = 24 }) {
-  if (!member) return null;
-  return (
-    <div className="inline-flex items-center gap-1.5">
-      <div style={{ width: size, height: size, borderRadius: '50%', background: member.color, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size * 0.45, fontFamily: FONT_DISPLAY, fontWeight: 700 }}>
-        {member.name.slice(0, 1).toUpperCase()}
-      </div>
-      <span style={{ fontFamily: FONT_BODY, fontSize: 14, color: T.ink }}>{member.name}</span>
-    </div>
-  );
-}
-
-function EmptyState({ icon, title, subtitle }) {
-  return (
-    <div className="flex flex-col items-center text-center py-10 px-4">
-      <div className="mb-3" style={{ opacity: 0.5 }}>{icon}</div>
-      <p style={{ fontFamily: FONT_DISPLAY, color: T.ink, fontSize: 16 }} className="font-semibold">{title}</p>
-      <p style={{ fontFamily: FONT_BODY, color: T.inkSoft, fontSize: 13.5 }} className="mt-1 max-w-xs">{subtitle}</p>
-    </div>
-  );
-}
-
 /* ---------------------------------------------------------------------- */
 /* APP PRINCIPAL — AUTENTICACIÓN Y HOGAR                                   */
 /* ---------------------------------------------------------------------- */
