@@ -37,7 +37,7 @@ Sin esto, cada fase siguiente es más lenta y más riesgosa.
 | ~~**Error boundary**~~ ✅ | `src/components/ErrorBoundary.jsx` — ante un error de render muestra "Recargar" en vez de pantalla en blanco. Pendiente: enganchar Sentry (free tier) en `componentDidCatch`. | S |
 | ~~**CI en cada push/PR**~~ ✅ | `.github/workflows/ci.yml` corre `npm test` + `npm run build` en cada push. Actions activado. | — |
 | **Cola offline de escrituras** | La app se usa "en la calle". Hoy si no hay señal, guardar un movimiento falla en silencio. IndexedDB + reintento al recuperar conexión. | L |
-| **Migraciones versionadas** | Hoy el esquema se aplica corriendo `supabase-schema.sql` completo a mano. Pasar a `supabase/migrations/*.sql` numeradas (como ya lo hace el otro proyecto del repo). | M |
+| ~~**Migraciones versionadas**~~ ✅ | `supabase-schema.sql` (1.030 líneas, sin versionar por fase) partido en 11 archivos numerados en `supabase/migrations/` (uno por fase real: 1, 3, 3a, 3c, 4×2, 5, 6, 7, 9, 10). Los dos últimos conservan los timestamps reales de `supabase_migrations.schema_migrations`. Verificado: la concatenación de los 11 archivos es idéntica (sin comentarios/blancos) al `supabase-schema.sql` original. `supabase-schema.sql` se mantiene como snapshot de bootstrap para proyectos nuevos. | — |
 | **`package-lock.json`** | El repo no tiene lockfile → los builds no son 100% reproducibles. Generar uno (`npm install`) y commitearlo; luego el CI puede usar `npm ci`. | S |
 
 ---

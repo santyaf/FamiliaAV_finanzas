@@ -15,6 +15,10 @@
    - `anon public key` → será tu `VITE_SUPABASE_ANON_KEY`
 4. (Opcional pero recomendado mientras pruebas) En **Authentication → Providers → Email**, puedes desactivar temporalmente "Confirm email" para no depender de la bandeja de correo durante las pruebas.
 
+### Esquema: bootstrap vs. cambios incrementales
+- **Proyecto nuevo**: `supabase-schema.sql` es un snapshot completo e idempotente de todo el esquema — pégalo una sola vez en el SQL Editor y listo.
+- **Cambios futuros al esquema**: no edites `supabase-schema.sql` directamente. Agrega un archivo nuevo en `supabase/migrations/` (formato `YYYYMMDDHHMMSS_descripcion.sql`, uno por cambio), pégalo en el SQL Editor para aplicarlo, y actualiza `supabase-schema.sql` a mano para que el snapshot de bootstrap siga reflejando el estado final. `supabase/migrations/` es el historial fase a fase real del esquema (los dos timestamps más recientes coinciden con `supabase_migrations.schema_migrations` en el proyecto de Supabase).
+
 ## 2. Variables de entorno
 Copia `.env.example` a `.env.local` para desarrollo local, y agrega las mismas
 variables en **Vercel → Settings → Environment Variables**. `.env.example` tiene
