@@ -1,0 +1,37 @@
+name: Generar package-lock.json
+
+# Job de una sola vez (o cuando package.json cambie de dependencias sin
+# actualizar el lockfile a mano). No hay Node instalado en la máquina de
+# desarrollo, así que el lockfile se genera aquí y se commitea de vuelta.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: npm install (genera/actualiza el lockfile)
+        run: npm install --no-audit --no-fund
+
+      - name: Commit y push del lockfile
+        run: |
+          if git diff --quiet -- package-lock.json; then
+            echo "package-lock.json sin cambios, nada que commitear."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          git commit -m "chore: genera package-lock.json"
+          git push origin HEAD:main

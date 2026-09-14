@@ -38,7 +38,7 @@ Sin esto, cada fase siguiente es más lenta y más riesgosa.
 | ~~**CI en cada push/PR**~~ ✅ | `.github/workflows/ci.yml` corre `npm test` + `npm run build` en cada push. Actions activado. | — |
 | **Cola offline de escrituras** | La app se usa "en la calle". Hoy si no hay señal, guardar un movimiento falla en silencio. IndexedDB + reintento al recuperar conexión. | L |
 | ~~**Migraciones versionadas**~~ ✅ | `supabase-schema.sql` (1.030 líneas, sin versionar por fase) partido en 11 archivos numerados en `supabase/migrations/` (uno por fase real: 1, 3, 3a, 3c, 4×2, 5, 6, 7, 9, 10). Los dos últimos conservan los timestamps reales de `supabase_migrations.schema_migrations`. Verificado: la concatenación de los 11 archivos es idéntica (sin comentarios/blancos) al `supabase-schema.sql` original. `supabase-schema.sql` se mantiene como snapshot de bootstrap para proyectos nuevos. | — |
-| **`package-lock.json`** | El repo no tiene lockfile → los builds no son 100% reproducibles. Generar uno (`npm install`) y commitearlo; luego el CI puede usar `npm ci`. | S |
+| **`package-lock.json`** | El repo no tiene lockfile → los builds no son 100% reproducibles. No hay Node local para generarlo a mano, así que se agregó `.github/workflows/generate-lockfile.yml` (botón manual, como el de recordatorios): corre `npm install` en GitHub Actions y commitea el lockfile. **Pendiente: correrlo una vez** desde GitHub → Actions → "Generar package-lock.json" → Run workflow. Después de eso, cambiar `ci.yml` a `npm ci`. | S |
 
 ---
 
