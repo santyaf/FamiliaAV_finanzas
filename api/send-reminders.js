@@ -2,7 +2,8 @@
 // Vercel Hobby no permite cron nativo más frecuente que una vez al día.
 // Revisa, para cada recordatorio activo, si la hora local del usuario (según su
 // zona horaria guardada) cayó dentro de la ventana desde la última revisión, y
-// si no se ha enviado ya hoy, envía el push.
+// si no se ha enviado ya hoy, envía el push. También revisa las Obligaciones
+// (Fase 12) — pagos recurrentes con su propia fecha/hora de recordatorio.
 //
 // Diagnóstico:
 //   POST /api/send-reminders            → corrida normal
@@ -15,8 +16,29 @@
 
 import { createClient } from '@supabase/supabase-js';
 import webpush from 'web-push';
+import { advanceByFrequency } from '../src/lib/finance.js';
 
 const CHECK_WINDOW_MINUTES = 6; // un poco más que los ~5 min entre corridas, por margen
+
+// Envía un push a cada suscripción de un usuario; limpia las que ya expiraron.
+async function sendToUser(supabase, userId, payload, pushErrors, context) {
+  const { data: subs } = await supabase.from('push_subscriptions').select('*').eq('user_id', userId);
+  let sent = 0;
+  for (const sub of subs || []) {
+    try {
+      await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, payload);
+      sent++;
+    } catch (err) {
+      if (err.statusCode === 404 || err.statusCode === 410) {
+        await supabase.from('push_subscriptions').delete().eq('endpoint', sub.endpoint);
+        pushErrors.push({ context, statusCode: err.statusCode, note: 'suscripción expirada, eliminada' });
+      } else {
+        pushErrors.push({ context, statusCode: err.statusCode, message: err.body || err.message });
+      }
+    }
+  }
+  return { sent, subsCount: subs?.length || 0 };
+}
 
 export default async function handler(req, res) {
   const authHeader = req.headers.authorization || '';
@@ -142,10 +164,88 @@ export default async function handler(req, res) {
       evaluated.push(info);
     }
 
+    // ---- Obligaciones (Fase 12): pagos recurrentes con su propia fecha ----
+    const { data: obligations, error: obError } = await supabase
+      .from('obligations').select('*').eq('enabled', true);
+    if (obError) throw obError;
+
+    let obSent = 0, obSkipped = 0, obDue = 0;
+    const obligationsEvaluated = [];
+
+    for (const o of obligations) {
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: o.timezone, hour12: false,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit',
+      }).formatToParts(now);
+      const get = (type) => parts.find((p) => p.type === type)?.value;
+      const localDateStr = `${get('year')}-${get('month')}-${get('day')}`;
+      const localHour = parseInt(get('hour'), 10);
+      const localMinute = parseInt(get('minute'), 10);
+      const [obH, obM] = String(o.time_of_day).split(':').map(Number);
+      const diff = (localHour * 60 + localMinute) - (obH * 60 + obM);
+      const dateReached = localDateStr >= o.next_due_date;
+      // si ya pasó el día (ej. el cron estuvo caído), no esperamos a que vuelva
+      // a ser la hora exacta — se avisa en cuanto se vuelva a revisar.
+      const overdue = localDateStr > o.next_due_date;
+      const timeOk = overdue || (diff >= 0 && diff <= CHECK_WINDOW_MINUTES);
+
+      const info = {
+        id: o.id, name: o.name, tz: o.timezone,
+        localDate: localDateStr, nextDueDate: o.next_due_date,
+        localTime: `${get('hour')}:${get('minute')}`, target: o.time_of_day, diffMin: diff,
+      };
+
+      if (!force && !dateReached) { info.result = 'aún-no'; obligationsEvaluated.push(info); continue; }
+      if (!force && !timeOk) { info.result = 'ya-pasó-la-ventana'; obligationsEvaluated.push(info); continue; }
+
+      obDue++;
+
+      if (!force) {
+        const { data: already } = await supabase
+          .from('obligation_sent_log').select('obligation_id')
+          .eq('obligation_id', o.id).eq('sent_date', localDateStr).maybeSingle();
+        if (already) { obSkipped++; info.result = 'ya-enviado-hoy'; obligationsEvaluated.push(info); continue; }
+      }
+
+      const recipients = o.owner_member_id
+        ? [o.owner_member_id]
+        : ((await supabase.from('household_members').select('user_id').eq('household_id', o.household_id)).data || []).map((m) => m.user_id);
+      info.recipients = recipients.length;
+
+      if (!dry && recipients.length) {
+        const amountLabel = o.amount == null ? 'Monto variable' : `$${new Intl.NumberFormat('es-CO').format(o.amount)}`;
+        const payload = JSON.stringify({
+          title: `Obligación: ${o.name}`,
+          body: `${amountLabel}${o.note ? ' — ' + o.note : ''} · toca para registrar el gasto`,
+          url: `/#/movimientos?ob=${o.id}`,
+        });
+        for (const userId of recipients) {
+          const { sent: n } = await sendToUser(supabase, userId, payload, pushErrors, `obligation:${o.id}`);
+          obSent += n;
+        }
+      }
+
+      // force: solo envía una prueba, no toca el estado guardado (ni el log
+      // ni la fecha del próximo recordatorio) — igual que con reminder_schedules.
+      if (!dry && !force) {
+        await supabase.from('obligation_sent_log').insert({ obligation_id: o.id, sent_date: localDateStr });
+        await supabase.from('obligations')
+          .update({ next_due_date: advanceByFrequency(o.next_due_date, o.frequency) })
+          .eq('id', o.id);
+      }
+      info.result = dry ? 'se-enviaría' : 'enviado';
+      obligationsEvaluated.push(info);
+    }
+
     res.status(200).json({
       ok: true, dry, force,
       serverTimeUTC: now.toISOString(),
       checked: schedules.length, due, sent, skipped,
+      obligations: {
+        checked: obligations.length, due: obDue, sent: obSent, skipped: obSkipped,
+        evaluated: obligationsEvaluated,
+      },
       pushErrors, evaluated, env,
     });
   } catch (err) {

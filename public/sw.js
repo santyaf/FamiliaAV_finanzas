@@ -15,7 +15,7 @@
 //  - /api/* y Supabase           → network-first
 //  - resto (iconos, manifest)    → cache-first con actualización en segundo plano
 
-const CACHE = 'finanzas-hogar-v3';
+const CACHE = 'finanzas-hogar-v4';
 const OFFLINE_URL = '/';
 
 self.addEventListener('install', (event) => {
@@ -102,18 +102,30 @@ self.addEventListener('push', (event) => {
       icon: '/icon-192.png',
       badge: '/icon-192.png',
       vibrate: [100, 50, 100],
+      // data.url: a dónde ir al tocar el aviso (ej. recordatorio de una
+      // obligación → deja la app lista para registrar ese gasto).
+      data: { url: data.url || '/' },
     }),
   );
 });
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+  const targetUrl = event.notification.data?.url || '/';
+  const targetPath = new URL(targetUrl, self.location.origin).href;
   event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async (clientList) => {
       for (const client of clientList) {
-        if ('focus' in client) return client.focus();
+        if ('focus' in client) {
+          // navigate() puede no existir en navegadores/PWA viejas — si falla,
+          // igual enfocamos la ventana (mejor eso que no hacer nada).
+          if ('navigate' in client) {
+            try { await client.navigate(targetPath); } catch { /* sigue con focus */ }
+          }
+          return client.focus();
+        }
       }
-      if (clients.openWindow) return clients.openWindow('/');
+      if (clients.openWindow) return clients.openWindow(targetPath);
     }),
   );
 });

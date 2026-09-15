@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   monthKey, thisMonthKey, daysUntil, getNextOccurrence, occurrencesInMonth,
-  computeIncomeShares, computeBalances, simplifyDebts, goalPriorityScore,
+  computeIncomeShares, computeBalances, simplifyDebts, goalPriorityScore, advanceByFrequency,
 } from './finance';
 
 // Fijamos "hoy" = 2026-06-15 para que las funciones que dependen de la fecha
@@ -43,6 +43,25 @@ describe('getNextOccurrence', () => {
   });
   it('avanza anualmente', () => {
     expect(getNextOccurrence({ date: '2024-03-01', frequency: 'anual' })).toBe('2027-03-01');
+  });
+});
+
+describe('advanceByFrequency', () => {
+  it('semanal suma 7 días', () => {
+    expect(advanceByFrequency('2026-06-01', 'semanal')).toBe('2026-06-08');
+  });
+  it('quincenal suma 14 días', () => {
+    expect(advanceByFrequency('2026-06-01', 'quincenal')).toBe('2026-06-15');
+  });
+  it('mensual suma 1 mes (por defecto)', () => {
+    expect(advanceByFrequency('2026-06-01', 'mensual')).toBe('2026-07-01');
+    expect(advanceByFrequency('2026-06-01', undefined)).toBe('2026-07-01');
+  });
+  it('anual suma 1 año', () => {
+    expect(advanceByFrequency('2026-06-01', 'anual')).toBe('2027-06-01');
+  });
+  it('mensual: día 31 cae al mes con menos días (comportamiento de setUTCMonth)', () => {
+    expect(advanceByFrequency('2026-01-31', 'mensual')).toBe('2026-03-03');
   });
 });
 

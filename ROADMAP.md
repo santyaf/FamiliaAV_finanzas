@@ -16,6 +16,8 @@ Estado a 2026-09-09. Continúa la numeración de fases del README (la última fu
 - **Recordatorios push funcionando** — modelo Gemini + UVR + endpoints re-protegidos + VAPID + `REMINDER_CRON_SECRET` configurados. Envío periódico por **cron-job.org**; el workflow de GitHub quedó como botón manual (`dry`/`force`). `send-reminders.js` con diagnóstico. Verificado: llega la notificación al iPhone.
 - **Pantalla en blanco arreglada** — el service worker v1 servía el HTML cache-first para siempre → apuntaba a chunks que ya no existían. SW v3 network-first para el HTML + auto-reload al detectar despliegue nuevo.
 - **Fase 11 (cimientos)** — ✅ tests de la lógica pura (`amortization`, `finance`, `notifications` — ~50 casos), ✅ CI en cada push (`npm test` + build), ✅ error boundary, ✅ routing por hash con deep-links y botón atrás. En progreso: partir `App.jsx` en `src/sections/`.
+- **Fase 12 — Medio de pago en Cuentas** — cada cuenta se marca como efectivo, tarjeta débito, cuenta de ahorros o tarjeta de crédito (`accounts.payment_kind`); Cuentas muestra disponible (o gastado, para tarjeta de crédito) agrupado por medio de pago. Tarjeta de crédito es solo informativa por ahora, sin cupo/límite.
+- **Fase 12 — Obligaciones** — nuevo módulo en Gestión para pagos recurrentes (arriendo, servicios, suscripciones) con recordatorio push propio (`obligations` + `obligation_sent_log`, cron `send-reminders.js` extendido). Monto opcional (vacío = variable). El aviso, al tocarlo, navega a `#/movimientos?ob=<id>` y abre el registro del gasto ya prellenado con categoría/cuenta/monto/integrante.
 
 ### Pendiente de configuración
 
@@ -48,7 +50,7 @@ El mayor predictor de que una app de finanzas sobreviva es qué tan fácil es me
 
 - **Importar extractos** — subir CSV/Excel del banco, mapear columnas, deduplicar contra lo ya registrado.
 - **Pegar SMS / correo del banco** — los bancos colombianos mandan SMS por cada compra. Una caja de "pega aquí el mensaje" que reusa la IA de Registro rápido para extraer monto/comercio/fecha. Android share-target para mandarlo directo desde la app de mensajes.
-- **Recurrentes automáticas** — hoy "Próximos pagos" solo muestra; que el día del vencimiento pregunte "¿ya pagaste el arriendo?" y con un toque lo registre.
+- ~~**Recurrentes automáticas**~~ ✅ — módulo **Obligaciones** dentro de Gestión: recordatorio push por integrante o de todo el hogar (frecuencia, hora, monto opcional — vacío = variable, nota); al tocar el aviso abre el registro del gasto ya prellenado (`#/movimientos?ob=<id>`).
 - **Adjuntar el recibo** — hoy la foto solo se usa para parsear y se descarta. Guardarla en Supabase Storage ligada al movimiento (útil para garantías, reembolsos, renta).
 - **Plantillas / favoritos** — "Mercado D1", "Gasolina", "Almuerzo" con un toque.
 - **Multi-moneda** — un ahorro en USD, gastos de viaje. Hoy el hogar tiene una sola moneda.

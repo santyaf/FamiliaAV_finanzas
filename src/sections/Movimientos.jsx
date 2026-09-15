@@ -205,12 +205,20 @@ export function TransactionModal({ data, actions, payload, onClose }) {
   }
 
   return (
-    <Modal title={payload?.source === 'quick' ? 'Revisa lo detectado' : 'Nuevo movimiento'} onClose={onClose}>
+    <Modal title={payload?.source === 'quick' ? 'Revisa lo detectado' : payload?.source === 'obligation' ? 'Registrar obligación' : 'Nuevo movimiento'} onClose={onClose}>
       {payload?.source === 'quick' && (
         <div className="flex items-start gap-2 rounded-xl p-3 mb-4" style={{ background: T.goldSoft }}>
           <Info size={15} color={T.gold} style={{ marginTop: 2, flexShrink: 0 }} />
           <p style={{ fontSize: 12, color: T.ink, fontFamily: FONT_BODY }}>
             Esto se extrajo automáticamente{payload?.raw ? `: "${payload.raw}"` : ''}. Revisa y ajusta antes de guardar.
+          </p>
+        </div>
+      )}
+      {payload?.source === 'obligation' && (
+        <div className="flex items-start gap-2 rounded-xl p-3 mb-4" style={{ background: T.goldSoft }}>
+          <Info size={15} color={T.gold} style={{ marginTop: 2, flexShrink: 0 }} />
+          <p style={{ fontSize: 12, color: T.ink, fontFamily: FONT_BODY }}>
+            Viene del recordatorio de "{payload.description}". Revisa el monto{!payload.amount ? ' (es variable, complétalo)' : ''} y guarda.
           </p>
         </div>
       )}

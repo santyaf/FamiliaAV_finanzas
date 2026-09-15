@@ -3,6 +3,7 @@ import { ArrowLeftRight, Bell, ChevronLeft, CreditCard, History, Home, Landmark,
 import { supabase } from './lib/supabaseClient';
 import * as db from './lib/db';
 import { formatMoney, formatDate } from './lib/format';
+import { todayISO } from './lib/finance';
 import { buildNotificationCandidates } from './lib/notifications';
 import { FONT_BODY, FONT_DISPLAY, FONT_MONO, GOOGLE_FONTS_IMPORT, T, TAP_MIN, inputStyle } from './ui/theme';
 import { Card, EmptyState, Field, GhostButton, IconButton, Modal, PrimaryButton } from './ui/primitives';
@@ -22,6 +23,7 @@ import {
 } from './sections/Movimientos';
 import { Dashboard } from './sections/Dashboard';
 import { Ajustes, InviteModal, CategoryModal, ReminderModal } from './sections/Ajustes';
+import { Obligaciones, ObligationModal } from './sections/Obligaciones';
 import { ResetPasswordScreen, LoadingScreen, AuthScreen, HouseholdSetup } from './sections/auth';
 import { AdminPanel } from './sections/AdminPanel';
 import { NotificationsPanel } from './sections/NotificationsPanel';
@@ -135,7 +137,7 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     currency: householdMeta?.currency || 'COP',
     viewMode, activeMemberId,
     members: raw.members, categories: raw.categories, accounts: raw.accounts,
-    transactions: raw.transactions, goals: raw.goals, budgets: raw.budgets,
+    transactions: raw.transactions, goals: raw.goals, budgets: raw.budgets, obligations: raw.obligations,
     settings, isPlatformAdmin, notifications: myNotifications, unreadCount,
   };
 
@@ -175,6 +177,10 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     removeBudget: wrap((id) => db.removeBudget(id)),
     addAccount: wrap((a) => db.addAccount(household.householdId, session.user.id, a)),
     removeAccount: wrap((id) => db.removeAccount(id)),
+    addObligation: wrap((o) => db.addObligation(household.householdId, session.user.id, o)),
+    updateObligation: wrap((id, o) => db.updateObligation(id, o)),
+    setObligationEnabled: wrap((id, enabled) => db.setObligationEnabled(id, enabled)),
+    removeObligation: wrap((id) => db.removeObligation(id)),
     addCategory: wrap((c) => db.addCategory(household.householdId, c)),
     removeCategory: wrap((id) => db.removeCategory(id)),
     createInvite: () => db.createInvite(household.householdId, session.user.id),
@@ -241,6 +247,7 @@ const GESTION_SECTIONS = [
   { id: 'creditos', label: 'Créditos', icon: CreditCard, desc: 'Préstamos en COP y UVR: cuotas, amortización, seguros y abonos a capital.' },
   { id: 'objetivos', label: 'Objetivos', icon: Target, desc: 'Metas de ahorro familiares e individuales, con aprobación del hogar.' },
   { id: 'presupuestos', label: 'Presupuestos', icon: PiggyBank, desc: 'Límites de gasto por categoría, para todo el hogar o por integrante.' },
+  { id: 'obligaciones', label: 'Obligaciones', icon: Bell, desc: 'Recordatorios de pagos por vencer — arriendo, servicios, suscripciones.' },
   { id: 'conciliacion', label: 'Conciliación', icon: ArrowLeftRight, desc: 'Quién le debe a quién por los gastos compartidos, y cómo saldar.' },
   { id: 'cuentas', label: 'Cuentas', icon: Landmark, desc: 'Cuentas bancarias y efectivo, individuales o compartidas.' },
 ];
@@ -256,7 +263,7 @@ const ROUTES = new Set([...TABS.map((t) => t.id), ...GESTION_IDS, 'admin']);
 // flujo de invitación por `?token=`.
 function useHashRoute(fallback) {
   const parse = () => {
-    const r = window.location.hash.replace(/^#\/?/, '');
+    const [r] = window.location.hash.replace(/^#\/?/, '').split('?');
     return ROUTES.has(r) ? r : fallback;
   };
   const [route, setRoute] = useState(parse);
@@ -277,6 +284,32 @@ function useHashRoute(fallback) {
 function MainApp({ data, update, actions }) {
   const [tab, setTab] = useHashRoute('dashboard');
   const [modal, setModal] = useState(null); // {type: 'transaction'|'goal'|'invite'|'account'|'budget'|'vote'|'contribute'|'category', payload}
+
+  // Deep-link desde un recordatorio de obligación (notificación push → "#/movimientos?ob=<id>"):
+  // abre el registro de gasto ya prellenado. Se revisa solo al montar — para
+  // entonces los datos del hogar (incluidas las obligaciones) ya cargaron.
+  const handledObligationLinkRef = useRef(false);
+  useEffect(() => {
+    if (handledObligationLinkRef.current) return;
+    const query = window.location.hash.split('?')[1];
+    const obligationId = query ? new URLSearchParams(query).get('ob') : null;
+    if (!obligationId) return;
+    handledObligationLinkRef.current = true;
+    window.location.hash = window.location.hash.split('?')[0] || '/movimientos';
+    const ob = data.obligations?.find((o) => o.id === obligationId);
+    if (ob) {
+      setModal({
+        type: 'transaction',
+        payload: {
+          source: 'obligation', type: 'expense', description: ob.name,
+          amount: ob.amount ?? undefined, categoryId: ob.categoryId || undefined,
+          accountId: ob.accountId || undefined, memberId: ob.ownerMemberId || undefined,
+          date: todayISO(),
+        },
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const quickCaptureEnabled = data.settings?.quick_capture_enabled !== false;
   const navTabs = TABS.filter((t) => !(t.requiresQuickCapture && !quickCaptureEnabled));
@@ -352,6 +385,7 @@ function MainApp({ data, update, actions }) {
           {tab === 'creditos' && <Creditos data={data} actions={actions} setModal={setModal} />}
           {tab === 'objetivos' && <Objetivos data={data} actions={actions} setModal={setModal} />}
           {tab === 'presupuestos' && <Presupuestos data={data} actions={actions} setModal={setModal} />}
+          {tab === 'obligaciones' && <Obligaciones data={data} actions={actions} setModal={setModal} />}
           {tab === 'conciliacion' && <Conciliacion data={data} actions={actions} />}
           {tab === 'cuentas' && <Cuentas data={data} actions={actions} setModal={setModal} />}
           {tab === 'ajustes' && <Ajustes data={data} update={update} actions={actions} setModal={setModal} setTab={setTab} />}
@@ -391,6 +425,7 @@ function MainApp({ data, update, actions }) {
       {modal?.type === 'invite' && <InviteModal data={data} actions={actions} onClose={() => setModal(null)} />}
       {modal?.type === 'account' && <AccountModal data={data} actions={actions} onClose={() => setModal(null)} />}
       {modal?.type === 'budget' && <BudgetModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
+      {modal?.type === 'obligation' && <ObligationModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
       {modal?.type === 'vote' && <VoteModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
       {modal?.type === 'contribute' && <ContributeModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
       {modal?.type === 'category' && <CategoryModal data={data} actions={actions} onClose={() => setModal(null)} />}

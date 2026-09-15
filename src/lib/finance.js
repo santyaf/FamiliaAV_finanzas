@@ -27,6 +27,20 @@ export function getNextOccurrence(t) {
   return d.toISOString().slice(0, 10);
 }
 
+// Avanza una fecha (YYYY-MM-DD) una vez según la frecuencia — usada por las
+// Obligaciones (Fase 12) para calcular el próximo recordatorio después de
+// enviar uno. Usa UTC para no depender de la zona horaria del proceso que
+// la corre (el cron serverless corre en UTC; el cliente puede correr en
+// cualquier zona), evitando que la fecha cambie de día al convertir.
+export function advanceByFrequency(dateISO, frequency) {
+  const d = new Date(dateISO + 'T00:00:00Z');
+  if (frequency === 'semanal') d.setUTCDate(d.getUTCDate() + 7);
+  else if (frequency === 'quincenal') d.setUTCDate(d.getUTCDate() + 14);
+  else if (frequency === 'anual') d.setUTCFullYear(d.getUTCFullYear() + 1);
+  else d.setUTCMonth(d.getUTCMonth() + 1); // mensual
+  return d.toISOString().slice(0, 10);
+}
+
 export function occurrencesInMonth(t, mKey) {
   // cuántas veces cae una transacción recurrente en el mes dado
   if (!t.recurring) return t.date && monthKey(t.date) === mKey ? 1 : 0;

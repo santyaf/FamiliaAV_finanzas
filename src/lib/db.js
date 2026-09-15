@@ -96,7 +96,7 @@ export async function redeemInvite(token, userId) {
 
 /* ---------------------- CARGA DE DATOS DEL HOGAR ---------------------- */
 export async function loadHouseholdData(householdId) {
-  const [membersRes, catsRes, accsRes, txRes, goalsRes, votesRes, budgetsRes] = await Promise.all([
+  const [membersRes, catsRes, accsRes, txRes, goalsRes, votesRes, budgetsRes, obligationsRes] = await Promise.all([
     supabase.from('household_members').select('user_id, role, color, profiles(full_name)').eq('household_id', householdId),
     supabase.from('categories').select('*').eq('household_id', householdId),
     supabase.from('accounts').select('*').eq('household_id', householdId),
@@ -104,8 +104,9 @@ export async function loadHouseholdData(householdId) {
     supabase.from('goals').select('*').eq('household_id', householdId),
     supabase.from('goal_votes').select('*'),
     supabase.from('budgets').select('*').eq('household_id', householdId),
+    supabase.from('obligations').select('*').eq('household_id', householdId),
   ]);
-  for (const r of [membersRes, catsRes, accsRes, txRes, goalsRes, votesRes, budgetsRes]) {
+  for (const r of [membersRes, catsRes, accsRes, txRes, goalsRes, votesRes, budgetsRes, obligationsRes]) {
     if (r.error) throw r.error;
   }
 
@@ -120,8 +121,15 @@ export async function loadHouseholdData(householdId) {
     targetDate: g.target_date, votes: votesByGoal[g.id] || {}, ownerMemberId: g.owner_member_id,
   }));
   const budgets = budgetsRes.data.map((b) => ({ id: b.id, categoryId: b.category_id, limit: Number(b.limit_amount), scope: b.scope }));
+  const obligations = obligationsRes.data.map((o) => ({
+    id: o.id, ownerMemberId: o.owner_member_id, name: o.name,
+    amount: o.amount === null ? null : Number(o.amount),
+    categoryId: o.category_id, accountId: o.account_id, frequency: o.frequency,
+    nextDueDate: o.next_due_date, timeOfDay: o.time_of_day, timezone: o.timezone,
+    note: o.note, enabled: o.enabled,
+  }));
 
-  return { members, categories, accounts, transactions, goals, budgets };
+  return { members, categories, accounts, transactions, goals, budgets, obligations };
 }
 
 function dbTxToJs(t) {
@@ -337,6 +345,38 @@ export async function addAccount(householdId, userId, account) {
 }
 export async function removeAccount(id) {
   const { error } = await supabase.from('accounts').delete().eq('id', id);
+  if (error) throw error;
+}
+
+/* --------------------------- OBLIGACIONES --------------------------- */
+export async function addObligation(householdId, userId, o) {
+  const { error } = await supabase.from('obligations').insert({
+    household_id: householdId, owner_member_id: o.ownerMemberId || null, name: o.name,
+    amount: o.amount === '' || o.amount == null ? null : o.amount,
+    category_id: o.categoryId || null, account_id: o.accountId || null,
+    frequency: o.frequency, next_due_date: o.nextDueDate,
+    time_of_day: o.timeOfDay, timezone: o.timezone, note: o.note || null,
+    enabled: o.enabled !== false, created_by: userId,
+  });
+  if (error) throw error;
+}
+export async function updateObligation(id, o) {
+  const { error } = await supabase.from('obligations').update({
+    owner_member_id: o.ownerMemberId || null, name: o.name,
+    amount: o.amount === '' || o.amount == null ? null : o.amount,
+    category_id: o.categoryId || null, account_id: o.accountId || null,
+    frequency: o.frequency, next_due_date: o.nextDueDate,
+    time_of_day: o.timeOfDay, timezone: o.timezone, note: o.note || null,
+    enabled: o.enabled !== false,
+  }).eq('id', id);
+  if (error) throw error;
+}
+export async function setObligationEnabled(id, enabled) {
+  const { error } = await supabase.from('obligations').update({ enabled }).eq('id', id);
+  if (error) throw error;
+}
+export async function removeObligation(id) {
+  const { error } = await supabase.from('obligations').delete().eq('id', id);
   if (error) throw error;
 }
 
