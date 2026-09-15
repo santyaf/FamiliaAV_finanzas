@@ -103,6 +103,12 @@ create table if not exists accounts (
   created_at timestamptz default now()
 );
 
+-- corrige instalaciones existentes donde la tabla ya se había creado antes
+-- de que "payment_kind" se agregara aquí (Fase 12)
+alter table accounts add column if not exists payment_kind text
+  check (payment_kind in ('efectivo','debito','ahorros','tarjeta_credito','otro'))
+  not null default 'otro';
+
 -- ---------- MOVIMIENTOS ----------
 create table if not exists transactions (
   id uuid primary key default gen_random_uuid(),

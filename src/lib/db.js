@@ -111,7 +111,7 @@ export async function loadHouseholdData(householdId) {
 
   const members = membersRes.data.map((m) => ({ id: m.user_id, name: m.profiles?.full_name || 'Integrante', color: m.color, role: m.role }));
   const categories = catsRes.data;
-  const accounts = accsRes.data.map((a) => ({ id: a.id, name: a.name, type: a.type, ownerIds: a.owner_ids }));
+  const accounts = accsRes.data.map((a) => ({ id: a.id, name: a.name, type: a.type, ownerIds: a.owner_ids, paymentKind: a.payment_kind || 'otro' }));
   const transactions = txRes.data.map(dbTxToJs);
   const votesByGoal = {};
   votesRes.data.forEach((v) => { (votesByGoal[v.goal_id] ||= {})[v.member_id] = v.priority; });
@@ -323,6 +323,7 @@ export async function removeBudget(id) {
 export async function addAccount(householdId, userId, account) {
   const { data: row, error } = await supabase.from('accounts').insert({
     household_id: householdId, name: account.name, type: account.type, owner_ids: account.ownerIds,
+    payment_kind: account.paymentKind || 'otro',
   }).select().single();
   if (error) throw error;
   if (account.initialBalance && account.initialBalance > 0) {

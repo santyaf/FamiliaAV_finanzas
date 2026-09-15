@@ -4,6 +4,7 @@ import React from 'react';
 import {
   X, Briefcase, Receipt, Home, TrendingUp, Plus, Utensils, Car, HeartPulse,
   GraduationCap, Film, Shirt, Lightbulb, CreditCard, PiggyBank, Minus, Tag,
+  Banknote, Landmark,
 } from 'lucide-react';
 import { T, FONT_DISPLAY, FONT_BODY, TAP_MIN } from './theme';
 
@@ -23,6 +24,25 @@ export function CategoryIcon({ icon, size = 16, color = T.ink }) {
   if (Icon) return <Icon size={size} color={color} />;
   if (icon) return <span style={{ fontSize: size }}>{icon}</span>; // compat. categorías antiguas (emoji)
   return <Tag size={size} color={color} />;
+}
+
+// Medio de pago de una cuenta (Fase 12): efectivo, débito, ahorros o
+// tarjeta de crédito. La tarjeta de crédito es solo informativa por ahora
+// (sin cupo/disponible real), igual que los demás medios.
+export const PAYMENT_KIND_LABEL = {
+  efectivo: 'Efectivo',
+  debito: 'Tarjeta débito',
+  ahorros: 'Cuenta de ahorros',
+  tarjeta_credito: 'Tarjeta de crédito',
+  otro: 'Otro',
+};
+export const PAYMENT_KIND_OPTIONS = Object.keys(PAYMENT_KIND_LABEL);
+const PAYMENT_KIND_ICON_MAP = {
+  efectivo: Banknote, debito: Landmark, ahorros: PiggyBank, tarjeta_credito: CreditCard, otro: Landmark,
+};
+export function PaymentKindIcon({ kind, size = 16, color = T.ink }) {
+  const Icon = PAYMENT_KIND_ICON_MAP[kind] || Landmark;
+  return <Icon size={size} color={color} />;
 }
 
 async function safeClick(onClick, e) {

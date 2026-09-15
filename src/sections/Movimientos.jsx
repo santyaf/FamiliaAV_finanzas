@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { T, FONT_DISPLAY, FONT_BODY, FONT_MONO, inputStyle } from '../ui/theme';
 import {
-  Card, PrimaryButton, GhostButton, IconButton, Modal, Field, MemberChip, EmptyState, CategoryIcon,
+  Card, PrimaryButton, GhostButton, IconButton, Modal, Field, MemberChip, EmptyState, CategoryIcon, PAYMENT_KIND_LABEL,
 } from '../ui/primitives';
 import { formatMoney, formatDate } from '../lib/format';
 import { todayISO, computeIncomeShares, occurrencesInMonth, getNextOccurrence, daysUntil } from '../lib/finance';
@@ -236,7 +236,7 @@ export function TransactionModal({ data, actions, payload, onClose }) {
       </Field>
       <Field label="Cuenta">
         <select style={inputStyle} value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-          {data.accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          {data.accounts.map((a) => <option key={a.id} value={a.id}>{a.name} — {PAYMENT_KIND_LABEL[a.paymentKind || 'otro']}</option>)}
         </select>
       </Field>
       <Field label={type === 'income' ? 'Recibido por' : 'Pagado por'}>
@@ -447,7 +447,7 @@ export function EditTransactionModal({ data, actions, payload: original, onClose
       </Field>
       <Field label="Cuenta">
         <select style={inputStyle} value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-          {data.accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          {data.accounts.map((a) => <option key={a.id} value={a.id}>{a.name} — {PAYMENT_KIND_LABEL[a.paymentKind || 'otro']}</option>)}
         </select>
       </Field>
       <Field label={type === 'income' ? 'Recibido por' : 'Pagado por'}>
