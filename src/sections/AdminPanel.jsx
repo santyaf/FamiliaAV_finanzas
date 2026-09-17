@@ -140,7 +140,7 @@ export function AdminPanel({ data, actions }) {
       </Card>
 
       <p style={{ fontSize: 11, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-2">
-        Registro rápido y el Asistente viven en la misma pantalla ("Asistente" en Gestión, y el botón flotante) — cada quien ve las pestañas de las funciones a las que tiene acceso.
+        Registro rápido y el Asistente viven en un solo chat ("Asistente" en Gestión, y el botón flotante). Si alguien solo tiene acceso a uno de los dos, ese chat se limita solo a eso; si tiene los dos, el mismo chat responde preguntas y registra movimientos por texto o foto.
       </p>
 
       <AiAccessControl

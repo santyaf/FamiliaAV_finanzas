@@ -1,11 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Sparkles, Send, Loader2, Camera, MessageCircle } from 'lucide-react';
+import { Sparkles, Send, Loader2, Camera, Image as ImageIcon, X } from 'lucide-react';
 import { T, FONT_DISPLAY, FONT_BODY, inputStyle } from '../ui/theme';
-import { Card, EmptyState, PAYMENT_KIND_LABEL } from '../ui/primitives';
-import { callAiApi } from '../lib/ai';
+import { Card, PrimaryButton, EmptyState, PAYMENT_KIND_LABEL } from '../ui/primitives';
+import { callAiJson, matchCategory, matchMember } from '../lib/ai';
 import { isAiFeatureEnabled } from '../lib/access';
-import { thisMonthKey, lastMonthKeys, monthCashFlow, occurrencesInMonth, accountBalance, goalPriorityScore } from '../lib/finance';
-import { QuickCapture } from './QuickCapture';
+import { formatMoney, formatDate } from '../lib/format';
+import {
+  todayISO, thisMonthKey, lastMonthKeys, monthCashFlow, occurrencesInMonth,
+  accountBalance, creditOutstandingBalance, goalPriorityScore,
+} from '../lib/finance';
 
 const SUGGESTED_QUESTIONS = [
   '¿Cuánto llevo gastado este mes?',
@@ -13,33 +16,70 @@ const SUGGESTED_QUESTIONS = [
   '¿Me alcanza para llegar a fin de mes?',
   '¿Cómo va mi objetivo de ahorro principal?',
 ];
+const SUGGESTED_REGISTROS = ['Pagué 30000 de mercado hoy', 'Me depositaron 500000 de nómina'];
 
 const MAX_HISTORY_MESSAGES = 6; // últimos turnos que se le pasan como contexto a la IA
+const DIGEST_MONTHS = 6; // meses de historial que se le mandan a la IA, no solo el mes actual
 
-function systemPrompt(currency) {
-  return `Eres el asistente financiero dentro de una app de finanzas familiares en Colombia (Finanzas del Hogar).
-Respondes preguntas del usuario sobre SUS finanzas usando ÚNICAMENTE los datos que te paso en el bloque "DATOS" — nunca inventes cifras ni asumas datos que no estén ahí.
-Si no puedes responder con esos datos, dilo con claridad y sugiere en qué sección de la app puede revisarlo (Movimientos, Presupuestos, Objetivos, Tendencias).
-Responde siempre en español, en 1 a 4 frases, tono cercano y directo, sin rodeos. Los montos están en ${currency}. No des consejos de inversión ni uses tecnicismos innecesarios.`;
+// Un solo prompt de sistema, según lo que esta persona tenga habilitado:
+// - las dos cosas: la IA decide por mensaje si es pregunta o registro
+// - solo registrar: cada mensaje se trata como un movimiento a extraer
+// - solo preguntar: cada mensaje se trata como una pregunta sobre sus datos
+// En los tres casos responde con el mismo sobre {"tipo": ...} para que el
+// parseo del lado del cliente sea uno solo.
+function chatSystemPrompt({ currency, categoryNames, memberNames, canAsk, canRegister }) {
+  const intro = `Eres el asistente financiero dentro de una app de finanzas familiares en Colombia (Finanzas del Hogar). Hoy es ${todayISO()}. Los montos están en ${currency}.`;
+  const formatoRegistro = '{"tipo":"registro","type":"income|expense","amount":number,"date":"YYYY-MM-DD o null","description":"texto corto","category":"nombre exacto de una categoría de la lista","member":"nombre de integrante si se menciona, si no null"}';
+  const formatoRespuesta = '{"tipo":"respuesta","texto":"tu respuesta en español, 1 a 4 frases, tono cercano y directo, sin tecnicismos ni consejos de inversión"}';
+  const categoriasYIntegrantes = `Categorías de ingreso: ${categoryNames.income.join(', ')}. Categorías de gasto: ${categoryNames.expense.join(', ')}. Integrantes del hogar: ${memberNames.join(', ')}.`;
+
+  if (canAsk && canRegister) {
+    return `${intro}
+Cada mensaje del usuario es UNA de estas dos cosas — decide cuál:
+1) Una PREGUNTA sobre sus finanzas (gastos, presupuestos, objetivos, cuentas, créditos, patrimonio, meses anteriores, etc.). Respóndela usando ÚNICAMENTE los datos del bloque "DATOS" — nunca inventes cifras que no estén ahí. Si no puedes responder con esos datos, dilo con claridad y sugiere en qué sección de la app puede revisarlo (Movimientos, Presupuestos, Objetivos, Tendencias).
+2) La descripción de un MOVIMIENTO que quiere registrar (ej. "pagué 30000 de mercado", "me depositaron el sueldo"). Extrae sus datos, usa null si algo no aparece.
+Responde SIEMPRE con un único JSON válido, sin texto adicional ni backticks, con EXACTAMENTE una de estas dos formas:
+- Pregunta → ${formatoRespuesta}
+- Registro → ${formatoRegistro}
+${categoriasYIntegrantes}`;
+  }
+  if (canRegister) {
+    return `${intro}
+Extraes datos de un movimiento financiero de hogar a partir de un mensaje corto tipo WhatsApp. Responde SIEMPRE con este único JSON, sin texto adicional ni backticks: ${formatoRegistro}
+${categoriasYIntegrantes}`;
+  }
+  return `${intro}
+Respondes preguntas del usuario sobre SUS finanzas usando ÚNICAMENTE los datos del bloque "DATOS" — nunca inventes cifras. Si no puedes responder con esos datos, dilo con claridad y sugiere en qué sección de la app puede revisarlo (Movimientos, Presupuestos, Objetivos, Tendencias).
+Responde SIEMPRE con este único JSON, sin texto adicional ni backticks: ${formatoRespuesta}`;
+}
+
+function receiptSystemPrompt(categoryNames) {
+  return `Extraes datos de un recibo o factura en una foto para registrar un gasto de hogar. Hoy es ${todayISO()}. Categorías de gasto disponibles: ${categoryNames.expense.join(', ')}. Responde SIEMPRE con este único JSON, sin texto adicional ni backticks: {"tipo":"registro","type":"expense","amount":number,"date":"YYYY-MM-DD o null si no se ve","description":"nombre del comercio o resumen","category":"nombre de categoría de la lista"}`;
 }
 
 // Resumen compacto de las finanzas visibles para este usuario — se manda
-// como contexto a la IA en vez de todo el historial crudo (más barato,
-// más rápido, y respeta la misma privacidad que ya ve el usuario en la app:
-// solo se arma con datos que el cliente ya cargó respetando RLS).
+// como contexto a la IA en vez de todo el historial crudo (más barato, más
+// rápido, y respeta la misma privacidad que ya ve el usuario en la app: solo
+// se arma con datos que el cliente ya cargó respetando RLS). Cubre varios
+// meses (no solo el actual) para que pueda responder sobre meses anteriores.
 function buildDigest(data, visibleTransactions) {
+  const monthKeys = lastMonthKeys(DIGEST_MONTHS);
+  const flujoDeCaja = monthKeys.map((key) => ({ mes: key, ...monthCashFlow(visibleTransactions, key) }));
+
+  function gastoPorCategoria(mKey) {
+    const porCategoria = {};
+    visibleTransactions.forEach((t) => {
+      if (t.type !== 'expense') return;
+      const occ = occurrencesInMonth(t, mKey);
+      if (!occ) return;
+      const cat = data.categories.find((c) => c.id === t.categoryId)?.name || 'Otro';
+      porCategoria[cat] = (porCategoria[cat] || 0) + t.amount * occ;
+    });
+    return porCategoria;
+  }
+  const gastoPorCategoriaPorMes = Object.fromEntries(monthKeys.map((key) => [key, gastoPorCategoria(key)]));
+
   const mKey = thisMonthKey();
-  const months = lastMonthKeys(3).map((key) => ({ mes: key, ...monthCashFlow(visibleTransactions, key) }));
-
-  const gastoPorCategoria = {};
-  visibleTransactions.forEach((t) => {
-    if (t.type !== 'expense') return;
-    const occ = occurrencesInMonth(t, mKey);
-    if (!occ) return;
-    const cat = data.categories.find((c) => c.id === t.categoryId)?.name || 'Otro';
-    gastoPorCategoria[cat] = (gastoPorCategoria[cat] || 0) + t.amount * occ;
-  });
-
   const presupuestos = data.budgets.map((b) => {
     const cat = data.categories.find((c) => c.id === b.categoryId)?.name || 'Otro';
     const gastado = data.transactions
@@ -56,38 +96,118 @@ function buildDigest(data, visibleTransactions) {
     nombre: a.name, medio_de_pago: PAYMENT_KIND_LABEL[a.paymentKind || 'otro'],
     saldo: accountBalance(visibleTransactions, a.id),
   }));
+  const totalEnCuentas = cuentas.reduce((s, c) => s + c.saldo, 0);
+  const totalAhorradoObjetivos = objetivos.reduce((s, g) => s + g.ahorrado, 0);
 
-  return { moneda: data.currency, flujo_de_caja_ultimos_3_meses: months, gasto_por_categoria_este_mes: gastoPorCategoria, presupuestos, objetivos, cuentas };
+  // Créditos: solo se suman a la deuda los que están en la misma moneda del
+  // hogar — los créditos en UVR se listan aparte porque convertirlos requiere
+  // la tasa del día (no disponible aquí), igual que en el Dashboard.
+  const creditos = (data.creditsWithPayments || []).map(({ credit, payments }) => ({
+    nombre: credit.name, moneda: credit.currency || data.currency,
+    saldo_pendiente: creditOutstandingBalance(credit, payments),
+  }));
+  const deudaMismaMoneda = creditos.filter((c) => c.moneda === data.currency).reduce((s, c) => s + c.saldo_pendiente, 0);
+  const deudaEnOtraMonedaNoIncluida = creditos.filter((c) => c.moneda !== data.currency);
+
+  return {
+    moneda: data.currency,
+    flujo_de_caja_ultimos_meses: flujoDeCaja,
+    gasto_por_categoria_por_mes: gastoPorCategoriaPorMes,
+    presupuestos,
+    objetivos,
+    cuentas,
+    creditos,
+    patrimonio_aproximado: totalEnCuentas + totalAhorradoObjetivos - deudaMismaMoneda,
+    nota_patrimonio: deudaEnOtraMonedaNoIncluida.length
+      ? 'El patrimonio_aproximado no incluye la deuda de los créditos en otra moneda listados en "creditos" — menciónalo si el usuario pregunta por su patrimonio total.'
+      : undefined,
+  };
 }
 
-function ChatPanel({ data, actions, visibleTransactions }) {
-  const [messages, setMessages] = useState([]); // { role: 'user'|'assistant', text }
+function buildDraft(data, parsed, asMember, rawLabel) {
+  const type = parsed.type === 'income' ? 'income' : 'expense';
+  const categoryId = matchCategory(parsed.category, type, data.categories);
+  const memberId = matchMember(parsed.member, data.members) || asMember || data.members[0]?.id;
+  const account = data.accounts.find((a) => a.ownerIds?.includes(memberId)) || data.accounts[0];
+  return {
+    type,
+    description: parsed.description || parsed.merchant || '',
+    amount: parsed.amount || '',
+    categoryId,
+    accountId: account?.id,
+    memberId,
+    date: parsed.date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.date) ? parsed.date : todayISO(),
+    source: 'quick',
+    raw: rawLabel,
+  };
+}
+
+function ChatPanel({ data, actions, visibleTransactions, setModal, canAsk, canRegister }) {
+  const [messages, setMessages] = useState([]); // { role, text?, image?, draft? }
   const [input, setInput] = useState('');
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+  const [asMember, setAsMember] = useState(data.members.find((m) => m.id === actions.userId)?.id || data.members[0]?.id || '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const endRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, loading]);
 
-  async function ask(question) {
-    const q = (question ?? input).trim();
-    if (!q || loading) return;
-    setInput(''); setError('');
-    const nextMessages = [...messages, { role: 'user', text: q }];
+  const categoryNames = { income: data.categories.filter((c) => c.type === 'income').map((c) => c.name), expense: data.categories.filter((c) => c.type === 'expense').map((c) => c.name) };
+  const memberNames = data.members.map((m) => m.name);
+
+  function onPickImage(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImageFile(file);
+    const reader = new FileReader();
+    reader.onload = () => setImagePreview(reader.result);
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  }
+
+  async function send(overrideText) {
+    const q = (overrideText ?? input).trim();
+    if (!q && !imagePreview) return;
+    if (loading) return;
+    setError('');
+    const nextMessages = [...messages, { role: 'user', text: q, image: imagePreview }];
     setMessages(nextMessages);
+    setInput('');
+    const pendingImageFile = imageFile, pendingImagePreview = imagePreview;
+    setImageFile(null); setImagePreview(null);
     setLoading(true);
     try {
-      const digest = buildDigest(data, visibleTransactions);
-      const history = nextMessages.slice(-MAX_HISTORY_MESSAGES - 1, -1)
-        .map((m) => `${m.role === 'user' ? 'Usuario' : 'Asistente'}: ${m.text}`).join('\n');
-      const prompt = `DATOS (JSON):\n${JSON.stringify(digest)}\n\n${history ? `Conversación previa:\n${history}\n\n` : ''}Pregunta del usuario: ${q}`;
-      const text = await callAiApi({
-        system: systemPrompt(data.currency),
-        content: [{ type: 'text', text: prompt }],
-        provider: data.settings.ai_provider,
-        model: data.settings.ai_model,
-      });
-      setMessages((m) => [...m, { role: 'assistant', text: text.trim() || 'No obtuve una respuesta — intenta de nuevo.' }]);
+      let parsed;
+      if (pendingImagePreview) {
+        const base64Data = pendingImagePreview.split(',')[1];
+        const mediaType = pendingImageFile?.type || 'image/jpeg';
+        parsed = await callAiJson({
+          system: receiptSystemPrompt(categoryNames),
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
+            { type: 'text', text: q || 'Extrae los datos de este recibo.' },
+          ],
+          provider: data.settings?.ai_provider, model: data.settings?.ai_model,
+        });
+      } else {
+        const history = nextMessages.slice(-MAX_HISTORY_MESSAGES - 1, -1)
+          .map((m) => `${m.role === 'user' ? 'Usuario' : 'Asistente'}: ${m.text || (m.draft ? '[registró un movimiento]' : '')}`).join('\n');
+        const digestBlock = canAsk ? `DATOS (JSON):\n${JSON.stringify(buildDigest(data, visibleTransactions))}\n\n` : '';
+        const prompt = `${digestBlock}${history ? `Conversación previa:\n${history}\n\n` : ''}Mensaje del usuario: ${q}`;
+        parsed = await callAiJson({
+          system: chatSystemPrompt({ currency: data.currency, categoryNames, memberNames, canAsk, canRegister }),
+          content: [{ type: 'text', text: prompt }],
+          provider: data.settings.ai_provider, model: data.settings.ai_model,
+        });
+      }
+      if (parsed.tipo === 'registro') {
+        setMessages((m) => [...m, { role: 'assistant', draft: buildDraft(data, parsed, asMember, q || 'Foto de recibo') }]);
+      } else {
+        setMessages((m) => [...m, { role: 'assistant', text: parsed.texto || 'No obtuve una respuesta — intenta de nuevo.' }]);
+      }
     } catch (e) {
       setError(e.message || 'No se pudo contactar al asistente.');
     } finally {
@@ -95,38 +215,33 @@ function ChatPanel({ data, actions, visibleTransactions }) {
     }
   }
 
+  const title = canAsk && canRegister ? 'Pregúntame o cuéntame qué gastaste' : canRegister ? 'Registra tus movimientos por chat' : 'Pregúntame sobre tus finanzas';
+  const subtitle = canAsk && canRegister
+    ? 'Usa tus datos reales para responder, y puede registrar un movimiento si le describes uno o le mandas la foto de un recibo.'
+    : canRegister
+      ? 'Escribe como si le mandaras un mensaje a tu familia, o sube la foto de un recibo — tú confirmas antes de guardar.'
+      : 'Responde solo con tus movimientos, presupuestos y objetivos reales.';
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '60vh' }}>
       <div className="flex items-center gap-2 mb-1">
         <Sparkles size={18} color={T.teal} />
-        <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: T.ink }}>Asistente financiero</p>
+        <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: T.ink }}>{title}</p>
       </div>
-      <p style={{ fontSize: 12.5, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-3">
-        Pregúntale sobre tus gastos, presupuestos y objetivos — responde solo con tus datos reales.
-      </p>
+      <p style={{ fontSize: 12.5, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-3">{subtitle}</p>
 
-      <div className="flex gap-2 mb-3">
-        <input
-          style={{ ...inputStyle, flex: 1 }}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') ask(); }}
-          placeholder="Ej. ¿Cuánto llevo en restaurantes este mes?"
-          disabled={loading}
-        />
-        <button onClick={() => ask()} disabled={loading || !input.trim()} aria-label="Preguntar"
-          className="flex items-center justify-center active:scale-90 transition-transform"
-          style={{ background: T.teal, borderRadius: 10, width: 44, height: 44, flexShrink: 0, opacity: loading || !input.trim() ? 0.5 : 1 }}>
-          {loading ? <Loader2 size={18} color="#fff" className="animate-spin" /> : <Send size={18} color="#fff" />}
-        </button>
-      </div>
+      {canRegister && data.members.length > 1 && (
+        <select style={{ ...inputStyle, marginBottom: 10, fontSize: 12.5 }} value={asMember} onChange={(e) => setAsMember(e.target.value)}>
+          {data.members.map((m) => <option key={m.id} value={m.id}>Registrar como: {m.name}</option>)}
+        </select>
+      )}
 
       {messages.length === 0 && (
         <>
-          <EmptyState icon={<Sparkles size={32} color={T.teal} />} title="Pregúntame lo que quieras" subtitle="Uso tus movimientos, presupuestos y objetivos para responder." />
+          <EmptyState icon={<Sparkles size={32} color={T.teal} />} title={canAsk ? 'Pregúntame lo que quieras' : 'Cuéntame qué registrar'} subtitle="Prueba con uno de estos, o escribe el tuyo abajo." />
           <div className="flex flex-col gap-2 mt-3">
-            {SUGGESTED_QUESTIONS.map((q) => (
-              <button key={q} onClick={() => ask(q)} className="text-left rounded-xl p-3" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+            {(canAsk ? SUGGESTED_QUESTIONS : SUGGESTED_REGISTROS).map((q) => (
+              <button key={q} onClick={() => send(q)} className="text-left rounded-xl p-3" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
                 <span style={{ fontSize: 13, color: T.ink, fontFamily: FONT_BODY }}>{q}</span>
               </button>
             ))}
@@ -137,9 +252,23 @@ function ChatPanel({ data, actions, visibleTransactions }) {
       <div className="flex flex-col gap-2" style={{ flex: 1 }}>
         {messages.map((m, i) => (
           <div key={i} style={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '85%' }}>
-            <Card style={{ background: m.role === 'user' ? T.teal : T.surface, padding: '10px 14px' }}>
-              <p style={{ fontSize: 13.5, color: m.role === 'user' ? '#fff' : T.ink, fontFamily: FONT_BODY, whiteSpace: 'pre-wrap' }}>{m.text}</p>
-            </Card>
+            {m.draft ? (
+              <Card style={{ padding: 12 }}>
+                <p style={{ fontSize: 11, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-1">Detecté este movimiento:</p>
+                <p style={{ fontSize: 14, color: T.ink, fontFamily: FONT_BODY, fontWeight: 600 }}>
+                  {m.draft.description || (data.categories.find((c) => c.id === m.draft.categoryId)?.name)} — {m.draft.amount ? formatMoney(m.draft.amount, data.currency) : '—'}
+                </p>
+                <p style={{ fontSize: 12, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-2">
+                  {data.categories.find((c) => c.id === m.draft.categoryId)?.name} · {formatDate(m.draft.date)}
+                </p>
+                <PrimaryButton onClick={() => setModal({ type: 'transaction', payload: m.draft })}>Revisar y guardar</PrimaryButton>
+              </Card>
+            ) : (
+              <Card style={{ background: m.role === 'user' ? T.teal : T.surface, padding: '10px 14px' }}>
+                {m.image && <img src={m.image} alt="Adjunta" className="rounded-lg mb-2" style={{ maxWidth: '100%', maxHeight: 180, objectFit: 'contain' }} />}
+                {m.text && <p style={{ fontSize: 13.5, color: m.role === 'user' ? '#fff' : T.ink, fontFamily: FONT_BODY, whiteSpace: 'pre-wrap' }}>{m.text}</p>}
+              </Card>
+            )}
           </div>
         ))}
         {loading && (
@@ -153,38 +282,60 @@ function ChatPanel({ data, actions, visibleTransactions }) {
       </div>
 
       {error && <p style={{ color: T.danger, fontSize: 12.5, fontFamily: FONT_BODY }} className="mt-2">{error}</p>}
+
+      {imagePreview && (
+        <div className="flex items-center gap-2 mt-3 rounded-xl p-2" style={{ background: T.bg }}>
+          <img src={imagePreview} alt="Foto adjunta" className="rounded-lg" style={{ width: 44, height: 44, objectFit: 'cover' }} />
+          <span style={{ fontSize: 12, color: T.inkSoft, fontFamily: FONT_BODY }} className="flex-1">Foto lista para enviar</span>
+          <button onClick={() => { setImageFile(null); setImagePreview(null); }} aria-label="Quitar foto" className="flex items-center justify-center" style={{ width: 28, height: 28 }}>
+            <X size={16} color={T.inkSoft} />
+          </button>
+        </div>
+      )}
+
+      <div className="flex gap-2 mt-3">
+        {canRegister && (
+          <>
+            <input ref={fileInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={onPickImage} />
+            <button onClick={() => fileInputRef.current?.click()} disabled={loading} aria-label="Adjuntar foto de recibo"
+              className="flex items-center justify-center active:scale-90 transition-transform"
+              style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, width: 44, height: 44, flexShrink: 0, opacity: loading ? 0.5 : 1 }}>
+              {imagePreview ? <ImageIcon size={18} color={T.teal} /> : <Camera size={18} color={T.ink} />}
+            </button>
+          </>
+        )}
+        <input
+          style={{ ...inputStyle, flex: 1 }}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') send(); }}
+          placeholder={canRegister && canAsk ? 'Escribe una pregunta o un movimiento…' : canRegister ? 'Ej. "Pagué 350 de gasolina hoy"' : 'Ej. ¿Cuánto llevo en restaurantes este mes?'}
+          disabled={loading}
+        />
+        <button onClick={() => send()} disabled={loading || (!input.trim() && !imagePreview)} aria-label="Enviar"
+          className="flex items-center justify-center active:scale-90 transition-transform"
+          style={{ background: T.teal, borderRadius: 10, width: 44, height: 44, flexShrink: 0, opacity: loading || (!input.trim() && !imagePreview) ? 0.5 : 1 }}>
+          {loading ? <Loader2 size={18} color="#fff" className="animate-spin" /> : <Send size={18} color="#fff" />}
+        </button>
+      </div>
     </div>
   );
 }
 
-// Punto de entrada único: "Preguntar" (chat sobre las finanzas) y
-// "Registrar" (Registro rápido por chat o foto de recibo, sin cambios —
-// se reusa QuickCapture tal cual) viven en la misma pantalla, cada uno
-// habilitado según su propio control de acceso en Admin. Si la persona
-// solo tiene acceso a uno de los dos, no se muestra el selector y entra
-// directo a ese.
+// Punto de entrada único del Asistente: un solo chat que, según el acceso de
+// cada quien (controlado en Admin, por función), puede responder preguntas,
+// registrar movimientos por texto o foto de recibo, o ambas cosas a la vez
+// dejando que la IA decida qué es cada mensaje.
 export function Asistente({ data, actions, visibleTransactions, setModal }) {
   const aiProviderConfigured = data.settings?.ai_provider && data.settings.ai_provider !== 'none';
   const canAsk = aiProviderConfigured && isAiFeatureEnabled(data.settings?.assistant_access, actions.userId);
   const canRegister = aiProviderConfigured && isAiFeatureEnabled(data.settings?.quick_capture_access, actions.userId);
-  const [mode, setMode] = useState(canAsk ? 'preguntar' : 'registrar');
 
   if (!canAsk && !canRegister) return null;
 
   return (
     <div className="pb-4 pt-2">
-      {canAsk && canRegister && (
-        <div className="flex rounded-xl p-1 mb-4" style={{ background: T.bg }}>
-          <button onClick={() => setMode('preguntar')} className="flex-1 rounded-lg py-2 flex items-center justify-center gap-1.5" style={{ background: mode === 'preguntar' ? T.surface : 'transparent', border: mode === 'preguntar' ? `1px solid ${T.border}` : 'none' }}>
-            <MessageCircle size={15} color={T.ink} /><span style={{ fontSize: 13, color: T.ink, fontFamily: FONT_BODY, fontWeight: 500 }}>Preguntar</span>
-          </button>
-          <button onClick={() => setMode('registrar')} className="flex-1 rounded-lg py-2 flex items-center justify-center gap-1.5" style={{ background: mode === 'registrar' ? T.surface : 'transparent', border: mode === 'registrar' ? `1px solid ${T.border}` : 'none' }}>
-            <Camera size={15} color={T.ink} /><span style={{ fontSize: 13, color: T.ink, fontFamily: FONT_BODY, fontWeight: 500 }}>Registrar</span>
-          </button>
-        </div>
-      )}
-      {mode === 'preguntar' && canAsk && <ChatPanel data={data} actions={actions} visibleTransactions={visibleTransactions} />}
-      {mode === 'registrar' && canRegister && <QuickCapture data={data} actions={actions} setModal={setModal} />}
+      <ChatPanel data={data} actions={actions} visibleTransactions={visibleTransactions} setModal={setModal} canAsk={canAsk} canRegister={canRegister} />
     </div>
   );
 }
