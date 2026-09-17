@@ -33,11 +33,14 @@ describe('matchCategory', () => {
 });
 
 describe('matchMember', () => {
-  const members = [{ id: 'm1', name: 'Santiago' }, { id: 'm2', name: 'Ana' }];
+  const members = [{ id: 'm1', name: 'Santiago' }, { id: 'm2', name: 'Valentina' }];
 
-  it('encuentra por nombre exacto o parcial', () => {
+  it('encuentra por nombre exacto ignorando acentos y mayúsculas', () => {
     expect(matchMember('santiago', members)).toBe('m1');
-    expect(matchMember('An', members)).toBe('m2');
+  });
+
+  it('encuentra por coincidencia parcial', () => {
+    expect(matchMember('Val', members)).toBe('m2');
   });
 
   it('devuelve null si no hay guess o no hay coincidencia', () => {
