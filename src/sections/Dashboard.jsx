@@ -1,11 +1,14 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  TrendingUp, TrendingDown, Wallet, Users, Sparkles, Calendar, ChevronRight, AlertTriangle,
+  TrendingUp, TrendingDown, Wallet, Users, Sparkles, Calendar, ChevronRight, AlertTriangle, Landmark,
 } from 'lucide-react';
 import { T, FONT_DISPLAY, FONT_BODY, FONT_MONO } from '../ui/theme';
 import { Card, ProgressBar, EmptyState, CategoryIcon } from '../ui/primitives';
 import { formatMoney, formatDate } from '../lib/format';
-import { thisMonthKey, daysUntil, occurrencesInMonth, getNextOccurrence, goalPriorityScore, todayISO } from '../lib/finance';
+import {
+  thisMonthKey, daysUntil, occurrencesInMonth, getNextOccurrence, goalPriorityScore, todayISO,
+  accountBalance, creditOutstandingBalance,
+} from '../lib/finance';
 
 export function DonutChart({ data, colors, size = 168, thickness = 30 }) {
   const total = data.reduce((s, d) => s + (d.value || 0), 0);
@@ -37,6 +40,37 @@ export function Dashboard({ data, update, actions, visibleTransactions, visibleM
   const mKey = thisMonthKey();
   const currency = data.currency;
   const myId = actions.userId;
+
+  // Patrimonio neto = activos (saldo de cuentas + ahorrado en objetivos) -
+  // pasivos (saldo pendiente de créditos activos). Los créditos en UVR se
+  // convierten a la moneda del hogar con la última tasa conocida; mientras
+  // esa tasa no ha llegado (o no hay ninguna guardada), se excluyen del
+  // total y se avisa aparte para no subestimar la deuda en silencio.
+  const creditsWithPayments = data.creditsWithPayments || [];
+  const hasUvrCredits = creditsWithPayments.some((cp) => cp.credit.currency === 'UVR');
+  const [uvrRate, setUvrRate] = useState(null);
+  const [uvrFailed, setUvrFailed] = useState(false);
+  useEffect(() => {
+    if (hasUvrCredits && !uvrRate) {
+      actions.getLatestUvr()
+        .then((r) => (r ? setUvrRate(r) : setUvrFailed(true)))
+        .catch(() => setUvrFailed(true));
+    }
+  }, [hasUvrCredits]);
+
+  const totalAssets = data.accounts.reduce((s, a) => s + accountBalance(data.transactions, a.id), 0)
+    + data.goals.reduce((s, g) => s + g.currentAmount, 0);
+  let totalLiabilities = 0, uvrLiabilitiesPending = 0;
+  creditsWithPayments.forEach((cp) => {
+    const bal = creditOutstandingBalance(cp.credit, cp.payments);
+    if (cp.credit.currency === 'UVR') {
+      if (uvrRate) totalLiabilities += bal * uvrRate.value;
+      else uvrLiabilitiesPending += bal;
+    } else {
+      totalLiabilities += bal;
+    }
+  });
+  const netWorth = totalAssets - totalLiabilities;
 
   // división entre lo compartido/familiar (todos lo ven) y lo personal (solo yo)
   function splitFamilyPersonal(list) {
@@ -152,6 +186,20 @@ export function Dashboard({ data, update, actions, visibleTransactions, visibleM
 
   return (
     <div className="pb-4">
+      <Card style={{ marginTop: 8, marginBottom: 16, background: T.ink, border: 'none' }}>
+        <div className="flex items-center gap-1.5 mb-1"><Landmark size={14} color="#fff" /><span style={{ fontSize: 12, color: '#fff', opacity: 0.7, fontFamily: FONT_BODY, fontWeight: 600 }}>Patrimonio neto</span></div>
+        <p style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 24, color: '#fff' }}>{formatMoney(netWorth, currency)}</p>
+        <div className="flex items-center justify-between mt-1.5">
+          <span style={{ fontSize: 11, color: '#fff', opacity: 0.7 }}>Activos {formatMoney(totalAssets, currency)}</span>
+          <span style={{ fontSize: 11, color: '#fff', opacity: 0.7 }}>Pasivos {formatMoney(totalLiabilities, currency)}</span>
+        </div>
+        {uvrLiabilitiesPending > 0 && (
+          <p style={{ fontSize: 10, color: '#fff', opacity: 0.6 }} className="mt-1">
+            + {uvrLiabilitiesPending.toLocaleString('es-CO', { maximumFractionDigits: 2 })} UVR en créditos {uvrFailed ? '(no se pudo consultar la tasa)' : '(consultando tasa…)'}
+          </p>
+        )}
+      </Card>
+
       <p style={{ fontSize: 11.5, color: T.inkSoft, fontFamily: FONT_BODY }} className="mt-2 mb-2">
         Balance del mes — familiar (todos lo ven) y personal (solo tú)
       </p>

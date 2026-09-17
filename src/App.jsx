@@ -96,6 +96,10 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
   const [settings, setSettings] = useState(null);
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [notifications, setNotifications] = useState([]);
+  // Créditos activos con sus cuotas — se carga una sola vez por sesión (ya se
+  // necesitaba para el motor de notificaciones) y se reusa para Patrimonio
+  // neto en el Dashboard, en vez de pedirlo dos veces.
+  const [creditsSnapshot, setCreditsSnapshot] = useState([]);
 
   async function refresh() {
     const d = await db.loadHouseholdData(household.householdId);
@@ -118,6 +122,7 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
         const creditsWithPayments = await Promise.all(
           credits.filter((c) => c.status !== 'pagado').map(async (c) => ({ credit: c, payments: await db.loadCreditPayments(c.id) }))
         );
+        setCreditsSnapshot(creditsWithPayments);
         const candidates = buildNotificationCandidates(d, creditsWithPayments, session.user.id);
         await db.upsertNotifications(household.householdId, candidates);
       } catch { /* si falla el motor de detección, no debe romper el resto de la app */ }
@@ -138,7 +143,7 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     viewMode, activeMemberId,
     members: raw.members, categories: raw.categories, accounts: raw.accounts,
     transactions: raw.transactions, goals: raw.goals, budgets: raw.budgets, obligations: raw.obligations,
-    settings, isPlatformAdmin, notifications: myNotifications, unreadCount,
+    settings, isPlatformAdmin, notifications: myNotifications, unreadCount, creditsWithPayments: creditsSnapshot,
   };
 
   function update(patch) {

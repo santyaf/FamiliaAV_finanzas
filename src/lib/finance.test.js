@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   monthKey, thisMonthKey, daysUntil, getNextOccurrence, occurrencesInMonth,
   computeIncomeShares, computeBalances, simplifyDebts, goalPriorityScore, advanceByFrequency,
+  accountBalance, creditOutstandingBalance,
 } from './finance';
 
 // Fijamos "hoy" = 2026-06-15 para que las funciones que dependen de la fecha
@@ -62,6 +63,45 @@ describe('advanceByFrequency', () => {
   });
   it('mensual: día 31 cae al mes con menos días (comportamiento de setUTCMonth)', () => {
     expect(advanceByFrequency('2026-01-31', 'mensual')).toBe('2026-03-03');
+  });
+});
+
+describe('accountBalance', () => {
+  const acc = 'a1', other = 'a2';
+  it('suma ingresos y resta gastos de la cuenta', () => {
+    const txs = [
+      { type: 'income', accountId: acc, amount: 1000 },
+      { type: 'expense', accountId: acc, amount: 300 },
+      { type: 'income', accountId: other, amount: 5000 }, // no cuenta, es de otra cuenta
+    ];
+    expect(accountBalance(txs, acc)).toBe(700);
+  });
+  it('aporte a objetivo (deposit) resta de la cuenta de origen; retiro (withdraw) suma', () => {
+    const txs = [
+      { type: 'transfer', goalId: 'g1', accountId: acc, transferDirection: 'deposit', amount: 200 },
+      { type: 'transfer', goalId: 'g1', accountId: acc, transferDirection: 'withdraw', amount: 50 },
+    ];
+    expect(accountBalance(txs, acc)).toBe(-150);
+  });
+  it('transferencia entre integrantes: sale de la cuenta origen, entra a la de destino', () => {
+    const txs = [{ type: 'transfer', accountId: acc, toAccountId: other, amount: 100 }];
+    expect(accountBalance(txs, acc)).toBe(-100);
+    expect(accountBalance(txs, other)).toBe(100);
+  });
+});
+
+describe('creditOutstandingBalance', () => {
+  it('sin cuotas pagadas: el saldo es el capital inicial', () => {
+    expect(creditOutstandingBalance({ principal: 10000 }, [])).toBe(10000);
+    expect(creditOutstandingBalance({ principal: 10000 }, null)).toBe(10000);
+  });
+  it('con cuotas pagadas: el saldo es el balanceAfter de la última pagada', () => {
+    const payments = [
+      { paid: true, balanceAfter: 9000 },
+      { paid: true, balanceAfter: 8000 },
+      { paid: false, balanceAfter: 7000 },
+    ];
+    expect(creditOutstandingBalance({ principal: 10000 }, payments)).toBe(8000);
   });
 });
 

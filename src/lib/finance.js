@@ -5,6 +5,34 @@ export const todayISO = () => new Date().toISOString().slice(0, 10);
 export const monthKey = (d) => (d || todayISO()).slice(0, 7);
 export const thisMonthKey = () => monthKey(todayISO());
 
+// Saldo de una cuenta: ingresos - gastos +/- transferencias que le pegaron.
+// Extraída de Cuentas.jsx para reusarla en el cálculo de patrimonio neto.
+export function accountBalance(transactions, accountId) {
+  let total = 0;
+  transactions.forEach((t) => {
+    if (t.type === 'income' && t.accountId === accountId) total += t.amount;
+    else if (t.type === 'expense' && t.accountId === accountId) total -= t.amount;
+    else if (t.type === 'transfer') {
+      if (t.goalId) {
+        // aporte/retiro de objetivo: solo afecta la cuenta de origen
+        if (t.accountId === accountId) total += t.transferDirection === 'withdraw' ? t.amount : -t.amount;
+      } else {
+        // transferencia entre integrantes: sale de la cuenta origen, entra a la de destino
+        if (t.accountId === accountId) total -= t.amount;
+        if (t.toAccountId === accountId) total += t.amount;
+      }
+    }
+  });
+  return total;
+}
+
+// Saldo pendiente de un crédito: el balance_after de la última cuota pagada,
+// o el capital inicial si aún no se ha pagado ninguna. Extraída de
+// Creditos.jsx para reusarla en el cálculo de patrimonio neto.
+export function creditOutstandingBalance(credit, payments) {
+  return payments?.length ? (payments.filter((p) => p.paid).slice(-1)[0]?.balanceAfter ?? credit.principal) : credit.principal;
+}
+
 export function daysUntil(d) {
   const today = new Date(todayISO() + 'T00:00:00');
   const target = new Date(d + 'T00:00:00');

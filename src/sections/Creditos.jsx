@@ -5,7 +5,7 @@ import {
   Card, PrimaryButton, GhostButton, IconButton, ProgressBar, Modal, Field, EmptyState,
 } from '../ui/primitives';
 import { formatMoney, formatDate } from '../lib/format';
-import { todayISO } from '../lib/finance';
+import { todayISO, creditOutstandingBalance } from '../lib/finance';
 import { annualToMonthlyRate, generateSchedule, recalcAfterExtraPayment } from '../lib/amortization';
 
 function addOneYear(dateStr) {
@@ -100,7 +100,7 @@ export function CreditDetail({ data, actions, credit, setModal, onBack, onDelete
   const paidCount = payments?.filter((p) => p.paid).length || 0;
   const totalCount = payments?.length || 0;
   const nextUnpaid = payments?.find((p) => !p.paid);
-  const currentBalance = payments?.length ? (payments.filter((p) => p.paid).slice(-1)[0]?.balanceAfter ?? credit.principal) : credit.principal;
+  const currentBalance = creditOutstandingBalance(credit, payments);
   const money = (v) => credit.currency === 'UVR' ? `${v.toLocaleString('es-CO', { maximumFractionDigits: 2 })} UVR` : formatMoney(v, data.currency);
 
   const visiblePayments = showAll ? payments : payments?.slice(0, 6);

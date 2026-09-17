@@ -3,27 +3,11 @@ import { Trash2, Pencil } from 'lucide-react';
 import { T, FONT_DISPLAY, FONT_BODY, FONT_MONO, inputStyle } from '../ui/theme';
 import { Card, PrimaryButton, IconButton, Modal, Field, MemberChip, PaymentKindIcon, PAYMENT_KIND_LABEL, PAYMENT_KIND_OPTIONS } from '../ui/primitives';
 import { formatMoney } from '../lib/format';
+import { accountBalance } from '../lib/finance';
 
 export function Cuentas({ data, actions, setModal }) {
   const currency = data.currency;
-  function balanceOf(acc) {
-    let total = 0;
-    data.transactions.forEach((t) => {
-      if (t.type === 'income' && t.accountId === acc.id) total += t.amount;
-      else if (t.type === 'expense' && t.accountId === acc.id) total -= t.amount;
-      else if (t.type === 'transfer') {
-        if (t.goalId) {
-          // aporte/retiro de objetivo: solo afecta la cuenta de origen
-          if (t.accountId === acc.id) total += t.transferDirection === 'withdraw' ? t.amount : -t.amount;
-        } else {
-          // transferencia entre integrantes: sale de la cuenta origen, entra a la de destino
-          if (t.accountId === acc.id) total -= t.amount;
-          if (t.toAccountId === acc.id) total += t.amount;
-        }
-      }
-    });
-    return total;
-  }
+  const balanceOf = (acc) => accountBalance(data.transactions, acc.id);
   function removeAccount(id) { actions.removeAccount(id); }
 
   // Disponible (o gastado, para tarjeta de crédito) por medio de pago —
