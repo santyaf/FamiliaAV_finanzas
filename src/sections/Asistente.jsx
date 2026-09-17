@@ -21,6 +21,8 @@ const SUGGESTED_REGISTROS = ['Pagué 30000 de mercado hoy', 'Me depositaron 5000
 
 const MAX_HISTORY_MESSAGES = 6; // últimos turnos que se le pasan como contexto a la IA
 const DIGEST_MONTHS = 6; // meses de historial que se le mandan a la IA, no solo el mes actual
+const RECENT_TX_DAYS = 30; // ventana de movimientos individuales (día a día), no solo totales por mes
+const RECENT_TX_LIMIT = 80; // tope de movimientos individuales, para hogares muy activos
 
 // Un solo prompt de sistema, según lo que esta persona tenga habilitado:
 // - las dos cosas: la IA decide por mensaje si es pregunta o registro
@@ -34,10 +36,12 @@ function chatSystemPrompt({ currency, categoryNames, memberNames, canAsk, canReg
   const formatoRespuesta = '{"tipo":"respuesta","texto":"tu respuesta en español, 1 a 4 frases, tono cercano y directo, sin tecnicismos ni consejos de inversión"}';
   const categoriasYIntegrantes = `Categorías de ingreso: ${categoryNames.income.join(', ')}. Categorías de gasto: ${categoryNames.expense.join(', ')}. Integrantes del hogar: ${memberNames.join(', ')}.`;
 
+  const notaDatos = `El bloque "DATOS" trae "movimientos_recientes" (el detalle día a día, con descripción, de los últimos ${RECENT_TX_DAYS} días) y además totales agregados por mes en "flujo_de_caja_ultimos_meses" / "gasto_por_categoria_por_mes" para un rango más largo. Para preguntas sobre un día o una compra específica, usa "movimientos_recientes"; si la fecha que preguntan ya no está ahí, usa los totales por mes si alcanzan, y si tampoco alcanzan dilo con claridad — no digas que no tienes ningún dato solo porque falte el detalle día a día de un mes viejo.`;
+
   if (canAsk && canRegister) {
     return `${intro}
 Cada mensaje del usuario es UNA de estas dos cosas — decide cuál:
-1) Una PREGUNTA sobre sus finanzas (gastos, presupuestos, objetivos, cuentas, créditos, patrimonio, meses anteriores, etc.). Respóndela usando ÚNICAMENTE los datos del bloque "DATOS" — nunca inventes cifras que no estén ahí. Si no puedes responder con esos datos, dilo con claridad y sugiere en qué sección de la app puede revisarlo (Movimientos, Presupuestos, Objetivos, Tendencias).
+1) Una PREGUNTA sobre sus finanzas (gastos de un día, de una categoría, presupuestos, objetivos, cuentas, créditos, patrimonio, meses anteriores, etc.). Respóndela usando ÚNICAMENTE los datos del bloque "DATOS" — nunca inventes cifras que no estén ahí. ${notaDatos}
 2) La descripción de un MOVIMIENTO que quiere registrar (ej. "pagué 30000 de mercado", "me depositaron el sueldo"). Extrae sus datos, usa null si algo no aparece.
 Responde SIEMPRE con un único JSON válido, sin texto adicional ni backticks, con EXACTAMENTE una de estas dos formas:
 - Pregunta → ${formatoRespuesta}
@@ -50,7 +54,7 @@ Extraes datos de un movimiento financiero de hogar a partir de un mensaje corto 
 ${categoriasYIntegrantes}`;
   }
   return `${intro}
-Respondes preguntas del usuario sobre SUS finanzas usando ÚNICAMENTE los datos del bloque "DATOS" — nunca inventes cifras. Si no puedes responder con esos datos, dilo con claridad y sugiere en qué sección de la app puede revisarlo (Movimientos, Presupuestos, Objetivos, Tendencias).
+Respondes preguntas del usuario sobre SUS finanzas (gastos de un día, de una categoría, presupuestos, objetivos, cuentas, créditos, patrimonio, meses anteriores, etc.) usando ÚNICAMENTE los datos del bloque "DATOS" — nunca inventes cifras. ${notaDatos}
 Responde SIEMPRE con este único JSON, sin texto adicional ni backticks: ${formatoRespuesta}`;
 }
 
@@ -79,6 +83,27 @@ function buildDigest(data, visibleTransactions) {
     return porCategoria;
   }
   const gastoPorCategoriaPorMes = Object.fromEntries(monthKeys.map((key) => [key, gastoPorCategoria(key)]));
+
+  // Detalle día a día de lo más reciente — los agregados por mes de arriba no
+  // alcanzan para responder "¿qué gasté ayer?" o "¿en qué compré tal cosa?".
+  // No incluye transferencias/settlements (no son gasto real), y las
+  // transacciones recurrentes solo aparecen en su fecha de registro original,
+  // no en cada repetición — limitación del modelo de datos, no de este resumen.
+  const recentCutoff = new Date(todayISO() + 'T00:00:00');
+  recentCutoff.setDate(recentCutoff.getDate() - RECENT_TX_DAYS);
+  const movimientosRecientes = visibleTransactions
+    .filter((t) => (t.type === 'expense' || t.type === 'income') && t.date && new Date(t.date + 'T00:00:00') >= recentCutoff)
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, RECENT_TX_LIMIT)
+    .map((t) => ({
+      fecha: t.date,
+      tipo: t.type,
+      descripcion: t.description || null,
+      categoria: data.categories.find((c) => c.id === t.categoryId)?.name || 'Otro',
+      monto: t.amount,
+      integrante: data.members.find((m) => m.id === t.memberId)?.name || null,
+      recurrente: !!t.recurring,
+    }));
 
   const mKey = thisMonthKey();
   const presupuestos = data.budgets.map((b) => {
@@ -112,6 +137,8 @@ function buildDigest(data, visibleTransactions) {
 
   return {
     moneda: data.currency,
+    movimientos_recientes: movimientosRecientes,
+    ventana_movimientos_recientes_dias: RECENT_TX_DAYS,
     flujo_de_caja_ultimos_meses: flujoDeCaja,
     gasto_por_categoria_por_mes: gastoPorCategoriaPorMes,
     presupuestos,
