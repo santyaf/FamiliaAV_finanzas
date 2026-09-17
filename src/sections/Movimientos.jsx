@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { T, FONT_DISPLAY, FONT_BODY, FONT_MONO, inputStyle } from '../ui/theme';
 import {
-  Card, PrimaryButton, GhostButton, IconButton, Modal, Field, MemberChip, EmptyState, CategoryIcon, PAYMENT_KIND_LABEL,
+  Card, PrimaryButton, GhostButton, IconButton, Modal, Field, MemberChip, EmptyState, CategoryIcon, PAYMENT_KIND_LABEL, PAYMENT_KIND_OPTIONS,
 } from '../ui/primitives';
 import { formatMoney, formatDate } from '../lib/format';
 import { todayISO, computeIncomeShares, occurrencesInMonth, getNextOccurrence, daysUntil } from '../lib/finance';
@@ -164,6 +164,16 @@ export function TransactionModal({ data, actions, payload, onClose }) {
   const [participants, setParticipants] = useState(data.members.map((m) => m.id));
   const [splitMode, setSplitMode] = useState('equal'); // equal | custom | income
   const [customPercents, setCustomPercents] = useState({});
+  // Medio de pago: por defecto el de la cuenta elegida, pero se puede anular
+  // (ej. sacaste efectivo de una cuenta de ahorros). Mientras no lo toques a
+  // mano, sigue el default de la cuenta si cambias de cuenta.
+  const [paymentKind, setPaymentKind] = useState(payload?.paymentKind || data.accounts.find((a) => a.id === accountId)?.paymentKind || 'otro');
+  const [paymentKindTouched, setPaymentKindTouched] = useState(!!payload?.paymentKind);
+  useEffect(() => {
+    if (paymentKindTouched) return;
+    const acc = data.accounts.find((a) => a.id === accountId);
+    if (acc) setPaymentKind(acc.paymentKind || 'otro');
+  }, [accountId]);
 
   const cats = data.categories.filter((c) => c.type === type);
   useEffect(() => { if (!categoryId && cats.length) setCategoryId(cats[0].id); }, [type]);
@@ -189,7 +199,7 @@ export function TransactionModal({ data, actions, payload, onClose }) {
       type, description, amount: amt, categoryId, accountId, memberId, date,
       recurring, frequency: recurring ? frequency : null,
       isShared: type === 'expense' ? isShared : false,
-      participants: participantsData,
+      participants: participantsData, paymentKind,
     };
     setSaving(true);
     try {
@@ -245,6 +255,11 @@ export function TransactionModal({ data, actions, payload, onClose }) {
       <Field label="Cuenta">
         <select style={inputStyle} value={accountId} onChange={(e) => setAccountId(e.target.value)}>
           {data.accounts.map((a) => <option key={a.id} value={a.id}>{a.name} — {PAYMENT_KIND_LABEL[a.paymentKind || 'otro']}</option>)}
+        </select>
+      </Field>
+      <Field label="Medio de pago">
+        <select style={inputStyle} value={paymentKind} onChange={(e) => { setPaymentKind(e.target.value); setPaymentKindTouched(true); }}>
+          {PAYMENT_KIND_OPTIONS.map((k) => <option key={k} value={k}>{PAYMENT_KIND_LABEL[k]}</option>)}
         </select>
       </Field>
       <Field label={type === 'income' ? 'Recibido por' : 'Pagado por'}>
@@ -343,7 +358,7 @@ export function TransactionModal({ data, actions, payload, onClose }) {
 const FIELD_LABELS = {
   type: 'Tipo', description: 'Descripción', amount: 'Monto', categoryId: 'Categoría',
   accountId: 'Cuenta', memberId: 'Integrante', date: 'Fecha', recurring: 'Recurrente',
-  frequency: 'Frecuencia', isShared: 'Compartido',
+  frequency: 'Frecuencia', isShared: 'Compartido', paymentKind: 'Medio de pago',
 };
 
 export function describeValue(field, value, data) {
@@ -353,13 +368,14 @@ export function describeValue(field, value, data) {
   if (field === 'categoryId') return data.categories.find((c) => c.id === value)?.name || value;
   if (field === 'accountId') return data.accounts.find((a) => a.id === value)?.name || value;
   if (field === 'memberId') return data.members.find((m) => m.id === value)?.name || value;
+  if (field === 'paymentKind') return PAYMENT_KIND_LABEL[value] || value;
   if (field === 'date') return formatDate(value);
   if (field === 'recurring' || field === 'isShared') return value ? 'Sí' : 'No';
   return String(value);
 }
 
 export function diffTransactions(original, edited, data) {
-  const fields = ['type', 'description', 'amount', 'categoryId', 'accountId', 'memberId', 'date', 'recurring', 'frequency', 'isShared'];
+  const fields = ['type', 'description', 'amount', 'categoryId', 'accountId', 'memberId', 'date', 'recurring', 'frequency', 'isShared', 'paymentKind'];
   return fields
     .filter((f) => String(original[f] ?? '') !== String(edited[f] ?? ''))
     .map((f) => ({ field: f, label: FIELD_LABELS[f], before: describeValue(f, original[f], data), after: describeValue(f, edited[f], data) }));
@@ -378,13 +394,20 @@ export function EditTransactionModal({ data, actions, payload: original, onClose
   const [frequency, setFrequency] = useState(original.frequency || 'mensual');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [paymentKind, setPaymentKind] = useState(original.paymentKind || data.accounts.find((a) => a.id === original.accountId)?.paymentKind || 'otro');
+  const [paymentKindTouched, setPaymentKindTouched] = useState(false);
+  useEffect(() => {
+    if (paymentKindTouched) return;
+    const acc = data.accounts.find((a) => a.id === accountId);
+    if (acc) setPaymentKind(acc.paymentKind || 'otro');
+  }, [accountId]);
 
   const cats = data.categories.filter((c) => c.type === type);
 
   const edited = {
     type, description, amount: parseFloat(amount) || 0, categoryId, accountId, memberId, date,
     recurring, frequency: recurring ? frequency : null,
-    isShared: original.isShared, participants: original.participants,
+    isShared: original.isShared, participants: original.participants, paymentKind,
   };
   const changes = diffTransactions(original, edited, data);
 
@@ -456,6 +479,11 @@ export function EditTransactionModal({ data, actions, payload: original, onClose
       <Field label="Cuenta">
         <select style={inputStyle} value={accountId} onChange={(e) => setAccountId(e.target.value)}>
           {data.accounts.map((a) => <option key={a.id} value={a.id}>{a.name} — {PAYMENT_KIND_LABEL[a.paymentKind || 'otro']}</option>)}
+        </select>
+      </Field>
+      <Field label="Medio de pago">
+        <select style={inputStyle} value={paymentKind} onChange={(e) => { setPaymentKind(e.target.value); setPaymentKindTouched(true); }}>
+          {PAYMENT_KIND_OPTIONS.map((k) => <option key={k} value={k}>{PAYMENT_KIND_LABEL[k]}</option>)}
         </select>
       </Field>
       <Field label={type === 'income' ? 'Recibido por' : 'Pagado por'}>

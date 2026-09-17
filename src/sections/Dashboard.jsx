@@ -5,7 +5,7 @@ import {
 import { T, FONT_DISPLAY, FONT_BODY, FONT_MONO } from '../ui/theme';
 import { Card, ProgressBar, EmptyState, CategoryIcon } from '../ui/primitives';
 import { formatMoney, formatDate } from '../lib/format';
-import { thisMonthKey, daysUntil, occurrencesInMonth, getNextOccurrence, goalPriorityScore } from '../lib/finance';
+import { thisMonthKey, daysUntil, occurrencesInMonth, getNextOccurrence, goalPriorityScore, todayISO } from '../lib/finance';
 
 export function DonutChart({ data, colors, size = 168, thickness = 30 }) {
   const total = data.reduce((s, d) => s + (d.value || 0), 0);
@@ -112,12 +112,32 @@ export function Dashboard({ data, update, actions, visibleTransactions, visibleM
   }).sort((a, b) => b.value - a.value);
   const pieColors = [T.teal, T.coral, T.gold, '#5B7FA6', '#8E5B9F', '#4A9B6E', '#B5533C'];
 
-  // próximos pagos recurrentes (14 días)
-  const upcoming = data.transactions
+  // próximos pagos (14 días) — junta transacciones recurrentes (cuentan solas
+  // hacia el presupuesto) y Obligaciones (recordatorio + registro manual,
+  // incluidas las de monto variable) en una sola lista, para no mostrar el
+  // mismo tipo de aviso en dos lugares separados de la app.
+  const upcomingRecurring = data.transactions
     .filter((t) => t.recurring && (data.viewMode === 'unified' || t.memberId === visibleMemberId))
     .map((t) => ({ ...t, next: getNextOccurrence(t) }))
     .filter((t) => daysUntil(t.next) >= 0 && daysUntil(t.next) <= 14)
-    .sort((a, b) => a.next.localeCompare(b.next));
+    .map((t) => ({ kind: 'recurring', id: t.id, next: t.next, amount: t.amount, type: t.type, label: t.description || data.categories.find((c) => c.id === t.categoryId)?.name, icon: data.categories.find((c) => c.id === t.categoryId)?.icon }));
+  const upcomingObligations = (data.obligations || [])
+    .filter((o) => o.enabled && (data.viewMode === 'unified' || o.ownerMemberId === visibleMemberId || !o.ownerMemberId))
+    .filter((o) => daysUntil(o.nextDueDate) >= 0 && daysUntil(o.nextDueDate) <= 14)
+    .map((o) => ({ kind: 'obligation', id: o.id, next: o.nextDueDate, amount: o.amount, obligation: o, label: o.name }));
+  const upcoming = [...upcomingRecurring, ...upcomingObligations].sort((a, b) => a.next.localeCompare(b.next));
+
+  function registerObligation(o) {
+    setModal({
+      type: 'transaction',
+      payload: {
+        source: 'obligation', type: 'expense', description: o.name,
+        amount: o.amount ?? undefined, categoryId: o.categoryId || undefined,
+        accountId: o.accountId || undefined, memberId: o.ownerMemberId || undefined,
+        date: todayISO(),
+      },
+    });
+  }
 
   // alertas de presupuesto
   const budgetAlerts = data.budgets.map((b) => {
@@ -192,22 +212,27 @@ export function Dashboard({ data, update, actions, visibleTransactions, visibleM
 
       {upcoming.length > 0 && (
         <Card style={{ marginBottom: 16 }}>
-          <div className="flex items-center gap-2 mb-3"><Calendar size={16} color={T.ink} /><span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: T.ink }}>Próximos pagos recurrentes</span></div>
+          <div className="flex items-center gap-2 mb-3"><Calendar size={16} color={T.ink} /><span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: T.ink }}>Próximos pagos</span></div>
           {upcoming.map((t) => {
-            const cat = data.categories.find((c) => c.id === t.categoryId);
             const d = daysUntil(t.next);
-            return (
-              <div key={t.id} className="flex items-center justify-between py-1.5">
+            const isObligation = t.kind === 'obligation';
+            const row = (
+              <div className="flex items-center justify-between py-1.5">
                 <div className="flex items-center gap-2">
-                  <CategoryIcon icon={cat?.icon} size={16} color={T.inkSoft} />
+                  <CategoryIcon icon={t.icon} size={16} color={T.inkSoft} />
                   <div>
-                    <p style={{ fontSize: 13.5, color: T.ink, fontFamily: FONT_BODY }}>{t.description || cat?.name}</p>
+                    <p style={{ fontSize: 13.5, color: T.ink, fontFamily: FONT_BODY }}>{t.label}</p>
                     <p style={{ fontSize: 11.5, color: T.inkSoft }}>{d === 0 ? 'Hoy' : d === 1 ? 'Mañana' : `En ${d} días`} · {formatDate(t.next)}</p>
                   </div>
                 </div>
-                <span style={{ fontFamily: FONT_MONO, fontSize: 13.5, color: t.type === 'income' ? T.teal : T.coral }}>{t.type === 'income' ? '+' : '-'}{formatMoney(t.amount, currency)}</span>
+                {isObligation
+                  ? <span style={{ fontFamily: FONT_MONO, fontSize: 13.5, color: T.inkSoft }}>{t.amount == null ? 'Variable' : formatMoney(t.amount, currency)}</span>
+                  : <span style={{ fontFamily: FONT_MONO, fontSize: 13.5, color: t.type === 'income' ? T.teal : T.coral }}>{t.type === 'income' ? '+' : '-'}{formatMoney(t.amount, currency)}</span>}
               </div>
             );
+            return isObligation
+              ? <button key={t.id} onClick={() => registerObligation(t.obligation)} className="w-full text-left active:opacity-70">{row}</button>
+              : <div key={t.id}>{row}</div>;
           })}
         </Card>
       )}

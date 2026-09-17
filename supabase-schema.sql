@@ -1084,5 +1084,15 @@ alter table obligation_sent_log enable row level security;
 -- (que salta RLS por diseño); no necesita políticas para el cliente.
 
 -- =========================================================
+-- FASE 12 — MEDIO DE PAGO POR TRANSACCIÓN
+-- =========================================================
+-- El medio de pago de una cuenta es solo un valor por defecto: cada
+-- transacción puede anularlo (ej. efectivo sacado de una cuenta de
+-- ahorros). NULL = usa el medio de pago de la cuenta.
+alter table transactions
+  add column if not exists payment_kind text
+  check (payment_kind in ('efectivo','debito','ahorros','tarjeta_credito','otro'));
+
+-- =========================================================
 -- Fin del script
 -- =========================================================
