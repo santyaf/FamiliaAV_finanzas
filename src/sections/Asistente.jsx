@@ -1,9 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Sparkles, Send, Loader2 } from 'lucide-react';
+import { Sparkles, Send, Loader2, Camera, MessageCircle } from 'lucide-react';
 import { T, FONT_DISPLAY, FONT_BODY, inputStyle } from '../ui/theme';
 import { Card, EmptyState, PAYMENT_KIND_LABEL } from '../ui/primitives';
 import { callAiApi } from '../lib/ai';
+import { isAiFeatureEnabled } from '../lib/access';
 import { thisMonthKey, lastMonthKeys, monthCashFlow, occurrencesInMonth, accountBalance, goalPriorityScore } from '../lib/finance';
+import { QuickCapture } from './QuickCapture';
 
 const SUGGESTED_QUESTIONS = [
   '¿Cuánto llevo gastado este mes?',
@@ -58,7 +60,7 @@ function buildDigest(data, visibleTransactions) {
   return { moneda: data.currency, flujo_de_caja_ultimos_3_meses: months, gasto_por_categoria_este_mes: gastoPorCategoria, presupuestos, objetivos, cuentas };
 }
 
-export function Asistente({ data, actions, visibleTransactions }) {
+function ChatPanel({ data, actions, visibleTransactions }) {
   const [messages, setMessages] = useState([]); // { role: 'user'|'assistant', text }
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -94,7 +96,7 @@ export function Asistente({ data, actions, visibleTransactions }) {
   }
 
   return (
-    <div className="pb-4 pt-2" style={{ display: 'flex', flexDirection: 'column', minHeight: '60vh' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '60vh' }}>
       <div className="flex items-center gap-2 mb-1">
         <Sparkles size={18} color={T.teal} />
         <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: T.ink }}>Asistente financiero</p>
@@ -151,6 +153,38 @@ export function Asistente({ data, actions, visibleTransactions }) {
       </div>
 
       {error && <p style={{ color: T.danger, fontSize: 12.5, fontFamily: FONT_BODY }} className="mt-2">{error}</p>}
+    </div>
+  );
+}
+
+// Punto de entrada único: "Preguntar" (chat sobre las finanzas) y
+// "Registrar" (Registro rápido por chat o foto de recibo, sin cambios —
+// se reusa QuickCapture tal cual) viven en la misma pantalla, cada uno
+// habilitado según su propio control de acceso en Admin. Si la persona
+// solo tiene acceso a uno de los dos, no se muestra el selector y entra
+// directo a ese.
+export function Asistente({ data, actions, visibleTransactions, setModal }) {
+  const aiProviderConfigured = data.settings?.ai_provider && data.settings.ai_provider !== 'none';
+  const canAsk = aiProviderConfigured && isAiFeatureEnabled(data.settings?.assistant_access, actions.userId);
+  const canRegister = aiProviderConfigured && isAiFeatureEnabled(data.settings?.quick_capture_access, actions.userId);
+  const [mode, setMode] = useState(canAsk ? 'preguntar' : 'registrar');
+
+  if (!canAsk && !canRegister) return null;
+
+  return (
+    <div className="pb-4 pt-2">
+      {canAsk && canRegister && (
+        <div className="flex rounded-xl p-1 mb-4" style={{ background: T.bg }}>
+          <button onClick={() => setMode('preguntar')} className="flex-1 rounded-lg py-2 flex items-center justify-center gap-1.5" style={{ background: mode === 'preguntar' ? T.surface : 'transparent', border: mode === 'preguntar' ? `1px solid ${T.border}` : 'none' }}>
+            <MessageCircle size={15} color={T.ink} /><span style={{ fontSize: 13, color: T.ink, fontFamily: FONT_BODY, fontWeight: 500 }}>Preguntar</span>
+          </button>
+          <button onClick={() => setMode('registrar')} className="flex-1 rounded-lg py-2 flex items-center justify-center gap-1.5" style={{ background: mode === 'registrar' ? T.surface : 'transparent', border: mode === 'registrar' ? `1px solid ${T.border}` : 'none' }}>
+            <Camera size={15} color={T.ink} /><span style={{ fontSize: 13, color: T.ink, fontFamily: FONT_BODY, fontWeight: 500 }}>Registrar</span>
+          </button>
+        </div>
+      )}
+      {mode === 'preguntar' && canAsk && <ChatPanel data={data} actions={actions} visibleTransactions={visibleTransactions} />}
+      {mode === 'registrar' && canRegister && <QuickCapture data={data} actions={actions} setModal={setModal} />}
     </div>
   );
 }

@@ -139,6 +139,10 @@ export function AdminPanel({ data, actions }) {
         )}
       </Card>
 
+      <p style={{ fontSize: 11, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-2">
+        Registro rápido y el Asistente viven en la misma pantalla ("Asistente" en Gestión, y el botón flotante) — cada quien ve las pestañas de las funciones a las que tiene acceso.
+      </p>
+
       <AiAccessControl
         title="Registro rápido — quién puede usarlo"
         icon={Bot}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { ArrowLeftRight, Bell, ChevronLeft, CreditCard, History, Home, Landmark, LayoutGrid, List, Loader2, LogOut, MessageCircle, PiggyBank, Plus, Settings, Sparkles, Target, TrendingUp } from 'lucide-react';
+import { ArrowLeftRight, Bell, ChevronLeft, CreditCard, History, Home, Landmark, LayoutGrid, List, Loader2, LogOut, PiggyBank, Plus, Settings, Sparkles, Target, TrendingUp } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import * as db from './lib/db';
 import { formatMoney, formatDate } from './lib/format';
@@ -18,7 +18,6 @@ import {
   Creditos, CreditModal, PayInstallmentModal, ExtraPaymentModal, EditCreditModal,
   CreditInsuranceModal, MemberTransferModal,
 } from './sections/Creditos';
-import { QuickCapture } from './sections/QuickCapture';
 import {
   Movimientos, TransactionModal, EditTransactionModal, HistoryModal,
 } from './sections/Movimientos';
@@ -238,15 +237,16 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
 /* ---------------------------------------------------------------------- */
 /* MAIN APP                                                                */
 /* ---------------------------------------------------------------------- */
-// Barra inferior: como máximo 5 botones (evita el scroll lateral en celular).
-// "Registro rápido" solo aparece si el hogar lo tiene activado; cuando está
-// desactivado la barra queda con 4. Créditos, Objetivos, Presupuestos,
-// Conciliación y Cuentas ya no están en la barra: viven dentro de "Gestión".
-// Administración vive dentro de Ajustes (solo la ve un superusuario).
+// Barra inferior: siempre 5 botones. "Agregar" (antes "Registro rápido") es
+// un atajo directo al formulario manual de movimiento, no una pestaña — vive
+// donde antes vivía Registro rápido, que ahora es parte del Asistente
+// (botón flotante + tarjeta en Gestión). Créditos, Objetivos, Presupuestos,
+// Conciliación y Cuentas viven dentro de "Gestión". Administración vive
+// dentro de Ajustes (solo la ve un superusuario).
 const TABS = [
   { id: 'dashboard', label: 'Inicio', icon: Home },
   { id: 'movimientos', label: 'Movimientos', icon: List },
-  { id: 'rapido', label: 'Registro rápido', icon: MessageCircle, requiresQuickCapture: true },
+  { id: 'agregar', label: 'Agregar', icon: Plus, action: 'addTransaction' },
   { id: 'gestion', label: 'Gestión', icon: LayoutGrid },
   { id: 'ajustes', label: 'Ajustes', icon: Settings },
 ];
@@ -258,15 +258,16 @@ const GESTION_SECTIONS = [
   { id: 'presupuestos', label: 'Presupuestos', icon: PiggyBank, desc: 'Límites de gasto por categoría, para todo el hogar o por integrante.' },
   { id: 'obligaciones', label: 'Obligaciones', icon: Bell, desc: 'Recordatorios de pagos por vencer — arriendo, servicios, suscripciones.' },
   { id: 'tendencias', label: 'Tendencias', icon: TrendingUp, desc: 'Flujo de caja y gasto por categoría de los últimos meses.' },
-  { id: 'asistente', label: 'Asistente IA', icon: Sparkles, desc: 'Pregúntale sobre tus gastos, presupuestos y objetivos.', requiresAssistant: true },
+  { id: 'asistente', label: 'Asistente IA', icon: Sparkles, desc: 'Pregúntale sobre tus finanzas, o regístralas por chat o foto de recibo.', requiresAiChat: true },
   { id: 'conciliacion', label: 'Conciliación', icon: ArrowLeftRight, desc: 'Quién le debe a quién por los gastos compartidos, y cómo saldar.' },
   { id: 'cuentas', label: 'Cuentas', icon: Landmark, desc: 'Cuentas bancarias y efectivo, individuales o compartidas.' },
 ];
 const GESTION_IDS = GESTION_SECTIONS.map((s) => s.id);
 
 // Rutas válidas (para el enrutado por hash). "dashboard" es la ruta por
-// defecto y usa el hash vacío; el resto son `#/<id>`.
-const ROUTES = new Set([...TABS.map((t) => t.id), ...GESTION_IDS, 'admin']);
+// defecto y usa el hash vacío; el resto son `#/<id>`. Las pestañas de
+// acción (ej. "Agregar") no navegan a ninguna parte, así que no son rutas.
+const ROUTES = new Set([...TABS.filter((t) => !t.action).map((t) => t.id), ...GESTION_IDS, 'admin']);
 
 // Enrutado por hash: cada sección tiene su URL (`#/creditos`), el botón "atrás"
 // del navegador/celular funciona, y se pueden compartir enlaces a una sección.
@@ -324,11 +325,17 @@ function MainApp({ data, update, actions }) {
 
   // El proveedor de IA es compartido; si está en "none" ninguna función de
   // IA funciona sin importar el acceso por persona configurado en Admin.
+  // "Registro rápido" (chat/foto) y el Asistente (preguntas) se activan por
+  // separado, pero ambos viven ahora en la misma pantalla (Asistente): el
+  // botón flotante y la tarjeta de Gestión aparecen si tienes acceso a
+  // cualquiera de los dos; dentro, cada pestaña se habilita según su propio
+  // acceso.
   const aiProviderConfigured = data.settings?.ai_provider && data.settings.ai_provider !== 'none';
   const quickCaptureEnabled = aiProviderConfigured && isAiFeatureEnabled(data.settings?.quick_capture_access, actions.userId);
   const assistantEnabled = aiProviderConfigured && isAiFeatureEnabled(data.settings?.assistant_access, actions.userId);
-  const navTabs = TABS.filter((t) => !(t.requiresQuickCapture && !quickCaptureEnabled));
-  const visibleGestionSections = GESTION_SECTIONS.filter((s) => !(s.requiresAssistant && !assistantEnabled));
+  const aiChatAvailable = quickCaptureEnabled || assistantEnabled;
+  const navTabs = TABS;
+  const visibleGestionSections = GESTION_SECTIONS.filter((s) => !(s.requiresAiChat && !aiChatAvailable));
   // "Gestión" queda resaltado en la barra mientras estés en cualquiera de sus secciones.
   const inGestion = tab === 'gestion' || GESTION_IDS.includes(tab);
   const backTo = GESTION_IDS.includes(tab) ? { id: 'gestion', label: 'Gestión' }
@@ -395,7 +402,6 @@ function MainApp({ data, update, actions }) {
         )}
         <PullToRefresh onRefresh={actions.refreshAll}>
           {tab === 'dashboard' && <Dashboard data={data} update={update} actions={actions} visibleTransactions={visibleTransactions} visibleMemberId={visibleMemberId} setModal={setModal} setTab={setTab} />}
-          {tab === 'rapido' && quickCaptureEnabled && <QuickCapture data={data} actions={actions} setModal={setModal} />}
           {tab === 'movimientos' && <Movimientos data={data} actions={actions} visibleTransactions={visibleTransactions} setModal={setModal} />}
           {tab === 'gestion' && <Gestion setTab={setTab} sections={visibleGestionSections} />}
           {tab === 'creditos' && <Creditos data={data} actions={actions} setModal={setModal} />}
@@ -403,7 +409,7 @@ function MainApp({ data, update, actions }) {
           {tab === 'presupuestos' && <Presupuestos data={data} actions={actions} setModal={setModal} />}
           {tab === 'obligaciones' && <Obligaciones data={data} actions={actions} setModal={setModal} />}
           {tab === 'tendencias' && <Tendencias data={data} />}
-          {tab === 'asistente' && assistantEnabled && <Asistente data={data} actions={actions} visibleTransactions={visibleTransactions} />}
+          {tab === 'asistente' && aiChatAvailable && <Asistente data={data} actions={actions} visibleTransactions={visibleTransactions} setModal={setModal} />}
           {tab === 'conciliacion' && <Conciliacion data={data} actions={actions} />}
           {tab === 'cuentas' && <Cuentas data={data} actions={actions} setModal={setModal} />}
           {tab === 'ajustes' && <Ajustes data={data} update={update} actions={actions} setModal={setModal} setTab={setTab} />}
@@ -417,8 +423,9 @@ function MainApp({ data, update, actions }) {
           {navTabs.map((tItem) => {
             const Icon = tItem.icon;
             const active = tItem.id === 'gestion' ? inGestion : tab === tItem.id;
+            const onClick = tItem.action === 'addTransaction' ? () => setModal({ type: 'transaction' }) : () => setTab(tItem.id);
             return (
-              <button key={tItem.id} onClick={() => setTab(tItem.id)} className="flex flex-col items-center gap-0.5 px-2 py-1" style={{ minWidth: 56, minHeight: TAP_MIN }}>
+              <button key={tItem.id} onClick={onClick} className="flex flex-col items-center gap-0.5 px-2 py-1" style={{ minWidth: 56, minHeight: TAP_MIN }}>
                 <Icon size={20} color={active ? T.teal : T.inkSoft} />
                 <span style={{ fontSize: 10.5, color: active ? T.teal : T.inkSoft, fontFamily: FONT_BODY, fontWeight: active ? 600 : 400 }}>{tItem.label}</span>
               </button>
@@ -427,12 +434,23 @@ function MainApp({ data, update, actions }) {
         </div>
       </div>
 
-      {/* Botón flotante agregar movimiento */}
-      <button onClick={() => setModal({ type: 'transaction' })}
-        className="fixed z-20 rounded-full flex items-center justify-center shadow-lg"
-        style={{ right: 20, bottom: 92, width: 56, height: 56, background: T.coral }}>
-        <Plus color="#fff" size={26} />
-      </button>
+      {/* Botón flotante del Asistente (chat + registro por foto/texto) —
+          antes era el "+" de agregar movimiento; ese atajo ahora vive en la
+          barra inferior. Solo aparece si esta persona tiene acceso a alguna
+          de las dos funciones de IA. */}
+      {aiChatAvailable && (
+        <button onClick={() => setModal({ type: 'assistant' })}
+          className="fixed z-20 rounded-full flex items-center justify-center shadow-lg"
+          style={{ right: 20, bottom: 92, width: 56, height: 56, background: T.teal }}>
+          <Sparkles color="#fff" size={24} />
+        </button>
+      )}
+
+      {modal?.type === 'assistant' && (
+        <Modal title="Asistente" onClose={() => setModal(null)} wide>
+          <Asistente data={data} actions={actions} visibleTransactions={visibleTransactions} setModal={setModal} />
+        </Modal>
+      )}
 
       {modal?.type === 'transaction' && <TransactionModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
       {modal?.type === 'editTransaction' && <EditTransactionModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
