@@ -3,7 +3,7 @@ import { MessageCircle, Camera, Loader2, Image as ImageIcon, Info } from 'lucide
 import { T, FONT_DISPLAY, FONT_BODY, inputStyle } from '../ui/theme';
 import { Card, PrimaryButton, GhostButton, Field } from '../ui/primitives';
 import { todayISO } from '../lib/finance';
-import { supabase } from '../lib/supabaseClient';
+import { callAiApi } from '../lib/ai';
 
 export function matchCategory(guessName, type, categories) {
   const pool = categories.filter((c) => c.type === type);
@@ -26,18 +26,8 @@ export function stripJsonFences(text) {
 }
 
 export async function callAI({ system, content, provider, model }) {
-  const { data: { session } } = await supabase.auth.getSession();
-  const response = await fetch('/api/ai-parse', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-    },
-    body: JSON.stringify({ provider, model, system, content }),
-  });
-  const json = await response.json();
-  if (json.error) throw new Error(json.error);
-  return JSON.parse(stripJsonFences(json.text || ''));
+  const text = await callAiApi({ system, content, provider, model });
+  return JSON.parse(stripJsonFences(text));
 }
 
 export function QuickCapture({ data, actions, setModal }) {

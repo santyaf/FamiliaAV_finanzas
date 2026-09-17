@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { ArrowLeftRight, Bell, ChevronLeft, CreditCard, History, Home, Landmark, LayoutGrid, List, Loader2, LogOut, MessageCircle, PiggyBank, Plus, Settings, Target, TrendingUp } from 'lucide-react';
+import { ArrowLeftRight, Bell, ChevronLeft, CreditCard, History, Home, Landmark, LayoutGrid, List, Loader2, LogOut, MessageCircle, PiggyBank, Plus, Settings, Sparkles, Target, TrendingUp } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import * as db from './lib/db';
 import { formatMoney, formatDate } from './lib/format';
 import { todayISO } from './lib/finance';
 import { buildNotificationCandidates } from './lib/notifications';
+import { isAiFeatureEnabled } from './lib/access';
 import { FONT_BODY, FONT_DISPLAY, FONT_MONO, GOOGLE_FONTS_IMPORT, T, TAP_MIN, inputStyle } from './ui/theme';
 import { Card, EmptyState, Field, GhostButton, IconButton, Modal, PrimaryButton } from './ui/primitives';
 import Conciliacion from './sections/Conciliacion';
@@ -25,6 +26,7 @@ import { Dashboard } from './sections/Dashboard';
 import { Ajustes, InviteModal, CategoryModal, ReminderModal } from './sections/Ajustes';
 import { Obligaciones, ObligationModal } from './sections/Obligaciones';
 import { Tendencias } from './sections/Tendencias';
+import { Asistente } from './sections/Asistente';
 import { ResetPasswordScreen, LoadingScreen, AuthScreen, HouseholdSetup } from './sections/auth';
 import { AdminPanel } from './sections/AdminPanel';
 import { NotificationsPanel } from './sections/NotificationsPanel';
@@ -256,6 +258,7 @@ const GESTION_SECTIONS = [
   { id: 'presupuestos', label: 'Presupuestos', icon: PiggyBank, desc: 'Límites de gasto por categoría, para todo el hogar o por integrante.' },
   { id: 'obligaciones', label: 'Obligaciones', icon: Bell, desc: 'Recordatorios de pagos por vencer — arriendo, servicios, suscripciones.' },
   { id: 'tendencias', label: 'Tendencias', icon: TrendingUp, desc: 'Flujo de caja y gasto por categoría de los últimos meses.' },
+  { id: 'asistente', label: 'Asistente IA', icon: Sparkles, desc: 'Pregúntale sobre tus gastos, presupuestos y objetivos.', requiresAssistant: true },
   { id: 'conciliacion', label: 'Conciliación', icon: ArrowLeftRight, desc: 'Quién le debe a quién por los gastos compartidos, y cómo saldar.' },
   { id: 'cuentas', label: 'Cuentas', icon: Landmark, desc: 'Cuentas bancarias y efectivo, individuales o compartidas.' },
 ];
@@ -319,8 +322,13 @@ function MainApp({ data, update, actions }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const quickCaptureEnabled = data.settings?.quick_capture_enabled !== false;
+  // El proveedor de IA es compartido; si está en "none" ninguna función de
+  // IA funciona sin importar el acceso por persona configurado en Admin.
+  const aiProviderConfigured = data.settings?.ai_provider && data.settings.ai_provider !== 'none';
+  const quickCaptureEnabled = aiProviderConfigured && isAiFeatureEnabled(data.settings?.quick_capture_access, actions.userId);
+  const assistantEnabled = aiProviderConfigured && isAiFeatureEnabled(data.settings?.assistant_access, actions.userId);
   const navTabs = TABS.filter((t) => !(t.requiresQuickCapture && !quickCaptureEnabled));
+  const visibleGestionSections = GESTION_SECTIONS.filter((s) => !(s.requiresAssistant && !assistantEnabled));
   // "Gestión" queda resaltado en la barra mientras estés en cualquiera de sus secciones.
   const inGestion = tab === 'gestion' || GESTION_IDS.includes(tab);
   const backTo = GESTION_IDS.includes(tab) ? { id: 'gestion', label: 'Gestión' }
@@ -389,12 +397,13 @@ function MainApp({ data, update, actions }) {
           {tab === 'dashboard' && <Dashboard data={data} update={update} actions={actions} visibleTransactions={visibleTransactions} visibleMemberId={visibleMemberId} setModal={setModal} setTab={setTab} />}
           {tab === 'rapido' && quickCaptureEnabled && <QuickCapture data={data} actions={actions} setModal={setModal} />}
           {tab === 'movimientos' && <Movimientos data={data} actions={actions} visibleTransactions={visibleTransactions} setModal={setModal} />}
-          {tab === 'gestion' && <Gestion setTab={setTab} />}
+          {tab === 'gestion' && <Gestion setTab={setTab} sections={visibleGestionSections} />}
           {tab === 'creditos' && <Creditos data={data} actions={actions} setModal={setModal} />}
           {tab === 'objetivos' && <Objetivos data={data} actions={actions} setModal={setModal} />}
           {tab === 'presupuestos' && <Presupuestos data={data} actions={actions} setModal={setModal} />}
           {tab === 'obligaciones' && <Obligaciones data={data} actions={actions} setModal={setModal} />}
           {tab === 'tendencias' && <Tendencias data={data} />}
+          {tab === 'asistente' && assistantEnabled && <Asistente data={data} actions={actions} visibleTransactions={visibleTransactions} />}
           {tab === 'conciliacion' && <Conciliacion data={data} actions={actions} />}
           {tab === 'cuentas' && <Cuentas data={data} actions={actions} setModal={setModal} />}
           {tab === 'ajustes' && <Ajustes data={data} update={update} actions={actions} setModal={setModal} setTab={setTab} />}
@@ -494,7 +503,7 @@ function PullToRefresh({ onRefresh, children }) {
 
 // "Gestión" — grid de tarjetas que agrupa las secciones de administración a
 // fondo del hogar (Créditos, Objetivos, Presupuestos, Conciliación, Cuentas).
-function Gestion({ setTab }) {
+function Gestion({ setTab, sections }) {
   return (
     <div className="pb-4 pt-2">
       <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: T.ink }} className="mb-1">Gestión</p>
@@ -502,7 +511,7 @@ function Gestion({ setTab }) {
         Todas las herramientas para administrar las finanzas del hogar a fondo. Toca una para abrirla.
       </p>
       <div className="grid grid-cols-2 gap-3">
-        {GESTION_SECTIONS.map((s) => {
+        {sections.map((s) => {
           const Icon = s.icon;
           return (
             <button key={s.id} onClick={() => setTab(s.id)}

@@ -1,4 +1,7 @@
-// Recibe siempre el mismo formato normalizado desde el frontend:
+// Proxy genérico hacia el proveedor de IA configurado — lo usan tanto
+// Registro rápido (parsea recibos/texto a JSON) como el Asistente financiero
+// (responde preguntas en texto plano); ninguno de los dos habla directo con
+// Anthropic/OpenAI/Google. Recibe siempre el mismo formato normalizado:
 //   { provider: 'claude'|'openai'|'gemini', model, system, content: [{type:'text',text} | {type:'image', source:{media_type, data}}] }
 // y siempre devuelve { text: "<respuesta cruda del modelo>" } o { error }.
 // Así el frontend no necesita saber los detalles de cada API.

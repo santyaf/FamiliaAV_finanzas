@@ -699,6 +699,7 @@ export async function listAllHouseholdsAdmin() {
     .map((h) => ({
       id: h.id, name: h.name, currency: h.currency, createdAt: h.created_at,
       memberCount: h.household_members?.length || 0,
+      members: (h.household_members || []).map((m) => ({ userId: m.user_id, name: m.profiles?.full_name || 'Integrante' })),
       memberNames: (h.household_members || []).map((m) => m.profiles?.full_name || 'Integrante').join(', '),
     }))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));

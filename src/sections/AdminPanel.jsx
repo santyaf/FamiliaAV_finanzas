@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Bot, Plus, ShieldAlert, Trash2, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Bot, Plus, ShieldAlert, Trash2, ToggleLeft, ToggleRight, Sparkles } from 'lucide-react';
 import { T, FONT_DISPLAY, FONT_BODY, FONT_MONO, TAP_MIN, inputStyle } from '../ui/theme';
 import { Card, IconButton, PrimaryButton, GhostButton, Field } from '../ui/primitives';
 import { formatDate } from '../lib/format';
+import { DEFAULT_AI_ACCESS } from '../lib/access';
 
 const AI_PROVIDERS = [
-  { id: 'none', label: 'Ninguna (Registro rápido desactivado)', defaultModel: null },
+  { id: 'none', label: 'Ninguna (IA desactivada)', defaultModel: null },
   { id: 'claude', label: 'Claude (Anthropic)', defaultModel: 'claude-sonnet-4-6' },
   { id: 'openai', label: 'ChatGPT (OpenAI)', defaultModel: 'gpt-4o-mini' },
   { id: 'gemini', label: 'Gemini (Google)', defaultModel: 'gemini-3.6-flash' },
@@ -17,6 +18,49 @@ const NOTIFICATION_TYPE_LABELS = {
   notif_credit_due_enabled: 'Cuotas de crédito por vencer',
   notif_surplus_opportunity_enabled: 'Excedente familiar del mes',
 };
+const ACCESS_MODES = [
+  ['all', 'Todos'],
+  ['selected', 'Personas específicas'],
+  ['none', 'Nadie'],
+];
+
+// Selector de a quién se le activa una función de IA — reusado para Registro
+// rápido y el Asistente financiero. `allUsers`: [{ userId, name, householdName }].
+function AiAccessControl({ title, icon: Icon, access, onChange, allUsers }) {
+  const mode = access?.mode || 'none';
+  const userIds = access?.userIds || [];
+  function setMode(m) { onChange({ mode: m, userIds: m === 'selected' ? userIds : [] }); }
+  function toggleUser(id) {
+    onChange({ mode: 'selected', userIds: userIds.includes(id) ? userIds.filter((x) => x !== id) : [...userIds, id] });
+  }
+  return (
+    <Card style={{ marginBottom: 14 }}>
+      <div className="flex items-center gap-2 mb-3">
+        <Icon size={15} color={T.ink} />
+        <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: T.ink }}>{title}</p>
+      </div>
+      <div className="flex flex-col gap-2">
+        {ACCESS_MODES.map(([m, label]) => (
+          <label key={m} className="flex items-center gap-2 rounded-xl p-3" style={{ background: mode === m ? T.tealSoft : T.bg, border: `1px solid ${mode === m ? T.teal : T.border}` }}>
+            <input type="radio" checked={mode === m} onChange={() => setMode(m)} />
+            <span style={{ fontSize: 13, color: T.ink, fontFamily: FONT_BODY }}>{label}</span>
+          </label>
+        ))}
+      </div>
+      {mode === 'selected' && (
+        <div className="flex flex-col gap-1.5 mt-3">
+          {allUsers.length === 0 && <p style={{ fontSize: 12, color: T.inkSoft }}>Aún no hay usuarios en la plataforma.</p>}
+          {allUsers.map((u) => (
+            <label key={u.userId} className="flex items-center gap-2">
+              <input type="checkbox" checked={userIds.includes(u.userId)} onChange={() => toggleUser(u.userId)} />
+              <span style={{ fontSize: 13, color: T.ink, fontFamily: FONT_BODY }}>{u.name} <span style={{ color: T.inkSoft }}>· {u.householdName}</span></span>
+            </label>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
 
 export function AdminPanel({ data, actions }) {
   const [households, setHouseholds] = useState(null);
@@ -37,19 +81,13 @@ export function AdminPanel({ data, actions }) {
   useEffect(() => { refreshAll(); }, []);
 
   const settings = data.settings;
-  const quickCaptureEnabled = settings.quick_capture_enabled !== false;
-  const currentProvider = quickCaptureEnabled ? (settings.ai_provider || 'claude') : 'none';
+  const currentProvider = settings.ai_provider || 'claude';
+  const allUsers = (households || []).flatMap((h) => (h.members || []).map((m) => ({ ...m, householdName: h.name })));
 
-  async function toggleQuickCapture() {
-    const next = !quickCaptureEnabled;
-    await actions.updateSetting('quick_capture_enabled', next);
-    if (!next) await actions.updateSetting('ai_provider', 'none');
-  }
   async function changeProvider(providerId) {
     const provider = AI_PROVIDERS.find((p) => p.id === providerId);
     await actions.updateSetting('ai_provider', providerId);
     if (provider.defaultModel) await actions.updateSetting('ai_model', provider.defaultModel);
-    await actions.updateSetting('quick_capture_enabled', providerId !== 'none');
   }
 
   async function addAdmin() {
@@ -82,14 +120,6 @@ export function AdminPanel({ data, actions }) {
       </p>
 
       <Card style={{ marginBottom: 14 }}>
-        <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: T.ink }} className="mb-3">Registro rápido con IA</p>
-        <button onClick={toggleQuickCapture} className="flex items-center justify-between w-full rounded-xl p-3" style={{ background: T.bg }}>
-          <span style={{ fontSize: 13.5, color: T.ink, fontFamily: FONT_BODY }}>{quickCaptureEnabled ? 'Activado para todo el mundo' : 'Desactivado para todo el mundo'}</span>
-          {quickCaptureEnabled ? <ToggleRight size={26} color={T.teal} /> : <ToggleLeft size={26} color={T.inkSoft} />}
-        </button>
-      </Card>
-
-      <Card style={{ marginBottom: 14 }}>
         <div className="flex items-center gap-2 mb-3">
           <Bot size={15} color={T.ink} />
           <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: T.ink }}>Proveedor de IA</p>
@@ -104,10 +134,26 @@ export function AdminPanel({ data, actions }) {
         </div>
         {currentProvider !== 'none' && (
           <p style={{ fontSize: 11, color: T.inkSoft, fontFamily: FONT_BODY }} className="mt-3">
-            Modelo actual: <span style={{ fontFamily: FONT_MONO }}>{settings.ai_model}</span>. Cada proveedor necesita su propia clave configurada en Vercel ({'\u00a0'}<span style={{ fontFamily: FONT_MONO }}>ANTHROPIC_API_KEY</span> / <span style={{ fontFamily: FONT_MONO }}>OPENAI_API_KEY</span> / <span style={{ fontFamily: FONT_MONO }}>GOOGLE_API_KEY</span>).
+            Modelo actual: <span style={{ fontFamily: FONT_MONO }}>{settings.ai_model}</span>. Cada proveedor necesita su propia clave configurada en Vercel ({'\u00a0'}<span style={{ fontFamily: FONT_MONO }}>ANTHROPIC_API_KEY</span> / <span style={{ fontFamily: FONT_MONO }}>OPENAI_API_KEY</span> / <span style={{ fontFamily: FONT_MONO }}>GOOGLE_API_KEY</span>). Es el mismo proveedor para Registro r\u00e1pido y el Asistente financiero.
           </p>
         )}
       </Card>
+
+      <AiAccessControl
+        title="Registro rápido — quién puede usarlo"
+        icon={Bot}
+        access={settings.quick_capture_access || DEFAULT_AI_ACCESS}
+        onChange={(next) => actions.updateSetting('quick_capture_access', next)}
+        allUsers={allUsers}
+      />
+
+      <AiAccessControl
+        title="Asistente financiero — quién puede usarlo"
+        icon={Sparkles}
+        access={settings.assistant_access || DEFAULT_AI_ACCESS}
+        onChange={(next) => actions.updateSetting('assistant_access', next)}
+        allUsers={allUsers}
+      />
 
       <Card style={{ marginBottom: 14 }}>
         <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: T.ink }} className="mb-1">Tipos de notificación</p>
