@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { stripJsonFences, matchCategory, matchMember } from './ai';
+import { stripJsonFences, matchCategory, matchMember } from './aiParse';
 
 describe('stripJsonFences', () => {
   it('quita fences ```json y ``` y recorta espacios', () => {

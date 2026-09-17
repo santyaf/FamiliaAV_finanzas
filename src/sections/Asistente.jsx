@@ -2,7 +2,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Sparkles, Send, Loader2, Camera, Image as ImageIcon, X } from 'lucide-react';
 import { T, FONT_DISPLAY, FONT_BODY, inputStyle } from '../ui/theme';
 import { Card, PrimaryButton, EmptyState, PAYMENT_KIND_LABEL } from '../ui/primitives';
-import { callAiJson, matchCategory, matchMember } from '../lib/ai';
+import { callAiJson } from '../lib/ai';
+import { matchCategory, matchMember } from '../lib/aiParse';
 import { isAiFeatureEnabled } from '../lib/access';
 import { formatMoney, formatDate } from '../lib/format';
 import {
