@@ -3,7 +3,7 @@ import {
   QrCode, Copy, UserPlus, Plus, Trash2, ShieldAlert, ChevronRight, ExternalLink,
   BellRing, BellOff, Clock,
 } from 'lucide-react';
-import { T, FONT_DISPLAY, FONT_BODY, FONT_MONO, inputStyle, DAY_LABELS, CURRENCIES } from '../ui/theme';
+import { T, FONT_DISPLAY, FONT_BODY, FONT_MONO, TAP_MIN, inputStyle, DAY_LABELS, CURRENCIES } from '../ui/theme';
 import {
   Card, CategoryIcon, CATEGORY_ICON_OPTIONS, Field, GhostButton, IconButton, MemberChip, Modal, PrimaryButton,
 } from '../ui/primitives';

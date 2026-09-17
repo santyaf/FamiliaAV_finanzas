@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Bot, Plus, ShieldAlert, Trash2, ToggleLeft, ToggleRight } from 'lucide-react';
-import { T, FONT_DISPLAY, FONT_BODY, FONT_MONO, inputStyle } from '../ui/theme';
+import { T, FONT_DISPLAY, FONT_BODY, FONT_MONO, TAP_MIN, inputStyle } from '../ui/theme';
 import { Card, IconButton, PrimaryButton, GhostButton, Field } from '../ui/primitives';
 import { formatDate } from '../lib/format';
 

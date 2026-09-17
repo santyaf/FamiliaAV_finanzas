@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Bell, AlertTriangle, Target, TrendingUp, Calendar, Sparkles, Info } from 'lucide-react';
+import { Bell, AlertTriangle, Target, TrendingUp, Calendar, Sparkles, Info, Trash2 } from 'lucide-react';
 import { T, FONT_DISPLAY, FONT_BODY } from '../ui/theme';
 import { Modal, EmptyState, IconButton } from '../ui/primitives';
 import { formatDate } from '../lib/format';
