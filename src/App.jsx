@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { ArrowLeftRight, Bell, ChevronLeft, CreditCard, History, Home, Landmark, LayoutGrid, List, Loader2, LogOut, MessageCircle, PiggyBank, Plus, Settings, Target } from 'lucide-react';
+import { ArrowLeftRight, Bell, ChevronLeft, CreditCard, History, Home, Landmark, LayoutGrid, List, Loader2, LogOut, MessageCircle, PiggyBank, Plus, Settings, Target, TrendingUp } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import * as db from './lib/db';
 import { formatMoney, formatDate } from './lib/format';
@@ -24,6 +24,7 @@ import {
 import { Dashboard } from './sections/Dashboard';
 import { Ajustes, InviteModal, CategoryModal, ReminderModal } from './sections/Ajustes';
 import { Obligaciones, ObligationModal } from './sections/Obligaciones';
+import { Tendencias } from './sections/Tendencias';
 import { ResetPasswordScreen, LoadingScreen, AuthScreen, HouseholdSetup } from './sections/auth';
 import { AdminPanel } from './sections/AdminPanel';
 import { NotificationsPanel } from './sections/NotificationsPanel';
@@ -254,6 +255,7 @@ const GESTION_SECTIONS = [
   { id: 'objetivos', label: 'Objetivos', icon: Target, desc: 'Metas de ahorro familiares e individuales, con aprobación del hogar.' },
   { id: 'presupuestos', label: 'Presupuestos', icon: PiggyBank, desc: 'Límites de gasto por categoría, para todo el hogar o por integrante.' },
   { id: 'obligaciones', label: 'Obligaciones', icon: Bell, desc: 'Recordatorios de pagos por vencer — arriendo, servicios, suscripciones.' },
+  { id: 'tendencias', label: 'Tendencias', icon: TrendingUp, desc: 'Flujo de caja y gasto por categoría de los últimos meses.' },
   { id: 'conciliacion', label: 'Conciliación', icon: ArrowLeftRight, desc: 'Quién le debe a quién por los gastos compartidos, y cómo saldar.' },
   { id: 'cuentas', label: 'Cuentas', icon: Landmark, desc: 'Cuentas bancarias y efectivo, individuales o compartidas.' },
 ];
@@ -392,6 +394,7 @@ function MainApp({ data, update, actions }) {
           {tab === 'objetivos' && <Objetivos data={data} actions={actions} setModal={setModal} />}
           {tab === 'presupuestos' && <Presupuestos data={data} actions={actions} setModal={setModal} />}
           {tab === 'obligaciones' && <Obligaciones data={data} actions={actions} setModal={setModal} />}
+          {tab === 'tendencias' && <Tendencias data={data} />}
           {tab === 'conciliacion' && <Conciliacion data={data} actions={actions} />}
           {tab === 'cuentas' && <Cuentas data={data} actions={actions} setModal={setModal} />}
           {tab === 'ajustes' && <Ajustes data={data} update={update} actions={actions} setModal={setModal} setTab={setTab} />}

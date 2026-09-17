@@ -63,7 +63,7 @@ El mayor predictor de que una app de finanzas sobreviva es qué tan fácil es me
 
 ## Fase 13 — Inteligencia y análisis (lo que la hace "la mejor")
 
-- **Dashboards de tendencia** — flujo de caja mensual, ingresos vs gastos en el tiempo, categorías mes a mes, calendario/heatmap de gasto. (Con `recharts` fuera: o una librería liviana cargada bajo demanda, o SVG a mano para un set curado.)
+- ~~**Dashboards de tendencia**~~ ✅ — nueva sección **Tendencias** en Gestión: flujo de caja mensual (barras ingresos/gastos de los últimos 6 meses, SVG a mano) y gasto por categoría mes a mes (últimos 4 meses, top 6 categorías). Falta: calendario/heatmap de gasto diario.
 - ~~**Patrimonio neto**~~ ✅ — tarjeta al inicio del Dashboard: activos (saldo de cuentas + ahorrado en objetivos) menos pasivos (saldo pendiente de créditos activos, con conversión UVR→COP a la última tasa conocida). Falta: inversiones/propiedades manuales y su **evolución en el tiempo** (necesitaría una tabla de snapshots periódicos — no es trivial reconstruirlo del histórico de transacciones).
 - **Asistente financiero con IA** — ya tienes el proveedor conectado. Un chat que responda "¿cuánto llevo en restaurantes este mes?", "¿me alcanza para $X?", "¿cómo voy con la meta del carro?". Diferenciador enorme.
 - **Detección de anomalías** — cobro inusual, duplicado, "pagas 4 servicios de streaming", subida de precio de una suscripción.

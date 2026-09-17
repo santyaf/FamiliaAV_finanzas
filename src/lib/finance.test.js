@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   monthKey, thisMonthKey, daysUntil, getNextOccurrence, occurrencesInMonth,
   computeIncomeShares, computeBalances, simplifyDebts, goalPriorityScore, advanceByFrequency,
-  accountBalance, creditOutstandingBalance,
+  accountBalance, creditOutstandingBalance, lastMonthKeys, monthCashFlow,
 } from './finance';
 
 // Fijamos "hoy" = 2026-06-15 para que las funciones que dependen de la fecha
@@ -122,6 +122,36 @@ describe('occurrencesInMonth', () => {
   it('anual solo cuenta en su mes de aniversario', () => {
     expect(occurrencesInMonth({ recurring: true, date: '2025-06-01', frequency: 'anual' }, '2026-06')).toBe(1);
     expect(occurrencesInMonth({ recurring: true, date: '2025-03-01', frequency: 'anual' }, '2026-06')).toBe(0);
+  });
+});
+
+describe('lastMonthKeys', () => {
+  it('devuelve n meses en orden cronológico, terminando en el actual', () => {
+    // "hoy" está fijado en 2026-06-15
+    expect(lastMonthKeys(3)).toEqual(['2026-04', '2026-05', '2026-06']);
+  });
+  it('cruza el cambio de año correctamente', () => {
+    vi.setSystemTime(new Date('2026-01-15T12:00:00Z'));
+    expect(lastMonthKeys(3)).toEqual(['2025-11', '2025-12', '2026-01']);
+  });
+  it('n=1 devuelve solo el mes actual', () => {
+    expect(lastMonthKeys(1)).toEqual(['2026-06']);
+  });
+});
+
+describe('monthCashFlow', () => {
+  it('suma ingresos y gastos del mes, separados', () => {
+    const tx = [
+      { type: 'income', amount: 1000, date: '2026-06-01' },
+      { type: 'expense', amount: 300, date: '2026-06-10' },
+      { type: 'expense', amount: 50, date: '2026-05-10' }, // otro mes, no cuenta
+      { type: 'settlement', amount: 999, date: '2026-06-05' }, // no es income/expense
+    ];
+    expect(monthCashFlow(tx, '2026-06')).toEqual({ income: 1000, expense: 300, balance: 700 });
+  });
+  it('incluye recurrentes multiplicadas por sus ocurrencias en el mes', () => {
+    const tx = [{ type: 'expense', amount: 100, date: '2026-01-01', recurring: true, frequency: 'semanal' }];
+    expect(monthCashFlow(tx, '2026-06').expense).toBe(400); // semanal = 4 veces
   });
 });
 

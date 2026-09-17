@@ -84,6 +84,31 @@ export function occurrencesInMonth(t, mKey) {
   return 1;
 }
 
+// Las últimas n claves de mes ('YYYY-MM'), en orden cronológico, terminando
+// en el mes actual. Para los dashboards de tendencia.
+export function lastMonthKeys(n) {
+  const now = new Date(todayISO() + 'T00:00:00');
+  const keys = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    keys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  }
+  return keys;
+}
+
+// Ingresos y gastos totales de un mes (incluye recurrentes, vía occurrencesInMonth).
+export function monthCashFlow(transactions, mKey) {
+  let income = 0, expense = 0;
+  transactions.forEach((t) => {
+    if (t.type !== 'income' && t.type !== 'expense') return;
+    const occ = occurrencesInMonth(t, mKey);
+    if (!occ) return;
+    if (t.type === 'income') income += t.amount * occ;
+    else expense += t.amount * occ;
+  });
+  return { income, expense, balance: income - expense };
+}
+
 // Reparto "proporcional a ingresos": usa el promedio de ingresos de cada
 // integrante en los últimos 3 meses. Si nadie tiene ingresos registrados,
 // cae de vuelta a partes iguales.
