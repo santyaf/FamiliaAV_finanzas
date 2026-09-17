@@ -176,6 +176,7 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     addBudget: wrap((b) => db.addBudget(household.householdId, b)),
     removeBudget: wrap((id) => db.removeBudget(id)),
     addAccount: wrap((a) => db.addAccount(household.householdId, session.user.id, a)),
+    updateAccount: wrap((id, a) => db.updateAccount(id, a)),
     removeAccount: wrap((id) => db.removeAccount(id)),
     addObligation: wrap((o) => db.addObligation(household.householdId, session.user.id, o)),
     updateObligation: wrap((id, o) => db.updateObligation(id, o)),
@@ -423,7 +424,7 @@ function MainApp({ data, update, actions }) {
       {modal?.type === 'editGoal' && <EditGoalModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
       {modal?.type === 'withdrawGoal' && <WithdrawGoalModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
       {modal?.type === 'invite' && <InviteModal data={data} actions={actions} onClose={() => setModal(null)} />}
-      {modal?.type === 'account' && <AccountModal data={data} actions={actions} onClose={() => setModal(null)} />}
+      {modal?.type === 'account' && <AccountModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
       {modal?.type === 'budget' && <BudgetModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
       {modal?.type === 'obligation' && <ObligationModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
       {modal?.type === 'vote' && <VoteModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}

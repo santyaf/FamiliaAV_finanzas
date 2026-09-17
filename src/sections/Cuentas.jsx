@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Pencil } from 'lucide-react';
 import { T, FONT_DISPLAY, FONT_BODY, FONT_MONO, inputStyle } from '../ui/theme';
 import { Card, PrimaryButton, IconButton, Modal, Field, MemberChip, PaymentKindIcon, PAYMENT_KIND_LABEL, PAYMENT_KIND_OPTIONS } from '../ui/primitives';
 import { formatMoney } from '../lib/format';
@@ -68,7 +68,10 @@ export function Cuentas({ data, actions, setModal }) {
                   <p style={{ fontSize: 11, color: T.inkSoft }}>{PAYMENT_KIND_LABEL[a.paymentKind || 'otro']} · {a.type === 'shared' ? 'Compartida' : 'Individual'} · {a.ownerIds.map((id) => data.members.find((m) => m.id === id)?.name).join(', ')}</p>
                 </div>
               </div>
-              <IconButton icon={Trash2} variant="danger" onClick={() => removeAccount(a.id)} confirmMessage={`¿Eliminar la cuenta "${a.name}"? Los movimientos ya registrados en ella no se borrarán.`} label="Eliminar cuenta" />
+              <div className="flex items-center gap-1">
+                <IconButton icon={Pencil} onClick={() => setModal({ type: 'account', payload: a })} label="Editar cuenta" />
+                <IconButton icon={Trash2} variant="danger" onClick={() => removeAccount(a.id)} confirmMessage={`¿Eliminar la cuenta "${a.name}"? Los movimientos ya registrados en ella no se borrarán.`} label="Eliminar cuenta" />
+              </div>
             </div>
             <p style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 18, color: T.ink }} className="mt-2">{formatMoney(balanceOf(a), currency)}</p>
           </Card>
@@ -78,11 +81,12 @@ export function Cuentas({ data, actions, setModal }) {
   );
 }
 
-export function AccountModal({ data, actions, onClose }) {
-  const [name, setName] = useState('');
-  const [type, setType] = useState('individual');
-  const [paymentKind, setPaymentKind] = useState('otro');
-  const [ownerIds, setOwnerIds] = useState([data.members[0]?.id]);
+export function AccountModal({ data, actions, payload, onClose }) {
+  const editing = !!payload?.id;
+  const [name, setName] = useState(payload?.name || '');
+  const [type, setType] = useState(payload?.type || 'individual');
+  const [paymentKind, setPaymentKind] = useState(payload?.paymentKind || 'otro');
+  const [ownerIds, setOwnerIds] = useState(payload?.ownerIds || [data.members[0]?.id]);
   const [initialBalance, setInitialBalance] = useState('');
   const [saving, setSaving] = useState(false);
   function toggle(id) { setOwnerIds((o) => (o.includes(id) ? o.filter((x) => x !== id) : [...o, id])); }
@@ -90,14 +94,18 @@ export function AccountModal({ data, actions, onClose }) {
     if (!name.trim() || !ownerIds.length) return;
     setSaving(true);
     try {
-      await actions.addAccount({ name: name.trim(), type, paymentKind, ownerIds, initialBalance: parseFloat(initialBalance) || 0 });
+      if (editing) {
+        await actions.updateAccount(payload.id, { name: name.trim(), type, paymentKind, ownerIds });
+      } else {
+        await actions.addAccount({ name: name.trim(), type, paymentKind, ownerIds, initialBalance: parseFloat(initialBalance) || 0 });
+      }
       onClose();
     } finally {
       setSaving(false);
     }
   }
   return (
-    <Modal title="Nueva cuenta" onClose={onClose}>
+    <Modal title={editing ? 'Editar cuenta' : 'Nueva cuenta'} onClose={onClose}>
       <Field label="Nombre de la cuenta">
         <input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej. Cuenta de ahorros" />
       </Field>
@@ -126,11 +134,15 @@ export function AccountModal({ data, actions, onClose }) {
           ))}
         </div>
       </Field>
-      <Field label="Saldo inicial (opcional)">
-        <input style={inputStyle} type="number" value={initialBalance} onChange={(e) => setInitialBalance(e.target.value)} placeholder="0" />
-      </Field>
-      <p style={{ fontSize: 11, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-4">Si la cuenta ya tiene dinero, regístralo aquí — se guarda como un ingreso inicial.</p>
-      <PrimaryButton full onClick={save}>{saving ? 'Creando…' : 'Crear cuenta'}</PrimaryButton>
+      {!editing && (
+        <>
+          <Field label="Saldo inicial (opcional)">
+            <input style={inputStyle} type="number" value={initialBalance} onChange={(e) => setInitialBalance(e.target.value)} placeholder="0" />
+          </Field>
+          <p style={{ fontSize: 11, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-4">Si la cuenta ya tiene dinero, regístralo aquí — se guarda como un ingreso inicial.</p>
+        </>
+      )}
+      <PrimaryButton full onClick={save}>{saving ? 'Guardando…' : editing ? 'Guardar cambios' : 'Crear cuenta'}</PrimaryButton>
     </Modal>
   );
 }

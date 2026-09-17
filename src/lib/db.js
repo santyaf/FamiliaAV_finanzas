@@ -344,6 +344,13 @@ export async function addAccount(householdId, userId, account) {
   }
   return row.id;
 }
+export async function updateAccount(id, account) {
+  const { error } = await supabase.from('accounts').update({
+    name: account.name, type: account.type, owner_ids: account.ownerIds,
+    payment_kind: account.paymentKind || 'otro',
+  }).eq('id', id);
+  if (error) throw error;
+}
 export async function removeAccount(id) {
   const { error } = await supabase.from('accounts').delete().eq('id', id);
   if (error) throw error;
