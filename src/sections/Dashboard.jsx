@@ -6,10 +6,11 @@ import { T, FONT_DISPLAY, FONT_BODY, FONT_MONO } from '../ui/theme';
 import { Card, ProgressBar, EmptyState, CategoryIcon } from '../ui/primitives';
 import { AnomaliasCard } from './AnomaliasCard';
 import { cardUsage, cardCycle, payToAvoidInterest } from '../lib/creditCards';
+import { projectMonth, budgetAllowances } from '../lib/projection';
 import { formatMoney, formatDate } from '../lib/format';
 import {
   thisMonthKey, daysUntil, occurrencesInMonth, getNextOccurrence, goalPriorityScore, todayISO,
-  accountBalance, creditOutstandingBalance,
+  accountBalance, creditOutstandingBalance, daysLeftInMonth,
 } from '../lib/finance';
 
 export function DonutChart({ data, colors, size = 168, thickness = 30 }) {
@@ -135,6 +136,13 @@ export function Dashboard({ data, update, actions, visibleTransactions, visibleM
   }
   const balance = income - expense + transferNetForView;
 
+  // proyección del mes y cuánto se puede gastar hoy según los presupuestos
+  const projection = projectMonth({ transactions: visibleTransactions, categories: data.categories, todayISO: todayISO() });
+  const showProjection = projection.incomeSoFar > 0 || projection.fixed > 0 || projection.variableSoFar > 0;
+  const allowances = data.budgets.length
+    ? budgetAllowances({ transactions: visibleTransactions, budgets: data.budgets, mKey, daysLeft: daysLeftInMonth() })
+    : null;
+
   const byCategory = {};
   visibleTransactions.forEach((t) => {
     if (t.type !== 'expense') return;
@@ -257,6 +265,37 @@ export function Dashboard({ data, update, actions, visibleTransactions, visibleM
           <p style={{ fontSize: 10.5, color: T.inkSoft, fontFamily: FONT_BODY }} className="mt-1">Incluye {transferNetForView > 0 ? '+' : ''}{formatMoney(transferNetForView, currency)} de transferencias entre integrantes</p>
         )}
       </Card>
+
+      {showProjection && (
+        <Card style={{ marginBottom: 16 }}>
+          <div className="flex items-center gap-2 mb-2"><TrendingUp size={16} color={T.ink} /><span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: T.ink }}>Proyección a fin de mes</span></div>
+          <p style={{ fontSize: 12.5, color: T.inkSoft, fontFamily: FONT_BODY }}>A este ritmo terminarás el mes gastando</p>
+          <p style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 20, color: T.ink }}>{formatMoney(projection.projectedExpense, currency)}</p>
+          <div className="flex items-center justify-between mt-2">
+            <span style={{ fontSize: 12.5, color: T.inkSoft, fontFamily: FONT_BODY }}>Ingresos registrados este mes</span>
+            <span style={{ fontFamily: FONT_MONO, fontSize: 13, color: T.ink }}>{formatMoney(projection.incomeSoFar, currency)}</span>
+          </div>
+          <div className="flex items-center justify-between mt-1">
+            <span style={{ fontSize: 12.5, color: T.inkSoft, fontFamily: FONT_BODY }}>Te quedarían</span>
+            <span style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 14, color: projection.status === 'over' ? T.danger : projection.status === 'tight' ? T.gold : T.teal }}>{formatMoney(projection.projectedBalance, currency)}</span>
+          </div>
+          {projection.status === 'over' && <p style={{ fontSize: 12, color: T.danger, fontFamily: FONT_BODY }} className="mt-2">A este ritmo gastarías más de lo que ingresa este mes. Revisa los gastos variables.</p>}
+          {projection.status === 'tight' && <p style={{ fontSize: 12, color: T.gold, fontFamily: FONT_BODY }} className="mt-2">Vas ajustado: te quedaría menos del 10% de tus ingresos.</p>}
+          <p style={{ fontSize: 10.5, color: T.inkSoft, fontFamily: FONT_BODY }} className="mt-2">
+            Fijos y recurrentes {formatMoney(projection.fixed, currency)} · variables ≈ {formatMoney(projection.dailyAverage, currency)} por día.
+            {projection.confidence === 'low' ? ' Es muy temprano en el mes: la estimación mejora con los días.' : ' Solo cuenta ingresos y gastos operativos (no préstamos ni pagos a capital).'}
+          </p>
+          {allowances && (
+            <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${T.border}` }}>
+              <div className="flex items-center justify-between">
+                <span style={{ fontSize: 12.5, color: T.ink, fontFamily: FONT_BODY, fontWeight: 500 }}>Disponible para gastar hoy</span>
+                <span style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 15, color: allowances.totalPerDay < 0 ? T.danger : T.teal }}>{formatMoney(allowances.totalPerDay, currency)}</span>
+              </div>
+              <p style={{ fontSize: 10.5, color: T.inkSoft, fontFamily: FONT_BODY }} className="mt-0.5">Lo que queda de tus presupuestos ({formatMoney(allowances.totalRemaining, currency)}) repartido entre los {daysLeftInMonth()} días que faltan, contando hoy.</p>
+            </div>
+          )}
+        </Card>
+      )}
 
       {budgetAlerts.length > 0 && (
         <Card style={{ marginBottom: 16, background: T.goldSoft, border: 'none' }}>
