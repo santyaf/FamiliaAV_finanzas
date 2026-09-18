@@ -1126,7 +1126,7 @@ export async function loadNotifications(householdId) {
     .select('*')
     .eq('household_id', householdId)
     .order('created_at', { ascending: false })
-    .limit(50);
+    .limit(200);
   if (error) throw error;
   return data.map((n) => ({
     id: n.id, type: n.type, title: n.title, body: n.body, data: n.data,
@@ -1134,21 +1134,21 @@ export async function loadNotifications(householdId) {
   }));
 }
 
-export async function markNotificationRead(id) {
-  const { error } = await supabase.from('notifications').update({ read: true }).eq('id', id);
+// Estado (leída / archivada / eliminada) de esta persona; la política RLS ya filtra por ella.
+export async function loadNotificationStates() {
+  const { data, error } = await supabase.from('notification_states').select('notification_id, read_at, archived_at, deleted_at');
   if (error) throw error;
+  return data.map((s) => ({ notificationId: s.notification_id, readAt: s.read_at, archivedAt: s.archived_at, deletedAt: s.deleted_at }));
 }
 
-export async function markAllNotificationsRead(householdId, userId) {
-  const { error } = await supabase.from('notifications')
-    .update({ read: true })
-    .eq('household_id', householdId)
-    .or(`user_id.is.null,user_id.eq.${userId}`);
-  if (error) throw error;
-}
-
-export async function deleteNotification(id) {
-  const { error } = await supabase.from('notifications').delete().eq('id', id);
+// Una fila de estado por (notificación, persona): solo se escriben las columnas del parche.
+export async function setNotificationStates(userId, ids, patch) {
+  if (!ids.length) return;
+  const now = new Date().toISOString();
+  const { error } = await supabase.from('notification_states').upsert(
+    ids.map((id) => ({ notification_id: id, user_id: userId, ...patch, updated_at: now })),
+    { onConflict: 'notification_id,user_id' },
+  );
   if (error) throw error;
 }
 

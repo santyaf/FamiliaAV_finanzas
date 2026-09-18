@@ -156,11 +156,12 @@ Objetivo: poder generar informes **mensuales, trimestrales, semestrales y anuale
 
 ## Fase 20 — Notificaciones y gestión de usuarios (pedido del usuario, 2026-09-18)
 
-**Centro de notificaciones renovado** (hoy es una pantalla completa con la lista simple):
-- Cada notificación se puede **marcar como leída, archivar y eliminar**, con **iconos que aparecen al deslizar la notificación hacia la izquierda** (gesto swipe en móvil; en escritorio, los mismos iconos al pasar el cursor).
-- La ventana pasa a ser un **pop-up anclado a la campana** que **no ocupa toda la pantalla** y muestra **solo las no leídas**.
-- Las **archivadas** se ven en **otra interfaz** (enlace "Ver archivadas" dentro del pop-up), con opción de desarchivar o eliminar.
-- Por hacer: columnas `read_at` / `archived_at` en `notifications` (o tabla de estados por usuario, porque algunas notificaciones son del hogar), políticas RLS de UPDATE/DELETE solo sobre las propias, contador de la campana = no leídas, "marcar todas como leídas". Reusar el patrón de deslizar de `Movimientos`, si existe, o un componente `SwipeRow` con pruebas.
+**Centro de notificaciones renovado — ✅ hecho (migración `fase20_estado_de_notificaciones`):**
+- Cada notificación se **marca como leída, se archiva o se elimina**; las acciones aparecen como **iconos detrás de la notificación al deslizarla hacia la izquierda** (dedo o mouse; con teclado, flecha izquierda). Componente `SwipeRow` con la matemática del gesto en `lib/swipe.js`.
+- La ventana es ahora un **pop-up anclado a la campana** (no ocupa toda la pantalla) que muestra **solo las sin leer**, con "Marcar todas como leídas". Otra vista dentro del pop-up ("Ver leídas y archivadas") separa **Leídas** y **Archivadas**; desde ahí se puede archivar, **desarchivar** o eliminar.
+- Estado **por persona** (`notification_states`, una fila por notificación y usuario): las notificaciones del hogar las ven todos, pero leerlas, archivarlas o eliminarlas ya no afecta a los demás. Eliminar es **lógico**: antes, borrar una alerta liberaba su `dedupe_key` y volvía a generarse al abrir la app (arreglado). La columna `notifications.read` se respeta como respaldo.
+- Lógica pura y con pruebas en `lib/notificationStates.js`; pruebas de humo con jsdom del pop-up, las vistas y el arrastre con puntero.
+- Pendiente opcional: purgar notificaciones eliminadas/antiguas (>90 días), marcar como no leída, "archivar todas".
 
 **Gestión de usuarios:**
 - **Eliminar cuenta** (la propia): borrar el perfil y sus datos personales, con confirmación fuerte y qué pasa con lo compartido del hogar (transferir la propiedad o dejar los movimientos como "ex integrante"); también la baja de un integrante por el administrador del hogar y por el admin de la plataforma. Necesita un endpoint con service role (`auth.admin.deleteUser`) y revisar las llaves foráneas (`created_by`, `member_id`…) para no dejar datos huérfanos. Ver también *Exportar todos mis datos y borrar la cuenta* en la Fase 15.

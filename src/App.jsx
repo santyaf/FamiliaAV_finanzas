@@ -5,6 +5,7 @@ import * as db from './lib/db';
 import { formatMoney, formatDate } from './lib/format';
 import { todayISO } from './lib/finance';
 import { buildNotificationCandidates } from './lib/notifications';
+import { mergeNotificationStates, notificationCounts, statePatchFor } from './lib/notificationStates';
 import { isAiFeatureEnabled } from './lib/access';
 import { isNetworkError, withTimeout, newId, mergePendingTransactions } from './lib/offlineQueue';
 import { readJSON, writeJSON, removeKey, getStorage } from './lib/safeStorage';
@@ -109,6 +110,7 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
   const [settings, setSettings] = useState(null);
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [notifications, setNotifications] = useState([]);
+  const [notificationStates, setNotificationStates] = useState([]);
   // Créditos activos con sus cuotas — se carga una sola vez por sesión (ya se
   // necesitaba para el motor de notificaciones) y se reusa para Patrimonio
   // neto en el Dashboard, en vez de pedirlo dos veces.
@@ -131,7 +133,12 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     writeJSON(getStorage(), `${snapKey}:settings`, s);
   }
   async function refreshNotifications() {
-    setNotifications(await db.loadNotifications(household.householdId));
+    const [list, states] = await Promise.all([
+      db.loadNotifications(household.householdId),
+      db.loadNotificationStates().catch(() => []), // sin estados, todo se ve como sin leer (no rompe la app)
+    ]);
+    setNotifications(list);
+    setNotificationStates(states);
   }
   useEffect(() => {
     (async () => {
@@ -188,8 +195,8 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
 
   if (loading || !raw || !settings) return <LoadingScreen />;
 
-  const myNotifications = notifications.filter((n) => !n.userId || n.userId === session.user.id);
-  const unreadCount = myNotifications.filter((n) => !n.read).length;
+  const myNotifications = mergeNotificationStates(notifications.filter((n) => !n.userId || n.userId === session.user.id), notificationStates);
+  const unreadCount = notificationCounts(myNotifications).unread;
 
   const data = {
     householdName: householdMeta?.name || '',
@@ -328,9 +335,11 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     updateReminderSchedule: (id, patch) => db.updateReminderSchedule(id, patch),
     removeReminderSchedule: (id) => db.removeReminderSchedule(id),
     // notificaciones
-    markNotificationRead: async (id) => { await db.markNotificationRead(id); await refreshNotifications(); },
-    markAllNotificationsRead: async () => { await db.markAllNotificationsRead(household.householdId, session.user.id); await refreshNotifications(); },
-    deleteNotification: async (id) => { await db.deleteNotification(id); await refreshNotifications(); },
+    // leer / archivar / desarchivar / eliminar (lógico) una o varias notificaciones, solo para mí
+    setNotificationsState: async (ids, action) => {
+      await db.setNotificationStates(session.user.id, ids, statePatchFor(action, new Date().toISOString()));
+      await refreshNotifications();
+    },
   };
 
   return <MainApp data={data} update={update} actions={actions} />;
