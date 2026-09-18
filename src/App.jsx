@@ -6,6 +6,9 @@ import { formatMoney, formatDate } from './lib/format';
 import { todayISO } from './lib/finance';
 import { buildNotificationCandidates } from './lib/notifications';
 import { isAiFeatureEnabled } from './lib/access';
+import { isNetworkError, withTimeout, newId, mergePendingTransactions, readJSON, writeJSON, removeKey, getStorage } from './lib/offlineQueue';
+import { useOfflineQueue, SEND_TIMEOUT_MS } from './lib/useOfflineQueue';
+import { OfflineBanner } from './components/OfflineBanner';
 import { FONT_BODY, FONT_DISPLAY, FONT_MONO, GOOGLE_FONTS_IMPORT, T, TAP_MIN, inputStyle } from './ui/theme';
 import { Card, EmptyState, Field, GhostButton, IconButton, Modal, PrimaryButton } from './ui/primitives';
 import Conciliacion from './sections/Conciliacion';
@@ -71,10 +74,15 @@ export default function App() {
           window.history.replaceState({}, '', window.location.pathname);
         }
       }
+      // Si no hay señal, usa el último hogar conocido en vez de mandar a
+      // "crear hogar" (que sería engañoso: el hogar existe, solo no se ve).
+      const cacheKey = `fam_household_v1:${session.user.id}`;
       try {
-        setHousehold(await db.getMyHousehold(session.user.id));
-      } catch {
-        setHousehold(null);
+        const h = await db.getMyHousehold(session.user.id);
+        if (h) writeJSON(getStorage(), cacheKey, h);
+        setHousehold(h);
+      } catch (e) {
+        setHousehold(isNetworkError(e) ? readJSON(getStorage(), cacheKey, null) : null);
       }
     })();
   }, [session]);
@@ -102,21 +110,41 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
   // necesitaba para el motor de notificaciones) y se reusa para Patrimonio
   // neto en el Dashboard, en vez de pedirlo dos veces.
   const [creditsSnapshot, setCreditsSnapshot] = useState([]);
+  // true = sin señal al abrir la app: se muestran los últimos datos guardados en
+  // este dispositivo hasta que vuelva la conexión (ver cola offline abajo).
+  const [stale, setStale] = useState(false);
+  const snapKey = `fam_snapshot_v1:${household.householdId}:${session.user.id}`;
 
   async function refresh() {
     const d = await db.loadHouseholdData(household.householdId);
     setRaw(d);
+    setStale(false);
+    writeJSON(getStorage(), `${snapKey}:raw`, d);
     return d;
   }
   async function refreshSettings() {
-    setSettings(await db.getSettings());
+    const s = await db.getSettings();
+    setSettings(s);
+    writeJSON(getStorage(), `${snapKey}:settings`, s);
   }
   async function refreshNotifications() {
     setNotifications(await db.loadNotifications(household.householdId));
   }
   useEffect(() => {
     (async () => {
-      const d = await refresh();
+      let d;
+      try {
+        d = await refresh();
+      } catch (e) {
+        // Sin señal al abrir: usa lo último que se guardó en este dispositivo.
+        const snapRaw = isNetworkError(e) ? readJSON(getStorage(), `${snapKey}:raw`, null) : null;
+        if (!snapRaw) throw e;
+        setRaw(snapRaw);
+        setSettings((cur) => cur ?? readJSON(getStorage(), `${snapKey}:settings`, null));
+        setStale(true);
+        setLoading(false);
+        return;
+      }
       setLoading(false);
       // motor de detección: corre una vez por sesión, en silencio, cuando se abre la app
       try {
@@ -130,9 +158,22 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
       } catch { /* si falla el motor de detección, no debe romper el resto de la app */ }
       await refreshNotifications();
     })();
-    refreshSettings();
+    refreshSettings().catch(() => setSettings((cur) => cur ?? readJSON(getStorage(), `${snapKey}:settings`, null)));
     db.amIPlatformAdmin(session.user.id).then(setIsPlatformAdmin).catch(() => {});
   }, [household.householdId]);
+
+  // Cola de escrituras offline: los movimientos que no se pudieron enviar por
+  // falta de señal se guardan en este dispositivo y se reenvían solos.
+  const queue = useOfflineQueue({
+    storageKey: `fam_offline_queue_v1:${household.householdId}:${session.user.id}`,
+    send: (item) => db.addTransaction(household.householdId, session.user.id, { ...item.payload, id: item.id }),
+    onSynced: refresh,
+    onReconnect: () => {
+      if (!stale) return;
+      refresh().catch(() => {});
+      refreshSettings().catch(() => {});
+    },
+  });
 
   if (loading || !raw || !settings) return <LoadingScreen />;
 
@@ -144,8 +185,9 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     currency: householdMeta?.currency || 'COP',
     viewMode, activeMemberId,
     members: raw.members, categories: raw.categories, accounts: raw.accounts,
-    transactions: raw.transactions, goals: raw.goals, budgets: raw.budgets, obligations: raw.obligations,
+    transactions: mergePendingTransactions(raw.transactions, queue.items), goals: raw.goals, budgets: raw.budgets, obligations: raw.obligations,
     settings, isPlatformAdmin, notifications: myNotifications, unreadCount, creditsWithPayments: creditsSnapshot,
+    offline: { online: queue.online, stale, pending: queue.pending, failed: queue.failed, syncing: queue.syncing },
   };
 
   function update(patch) {
@@ -158,13 +200,39 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     }
   }
 
-  const wrap = (fn) => async (...args) => { await fn(...args); await refresh(); };
+  // Las demás acciones necesitan servidor: sin señal fallan con un mensaje claro
+  // (solo agregar movimientos usa la cola offline, ver addTransaction).
+  const wrap = (fn) => async (...args) => {
+    try {
+      await fn(...args);
+    } catch (e) {
+      if (isNetworkError(e)) throw new Error('Sin conexión: esta acción necesita internet. Inténtalo de nuevo cuando vuelva la señal.');
+      throw e;
+    }
+    await refresh();
+  };
 
   const actions = {
     userId: session.user.id,
     householdId: household.householdId,
     myRole: household.role,
-    addTransaction: wrap((t) => db.addTransaction(household.householdId, session.user.id, t)),
+    // Agregar un movimiento nunca se pierde por falta de señal: si no llega al
+    // servidor, queda en la cola offline con un id propio (reintentar no duplica).
+    addTransaction: async (t) => {
+      const id = newId();
+      const queueIt = () => queue.enqueue({ id, kind: 'addTransaction', payload: t });
+      if (!queue.online) return queueIt();
+      try {
+        await withTimeout(db.addTransaction(household.householdId, session.user.id, { ...t, id }), SEND_TIMEOUT_MS);
+      } catch (e) {
+        if (!isNetworkError(e)) throw e;
+        return queueIt();
+      }
+      try { await refresh(); } catch (e) { if (!isNetworkError(e)) throw e; }
+    },
+    discardPending: (id) => queue.discard(id),
+    retryPending: () => queue.retryFailed(),
+    syncNow: () => queue.syncNow(),
     deleteTransaction: wrap((id) => db.deleteTransaction(id)),
     updateTransaction: wrap((original, patch) => db.updateTransactionWithHistory(session.user.id, original, patch)),
     getTransactionHistory: (transactionId) => db.getTransactionHistory(transactionId),
@@ -193,7 +261,13 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     removeCategory: wrap((id) => db.removeCategory(id)),
     createInvite: () => db.createInvite(household.householdId, session.user.id),
     leaveHousehold: async () => { await db.leaveHousehold(household.householdId, session.user.id); onLeftHousehold(); },
-    signOut: () => db.signOut(),
+    signOut: async () => {
+      // el dispositivo puede ser compartido: no dejar los datos del hogar guardados
+      removeKey(getStorage(), `${snapKey}:raw`);
+      removeKey(getStorage(), `${snapKey}:settings`);
+      removeKey(getStorage(), `fam_household_v1:${session.user.id}`);
+      await db.signOut();
+    },
     refreshAll: async () => { await refresh(); await refreshSettings(); await refreshNotifications(); },
     // créditos
     loadCredits: () => db.loadCredits(household.householdId),
@@ -379,6 +453,7 @@ function MainApp({ data, update, actions }) {
             </button>
           </div>
         </div>
+        <OfflineBanner {...data.offline} onSyncNow={data.offline.failed > 0 ? actions.retryPending : actions.syncNow} />
         {data.viewMode === 'individual' && (
           <div className="flex gap-2 mt-3 overflow-x-auto pb-1">
             {data.members.map((m) => (

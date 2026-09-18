@@ -202,7 +202,10 @@ export async function getTransactionHistory(transactionId) {
 
 /* ---------------------- MUTACIONES ---------------------- */
 export async function addTransaction(householdId, userId, t) {
+  // t.id (opcional): id generado en el cliente — lo usa la cola offline para
+  // que reintentar un envío nunca duplique el movimiento (ver offlineQueue.js).
   const row = {
+    ...(t.id ? { id: t.id } : {}),
     household_id: householdId, type: t.type, description: t.description, amount: t.amount,
     category_id: t.categoryId, account_id: t.accountId, member_id: t.memberId, date: t.date,
     recurring: t.recurring, frequency: t.frequency, is_shared: t.isShared, participants: t.participants,

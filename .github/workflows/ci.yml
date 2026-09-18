@@ -16,10 +16,10 @@ jobs:
         with:
           node-version: 20
 
-      # El repo aún no tiene package-lock.json, así que se usa `npm install`
-      # (igual que hace Vercel). Cuando se agregue el lockfile, cambiar a `npm ci`.
+      # `npm ci` instala exactamente lo que dice package-lock.json (builds
+      # reproducibles); falla si el lockfile no coincide con package.json.
       - name: Instalar dependencias
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Tests
         run: npm test

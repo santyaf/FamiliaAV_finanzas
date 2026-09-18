@@ -122,6 +122,13 @@ export function Movimientos({ data, actions, visibleTransactions, setModal }) {
                       {member && <MemberChip member={member} size={18} />}
                       {t.recurring && <span className="flex items-center gap-1 rounded-full px-2 py-0.5" style={{ background: T.goldSoft }}><Repeat size={10} color={T.gold} /><span style={{ fontSize: 10, color: T.gold }}>{t.frequency}</span></span>}
                       {t.isShared && <span className="rounded-full px-2 py-0.5" style={{ background: T.tealSoft }}><span style={{ fontSize: 10, color: T.teal }}>Compartido</span></span>}
+                      {t.pending && (
+                        <span className="rounded-full px-2 py-0.5" style={{ background: t.pendingStatus === 'failed' ? T.coralSoft : T.amberSoft }}>
+                          <span style={{ fontSize: 10, color: t.pendingStatus === 'failed' ? T.coral : T.amber }}>
+                            {t.pendingStatus === 'failed' ? `No se pudo guardar${t.pendingError ? `: ${t.pendingError}` : ''}` : 'Pendiente de sincronizar'}
+                          </span>
+                        </span>
+                      )}
                       {t.version > 1 && (
                         <button onClick={() => setModal({ type: 'history', payload: t })} className="flex items-center gap-1 rounded-full px-2 py-0.5" style={{ background: T.bg }}>
                           <History size={10} color={T.inkSoft} /><span style={{ fontSize: 10, color: T.inkSoft }}>Editado ({t.version - 1})</span>
@@ -135,8 +142,14 @@ export function Movimientos({ data, actions, visibleTransactions, setModal }) {
                     {t.type === 'income' ? '+' : '-'}{formatMoney(t.amount, currency)}
                   </span>
                   <div className="flex items-center gap-2">
-                    <IconButton icon={Pencil} onClick={() => setModal({ type: 'editTransaction', payload: t })} label="Editar movimiento" />
-                    <IconButton icon={Trash2} variant="danger" onClick={() => removeTransaction(t.id)} confirmMessage="¿Eliminar este movimiento? Esta acción no se puede deshacer." label="Eliminar movimiento" />
+                    {t.pending ? (
+                      <IconButton icon={Trash2} variant="danger" onClick={() => actions.discardPending(t.id)} confirmMessage="¿Descartar este movimiento? Todavía no se ha guardado en el servidor, así que se perdería." label="Descartar movimiento pendiente" />
+                    ) : (
+                      <>
+                        <IconButton icon={Pencil} onClick={() => setModal({ type: 'editTransaction', payload: t })} label="Editar movimiento" />
+                        <IconButton icon={Trash2} variant="danger" onClick={() => removeTransaction(t.id)} confirmMessage="¿Eliminar este movimiento? Esta acción no se puede deshacer." label="Eliminar movimiento" />
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
