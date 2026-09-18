@@ -181,7 +181,7 @@ function buildDraft(data, parsed, asMember, rawLabel) {
   };
 }
 
-function ChatPanel({ data, actions, visibleTransactions, setModal, canAsk, canRegister }) {
+function ChatPanel({ data, actions, visibleTransactions, setModal, canAsk, canRegister, variant }) {
   const [messages, setMessages] = useState([]); // { role, text?, image?, draft? }
   const [input, setInput] = useState('');
   const [imageFile, setImageFile] = useState(null);
@@ -261,34 +261,39 @@ function ChatPanel({ data, actions, visibleTransactions, setModal, canAsk, canRe
       ? 'Escribe como si le mandaras un mensaje a tu familia, o sube la foto de un recibo — tú confirmas antes de guardar.'
       : 'Responde solo con tus movimientos, presupuestos y objetivos reales.';
 
+  const isPopup = variant === 'popup';
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '60vh' }}>
-      <div className="flex items-center gap-2 mb-1">
-        <Sparkles size={18} color={T.teal} />
-        <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: T.ink }}>{title}</p>
-      </div>
-      <p style={{ fontSize: 12.5, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-3">{subtitle}</p>
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: isPopup ? 0 : '60vh', height: isPopup ? '100%' : undefined }}>
+      {!isPopup && (
+        <>
+          <div className="flex items-center gap-2 mb-1">
+            <Sparkles size={18} color={T.teal} />
+            <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: T.ink }}>{title}</p>
+          </div>
+          <p style={{ fontSize: 12.5, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-3">{subtitle}</p>
+        </>
+      )}
 
       {canRegister && data.members.length > 1 && (
-        <select style={{ ...inputStyle, marginBottom: 10, fontSize: 12.5 }} value={asMember} onChange={(e) => setAsMember(e.target.value)}>
+        <select style={{ ...inputStyle, marginBottom: 10, fontSize: 12.5, flexShrink: 0 }} value={asMember} onChange={(e) => setAsMember(e.target.value)}>
           {data.members.map((m) => <option key={m.id} value={m.id}>Registrar como: {m.name}</option>)}
         </select>
       )}
 
-      {messages.length === 0 && (
-        <>
-          <EmptyState icon={<Sparkles size={32} color={T.teal} />} title={canAsk ? 'Pregúntame lo que quieras' : 'Cuéntame qué registrar'} subtitle="Prueba con uno de estos, o escribe el tuyo abajo." />
-          <div className="flex flex-col gap-2 mt-3">
-            {(canAsk ? SUGGESTED_QUESTIONS : SUGGESTED_REGISTROS).map((q) => (
-              <button key={q} onClick={() => send(q)} className="text-left rounded-xl p-3" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
-                <span style={{ fontSize: 13, color: T.ink, fontFamily: FONT_BODY }}>{q}</span>
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-
-      <div className="flex flex-col gap-2" style={{ flex: 1 }}>
+      <div className="flex flex-col gap-2" style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+        {messages.length === 0 && (
+          <>
+            <EmptyState icon={<Sparkles size={32} color={T.teal} />} title={canAsk ? 'Pregúntame lo que quieras' : 'Cuéntame qué registrar'} subtitle="Prueba con uno de estos, o escribe el tuyo abajo." />
+            <div className="flex flex-col gap-2">
+              {(canAsk ? SUGGESTED_QUESTIONS : SUGGESTED_REGISTROS).map((q) => (
+                <button key={q} onClick={() => send(q)} className="text-left rounded-xl p-3" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+                  <span style={{ fontSize: 13, color: T.ink, fontFamily: FONT_BODY }}>{q}</span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
         {messages.map((m, i) => (
           <div key={i} style={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '85%' }}>
             {m.draft ? (
@@ -320,10 +325,10 @@ function ChatPanel({ data, actions, visibleTransactions, setModal, canAsk, canRe
         <div ref={endRef} />
       </div>
 
-      {error && <p style={{ color: T.danger, fontSize: 12.5, fontFamily: FONT_BODY }} className="mt-2">{error}</p>}
+      {error && <p style={{ color: T.danger, fontSize: 12.5, fontFamily: FONT_BODY, flexShrink: 0 }} className="mt-2">{error}</p>}
 
       {imagePreview && (
-        <div className="flex items-center gap-2 mt-3 rounded-xl p-2" style={{ background: T.bg }}>
+        <div className="flex items-center gap-2 mt-3 rounded-xl p-2" style={{ background: T.bg, flexShrink: 0 }}>
           <img src={imagePreview} alt="Foto adjunta" className="rounded-lg" style={{ width: 44, height: 44, objectFit: 'cover' }} />
           <span style={{ fontSize: 12, color: T.inkSoft, fontFamily: FONT_BODY }} className="flex-1">Foto lista para enviar</span>
           <button onClick={() => { setImageFile(null); setImagePreview(null); }} aria-label="Quitar foto" className="flex items-center justify-center" style={{ width: 28, height: 28 }}>
@@ -332,7 +337,7 @@ function ChatPanel({ data, actions, visibleTransactions, setModal, canAsk, canRe
         </div>
       )}
 
-      <div className="flex gap-2 mt-3">
+      <div className="flex gap-2 mt-3" style={{ flexShrink: 0 }}>
         {canRegister && (
           <>
             <input ref={fileInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={onPickImage} />
@@ -365,7 +370,7 @@ function ChatPanel({ data, actions, visibleTransactions, setModal, canAsk, canRe
 // cada quien (controlado en Admin, por función), puede responder preguntas,
 // registrar movimientos por texto o foto de recibo, o ambas cosas a la vez
 // dejando que la IA decida qué es cada mensaje.
-export function Asistente({ data, actions, visibleTransactions, setModal }) {
+export function Asistente({ data, actions, visibleTransactions, setModal, variant = 'page' }) {
   const aiProviderConfigured = data.settings?.ai_provider && data.settings.ai_provider !== 'none';
   const canAsk = aiProviderConfigured && isAiFeatureEnabled(data.settings?.assistant_access, actions.userId);
   const canRegister = aiProviderConfigured && isAiFeatureEnabled(data.settings?.quick_capture_access, actions.userId);
@@ -373,8 +378,8 @@ export function Asistente({ data, actions, visibleTransactions, setModal }) {
   if (!canAsk && !canRegister) return null;
 
   return (
-    <div className="pb-4 pt-2">
-      <ChatPanel data={data} actions={actions} visibleTransactions={visibleTransactions} setModal={setModal} canAsk={canAsk} canRegister={canRegister} />
+    <div className={variant === 'popup' ? 'flex flex-col h-full' : 'pb-4 pt-2'}>
+      <ChatPanel data={data} actions={actions} visibleTransactions={visibleTransactions} setModal={setModal} canAsk={canAsk} canRegister={canRegister} variant={variant} />
     </div>
   );
 }

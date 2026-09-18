@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { ArrowLeftRight, Bell, ChevronLeft, CreditCard, History, Home, Landmark, LayoutGrid, List, Loader2, LogOut, PiggyBank, Plus, Settings, Sparkles, Target, TrendingUp } from 'lucide-react';
+import { ArrowLeftRight, Bell, ChevronLeft, CreditCard, History, Home, Landmark, LayoutGrid, List, Loader2, LogOut, PiggyBank, Plus, Settings, Sparkles, Target, TrendingUp, X } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import * as db from './lib/db';
 import { formatMoney, formatDate } from './lib/format';
@@ -446,10 +446,28 @@ function MainApp({ data, update, actions }) {
         </button>
       )}
 
+      {/* Popup compacto (no el Modal genérico de pantalla completa) — anclado
+          cerca del botón flotante, sin oscurecer el resto de la app. */}
       {modal?.type === 'assistant' && (
-        <Modal title="Asistente" onClose={() => setModal(null)} wide>
-          <Asistente data={data} actions={actions} visibleTransactions={visibleTransactions} setModal={setModal} />
-        </Modal>
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setModal(null)} />
+          <div
+            className="fixed z-50 rounded-2xl shadow-lg flex flex-col overflow-hidden"
+            style={{
+              right: 16, bottom: 156, width: 'min(94vw, 380px)', height: 'min(68vh, 560px)',
+              background: T.surface, border: `1px solid ${T.border}`,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b flex-shrink-0" style={{ borderColor: T.border }}>
+              <h3 style={{ fontFamily: FONT_DISPLAY, color: T.ink }} className="text-base font-semibold">Asistente</h3>
+              <IconButton icon={X} onClick={() => setModal(null)} label="Cerrar" />
+            </div>
+            <div className="px-4 py-3 flex-1 min-h-0 flex flex-col">
+              <Asistente data={data} actions={actions} visibleTransactions={visibleTransactions} setModal={setModal} variant="popup" />
+            </div>
+          </div>
+        </>
       )}
 
       {modal?.type === 'transaction' && <TransactionModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
