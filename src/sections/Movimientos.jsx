@@ -10,6 +10,7 @@ import {
 import { formatMoney, formatDate } from '../lib/format';
 import { todayISO, computeIncomeShares, occurrencesInMonth, getNextOccurrence, daysUntil } from '../lib/finance';
 import { NATURES, natureLabel } from '../lib/accounting';
+import { DeferralFields, emptyDeferral, deferralToPlan, isCard } from './Tarjetas';
 
 export function Movimientos({ data, actions, visibleTransactions, setModal }) {
   const [filter, setFilter] = useState('todos'); // todos | income | expense | recurring | sporadic
@@ -198,6 +199,11 @@ export function TransactionModal({ data, actions, payload, onClose }) {
   const [paymentKind, setPaymentKind] = useState(payload?.paymentKind || data.accounts.find((a) => a.id === accountId)?.paymentKind || 'otro');
   const [paymentKindTouched, setPaymentKindTouched] = useState(!!payload?.paymentKind);
   const [nature, setNature] = useState(payload?.nature || ''); // '' = la de su categoría
+  const [deferral, setDeferral] = useState(() => emptyDeferral(data.accounts.find((a) => a.id === (payload?.accountId || data.accounts[0]?.id))));
+  const [error, setError] = useState('');
+  const chosenAccount = data.accounts.find((a) => a.id === accountId);
+  const canDefer = type === 'expense' && isCard(chosenAccount);
+  useEffect(() => { if (isCard(chosenAccount)) setDeferral((d) => ({ ...emptyDeferral(chosenAccount), enabled: d.enabled, installments: d.installments })); }, [accountId]);
   useEffect(() => {
     if (paymentKindTouched) return;
     const acc = data.accounts.find((a) => a.id === accountId);
@@ -230,10 +236,17 @@ export function TransactionModal({ data, actions, payload, onClose }) {
       isShared: type === 'expense' ? isShared : false,
       participants: participantsData, paymentKind, nature: nature || null,
     };
-    setSaving(true);
+    if (canDefer) {
+      const { plan, error: planError } = deferralToPlan(deferral, date, chosenAccount);
+      if (planError) { setError(planError); return; }
+      if (plan) t.cardPlan = plan;
+    }
+    setSaving(true); setError('');
     try {
       await actions.addTransaction(t);
       onClose();
+    } catch (e) {
+      setError(e.message || 'No se pudo guardar el movimiento.');
     } finally {
       setSaving(false);
     }
@@ -291,6 +304,7 @@ export function TransactionModal({ data, actions, payload, onClose }) {
           {PAYMENT_KIND_OPTIONS.map((k) => <option key={k} value={k}>{PAYMENT_KIND_LABEL[k]}</option>)}
         </select>
       </Field>
+      {canDefer && <DeferralFields account={chosenAccount} amount={amount} date={date} value={deferral} onChange={setDeferral} currency={data.currency} />}
       <NatureField value={nature} onChange={setNature} category={data.categories.find((c) => c.id === categoryId)} />
       <Field label={type === 'income' ? 'Recibido por' : 'Pagado por'}>
         <select style={inputStyle} value={memberId} onChange={(e) => setMemberId(e.target.value)}>
@@ -377,6 +391,7 @@ export function TransactionModal({ data, actions, payload, onClose }) {
         </>
       )}
 
+      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mt-2">{error}</p>}
       <PrimaryButton full onClick={save} style={{ marginTop: 8 }}>{saving ? 'Guardando…' : 'Guardar movimiento'}</PrimaryButton>
     </Modal>
   );

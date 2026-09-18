@@ -137,6 +137,22 @@ Objetivo: poder generar informes **mensuales, trimestrales, semestrales y anuale
 4. ⏳ Estado de Situación Financiera con saldos a fecha (necesita 3 y `paid_date` de las cuotas, que ya existe).
 5. ⏳ Cambios en el Patrimonio; alertas/borradores; reclasificar movimientos históricos (los pagos de tarjeta/préstamos anteriores a esta fase siguen contando según su categoría: revisar los de *Otros ingresos* que en realidad son préstamos).
 
+## Fase 18 y 19 — Créditos y tarjetas de crédito (revisión de toda la lógica, 2026-09-18)
+
+**Créditos (Fase 18, migración `fase18_creditos_libranza_y_eventos`) — ✅ en producción de código, en `main`:**
+- **Libranza**: el crédito se marca "se paga por libranza" con empleador y día de descuento; la cuota se registra como *descuento de nómina* (con registro automático al vencer, solo por el responsable del crédito y con "reclamo" de la cuota para no duplicar). Aviso en Créditos de lo que se descuenta este mes. Recordatorio en la UI: registrar el salario BRUTO (o no registrar el descuento si el salario ya se registró neto).
+- **Tasas**: se captura E.A., E.M. o N.M.V. y se guarda siempre E.A. (con la equivalencia a la vista). Cuota con `firstDueDate` (día de nómina), fechas en UTC con ajuste a fin de mes.
+- **Saldo real** = capital pendiente de la primera cuota sin pagar (antes dependía de la última pagada). Pago de cuota con fecha real, sin doble registro (reclamo primero), capital como *financiamiento* e intereses/seguro como gasto. Créditos en UVR: la cuota se convierte a pesos con la UVR del día del pago.
+- **Retanqueo y rediferido** (`buildRefinance`): dinero nuevo sobre el mismo crédito y/o nuevo plazo/tasa, con vista *antes / después* (saldo, tasa, cuota, intereses, última cuota) y el retanqueo entra como ingreso de financiamiento. **Revertir el último pago**, **abono a capital** con tope al saldo y **historial de eventos** (`credit_events`).
+
+**Tarjetas de crédito (Fase 19, migraciones `fase19_tarjetas_de_credito` y `fase19b_transferencias_a_cuentas_compartidas`):**
+- La cuenta de la tarjeta guarda **cupo, día de corte, día límite de pago y tasa típica**. La deuda es el saldo negativo de su cuenta; la pantalla Cuentas muestra cupo usado/disponible, próximo corte y fecha límite, y cuánto pagar para no generar intereses (deuda menos lo que sigue diferido).
+- **Compras diferidas**: al registrar un gasto en la tarjeta se puede "diferir a N cuotas" con su tasa. La compra se registra completa el día de la compra (y consume todo el cupo); en cada corte se factura una cuota y **solo el interés** se registra como gasto (*Intereses y comisiones*, `lib/creditCards.js` con 26 pruebas). Al abrir la app se facturan los cortes vencidos (con "reclamo" para no duplicar entre dispositivos).
+- **Rediferir / abonar** un diferido (nuevo plazo y/o tasa, abono a capital) con vista antes/después e historial (`card_plan_events`). **Pagar tarjeta** = transferencia desde otra cuenta (no es gasto) con sugerencias "sin intereses" / "total". Próximo pago de tarjeta en *Próximos pagos* del Dashboard y en el resumen del Asistente.
+- Privacidad: una transferencia hacia/desde una cuenta compartida ahora la ve todo el hogar (antes solo las dos personas), para que el saldo de una tarjeta compartida sea igual para todos.
+- **Simplificaciones conocidas:** el interés de la 1.ª cuota es de un mes completo aunque la compra sea a mitad de ciclo; el "pago sin intereses" es aproximado (incluye compras de un pago hechas después del último corte); no hay cuota de manejo ni pago mínimo (se registran como gasto normal); en el Flujo de efectivo la tarjeta cuenta como una cuenta con saldo negativo (la compra sale al comprar). Los pagos de tarjeta registrados como **gasto** antes de esta fase (p. ej. "Pago TC") duplican el gasto: reclasificarlos como transferencia.
+- Pendiente: tarjetas: avances en efectivo, tarjeta adicional/compartida por integrante, alertas de corte/pago por notificación push.
+
 ---
 
 ## Transversal (en paralelo a todas las fases)

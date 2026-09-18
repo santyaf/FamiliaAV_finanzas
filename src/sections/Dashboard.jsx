@@ -5,6 +5,7 @@ import {
 import { T, FONT_DISPLAY, FONT_BODY, FONT_MONO } from '../ui/theme';
 import { Card, ProgressBar, EmptyState, CategoryIcon } from '../ui/primitives';
 import { AnomaliasCard } from './AnomaliasCard';
+import { cardUsage, cardCycle, payToAvoidInterest } from '../lib/creditCards';
 import { formatMoney, formatDate } from '../lib/format';
 import {
   thisMonthKey, daysUntil, occurrencesInMonth, getNextOccurrence, goalPriorityScore, todayISO,
@@ -160,7 +161,17 @@ export function Dashboard({ data, update, actions, visibleTransactions, visibleM
     .filter((o) => o.enabled && (data.viewMode === 'unified' || o.ownerMemberId === visibleMemberId || !o.ownerMemberId))
     .filter((o) => daysUntil(o.nextDueDate) >= 0 && daysUntil(o.nextDueDate) <= 14)
     .map((o) => ({ kind: 'obligation', id: o.id, next: o.nextDueDate, amount: o.amount, obligation: o, label: o.name }));
-  const upcoming = [...upcomingRecurring, ...upcomingObligations].sort((a, b) => a.next.localeCompare(b.next));
+  // fecha límite de pago de cada tarjeta con deuda (las cuentas ya vienen filtradas por privacidad)
+  const upcomingCards = data.accounts
+    .filter((a) => a.paymentKind === 'tarjeta_credito' && a.paymentDay)
+    .map((a) => {
+      const used = cardUsage(a, accountBalance(data.transactions, a.id)).used;
+      const plans = (data.cardPlans || []).filter((p) => p.accountId === a.id);
+      return { account: a, used, next: cardCycle(a, todayISO()).paymentDue, payNow: payToAvoidInterest(used, plans).payNow };
+    })
+    .filter((c) => c.used > 0 && c.next && daysUntil(c.next) >= 0 && daysUntil(c.next) <= 14)
+    .map((c) => ({ kind: 'card', id: `card-${c.account.id}`, next: c.next, amount: c.payNow || c.used, type: 'expense', label: `Pagar tarjeta ${c.account.name}`, account: c.account }));
+  const upcoming = [...upcomingRecurring, ...upcomingObligations, ...upcomingCards].sort((a, b) => a.next.localeCompare(b.next));
 
   function registerObligation(o) {
     setModal({
@@ -267,6 +278,7 @@ export function Dashboard({ data, update, actions, visibleTransactions, visibleM
           {upcoming.map((t) => {
             const d = daysUntil(t.next);
             const isObligation = t.kind === 'obligation';
+            const isCardPayment = t.kind === 'card';
             const row = (
               <div className="flex items-center justify-between py-1.5">
                 <div className="flex items-center gap-2">
@@ -281,6 +293,7 @@ export function Dashboard({ data, update, actions, visibleTransactions, visibleM
                   : <span style={{ fontFamily: FONT_MONO, fontSize: 13.5, color: t.type === 'income' ? T.teal : T.coral }}>{t.type === 'income' ? '+' : '-'}{formatMoney(t.amount, currency)}</span>}
               </div>
             );
+            if (isCardPayment) return <button key={t.id} onClick={() => setModal({ type: 'cardPay', payload: { account: t.account } })} className="w-full text-left active:opacity-70">{row}</button>;
             return isObligation
               ? <button key={t.id} onClick={() => registerObligation(t.obligation)} className="w-full text-left active:opacity-70">{row}</button>
               : <div key={t.id}>{row}</div>;

@@ -4,6 +4,9 @@ import { T, FONT_DISPLAY, FONT_BODY, FONT_MONO, inputStyle } from '../ui/theme';
 import { Card, PrimaryButton, IconButton, Modal, Field, MemberChip, PaymentKindIcon, PAYMENT_KIND_LABEL, PAYMENT_KIND_OPTIONS } from '../ui/primitives';
 import { formatMoney } from '../lib/format';
 import { accountBalance } from '../lib/finance';
+import { annualToMonthlyRate, toEffectiveAnnual, fromEffectiveAnnual } from '../lib/amortization';
+import { CardSummary } from './Tarjetas';
+import { RateField } from './Creditos';
 
 export function Cuentas({ data, actions, setModal }) {
   const currency = data.currency;
@@ -58,6 +61,7 @@ export function Cuentas({ data, actions, setModal }) {
               </div>
             </div>
             <p style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 18, color: T.ink }} className="mt-2">{formatMoney(balanceOf(a), currency)}</p>
+            {a.paymentKind === 'tarjeta_credito' && <CardSummary account={a} balance={balanceOf(a)} data={data} setModal={setModal} />}
           </Card>
         ))}
       </div>
@@ -72,18 +76,33 @@ export function AccountModal({ data, actions, payload, onClose }) {
   const [paymentKind, setPaymentKind] = useState(payload?.paymentKind || 'otro');
   const [ownerIds, setOwnerIds] = useState(payload?.ownerIds || [data.members[0]?.id]);
   const [initialBalance, setInitialBalance] = useState('');
+  const [creditLimit, setCreditLimit] = useState(payload?.creditLimit ? String(payload.creditLimit) : '');
+  const [statementDay, setStatementDay] = useState(payload?.statementDay ? String(payload.statementDay) : '');
+  const [paymentDay, setPaymentDay] = useState(payload?.paymentDay ? String(payload.paymentDay) : '');
+  const [rateValue, setRateValue] = useState(payload?.cardRate ? String(Math.round(payload.cardRate * 10000) / 10000) : '');
+  const [rateType, setRateType] = useState('EA');
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const isCard = paymentKind === 'tarjeta_credito';
   function toggle(id) { setOwnerIds((o) => (o.includes(id) ? o.filter((x) => x !== id) : [...o, id])); }
   async function save() {
     if (!name.trim() || !ownerIds.length) return;
-    setSaving(true);
+    const day = (v) => (v === '' ? null : parseInt(v, 10));
+    if (isCard && [statementDay, paymentDay].some((v) => v !== '' && !(day(v) >= 1 && day(v) <= 31))) { setError('Los días de corte y de pago deben estar entre 1 y 31.'); return; }
+    const card = isCard ? {
+      creditLimit: creditLimit === '' ? null : parseFloat(creditLimit), statementDay: day(statementDay), paymentDay: day(paymentDay),
+      cardRate: rateValue === '' ? null : toEffectiveAnnual(parseFloat(rateValue) || 0, rateType),
+    } : {};
+    setSaving(true); setError('');
     try {
       if (editing) {
-        await actions.updateAccount(payload.id, { name: name.trim(), type, paymentKind, ownerIds });
+        await actions.updateAccount(payload.id, { name: name.trim(), type, paymentKind, ownerIds, ...card });
       } else {
-        await actions.addAccount({ name: name.trim(), type, paymentKind, ownerIds, initialBalance: parseFloat(initialBalance) || 0 });
+        await actions.addAccount({ name: name.trim(), type, paymentKind, ownerIds, initialBalance: parseFloat(initialBalance) || 0, ...card });
       }
       onClose();
+    } catch (e) {
+      setError(e.message || 'No se pudo guardar la cuenta.');
     } finally {
       setSaving(false);
     }
@@ -102,6 +121,24 @@ export function AccountModal({ data, actions, payload, onClose }) {
           <option value="otro">Otro</option>
         </select>
       </Field>
+      {isCard && (
+        <div className="rounded-xl p-3 mb-4" style={{ background: T.bg }}>
+          <Field label="Cupo de la tarjeta">
+            <input style={inputStyle} type="number" value={creditLimit} onChange={(e) => setCreditLimit(e.target.value)} placeholder="Ej. 5000000" />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Día de corte">
+              <input style={inputStyle} type="number" min="1" max="31" value={statementDay} onChange={(e) => setStatementDay(e.target.value)} placeholder="Ej. 15" />
+            </Field>
+            <Field label="Día límite de pago">
+              <input style={inputStyle} type="number" min="1" max="31" value={paymentDay} onChange={(e) => setPaymentDay(e.target.value)} placeholder="Ej. 30" />
+            </Field>
+          </div>
+          <RateField label="Tasa típica de las compras diferidas (opcional)" value={rateValue} type={rateType}
+            onChange={(v, t) => { setRateValue(t === rateType && v !== '' ? v : v === '' ? '' : String(Math.round(fromEffectiveAnnual(toEffectiveAnnual(parseFloat(v) || 0, rateType), t) * 10000) / 10000)); setRateType(t); }} />
+          <p style={{ fontSize: 11, color: T.inkSoft, fontFamily: FONT_BODY }}>El saldo de esta cuenta es tu deuda: las compras la suben y los pagos la bajan. Al registrar un gasto en la tarjeta podrás diferirlo a cuotas.</p>
+        </div>
+      )}
       <Field label="Tipo">
         <select style={inputStyle} value={type} onChange={(e) => setType(e.target.value)}>
           <option value="individual">Individual</option>
@@ -126,6 +163,7 @@ export function AccountModal({ data, actions, payload, onClose }) {
           <p style={{ fontSize: 11, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-4">Si la cuenta ya tiene dinero, regístralo aquí — se guarda como un ingreso inicial.</p>
         </>
       )}
+      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
       <PrimaryButton full onClick={save}>{saving ? 'Guardando…' : editing ? 'Guardar cambios' : 'Crear cuenta'}</PrimaryButton>
     </Modal>
   );

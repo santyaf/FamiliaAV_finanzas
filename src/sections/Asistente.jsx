@@ -7,6 +7,7 @@ import { matchCategory, matchMember } from '../lib/aiParse';
 import { isAiFeatureEnabled } from '../lib/access';
 import { detectAnomalies, describeAnomaly } from '../lib/anomalies';
 import { suggestionFromAi } from '../lib/suggestions';
+import { cardUsage, cardCycle, planOverview } from '../lib/creditCards';
 import { formatMoney, formatDate } from '../lib/format';
 import {
   todayISO, thisMonthKey, lastMonthKeys, monthCashFlow, occurrencesInMonth,
@@ -155,7 +156,25 @@ function buildDigest(data, visibleTransactions) {
   const creditos = (data.creditsWithPayments || []).map(({ credit, payments }) => ({
     nombre: credit.name, moneda: credit.currency || data.currency,
     saldo_pendiente: creditOutstandingBalance(credit, payments),
+    tasa_efectiva_anual: credit.annualRate,
+    forma_de_pago: credit.paymentSource === 'libranza' ? `libranza (descuento de nómina el día ${credit.payrollDay || '?'})` : 'desde una cuenta',
+    cuotas_pendientes: payments.filter((p) => !p.paid).length,
+    proxima_cuota: (() => { const n = payments.filter((p) => !p.paid).sort((a, b) => a.installmentNumber - b.installmentNumber)[0]; return n ? { fecha: n.dueDate, valor: n.total } : null; })(),
   }));
+  // Tarjetas de crédito: la deuda es el saldo negativo de su cuenta; el capital de las
+  // compras diferidas sigue dentro de esa deuda.
+  const tarjetas_credito = data.accounts.filter((a) => a.paymentKind === 'tarjeta_credito').map((a) => {
+    const u = cardUsage(a, accountBalance(visibleTransactions, a.id));
+    const c = cardCycle(a, todayISO());
+    return {
+      nombre: a.name, cupo: u.limit || null, deuda: u.used, disponible: u.available,
+      proximo_corte: c.nextStatement, fecha_limite_de_pago: c.paymentDue,
+      compras_diferidas: (data.cardPlans || []).filter((p) => p.accountId === a.id && p.status === 'activo').map((p) => {
+        const o = planOverview(p);
+        return { compra: p.description, capital_diferido: o.outstanding, cuota_siguiente: o.next ? o.next.capital + o.next.interest : null, cuotas_restantes: o.total - o.billed, tasa_efectiva_anual: p.annualRate };
+      }),
+    };
+  });
   const deudaMismaMoneda = creditos.filter((c) => c.moneda === data.currency).reduce((s, c) => s + c.saldo_pendiente, 0);
   const deudaEnOtraMonedaNoIncluida = creditos.filter((c) => c.moneda !== data.currency);
 
@@ -182,6 +201,7 @@ function buildDigest(data, visibleTransactions) {
     objetivos,
     cuentas,
     creditos,
+    tarjetas_credito,
     patrimonio_aproximado: totalEnCuentas + totalAhorradoObjetivos - deudaMismaMoneda,
     nota_patrimonio: deudaEnOtraMonedaNoIncluida.length
       ? 'El patrimonio_aproximado no incluye la deuda de los créditos en otra moneda listados en "creditos" — menciónalo si el usuario pregunta por su patrimonio total.'

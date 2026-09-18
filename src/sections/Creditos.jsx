@@ -22,11 +22,11 @@ const CREDIT_TYPE_LABELS = { vivienda: 'Vivienda', vehiculo: 'Vehículo', libre_
 const INSURANCE_TYPE_LABELS = { vida: 'Vida (todos los créditos)', incendio_terremoto: 'Incendio y terremoto (vivienda)', desempleo: 'Desempleo', otro: 'Otro' };
 
 const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
-const fmtPct = (v) => `${(Math.round(v * 100) / 100).toLocaleString('es-CO')}%`;
+export const fmtPct = (v) => `${(Math.round(v * 100) / 100).toLocaleString('es-CO')}%`;
 
 // Tasa como la dice el banco (E.A., efectiva mensual o nominal mes vencido). Los
 // créditos se guardan siempre en E.A.; aquí se muestra a qué equivale.
-function RateField({ label = 'Tasa de interés', value, type, onChange }) {
+export function RateField({ label = 'Tasa de interés', value, type, onChange }) {
   const ea = toEffectiveAnnual(num(value), type);
   const monthly = annualToMonthlyRate(ea) * 100;
   return (

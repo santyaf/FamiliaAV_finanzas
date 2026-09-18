@@ -3,6 +3,7 @@ import { generateSchedule, recalcAfterExtraPayment, buildRefinance } from './amo
 import { DEFAULT_CATEGORY_SPECS, INTEREST_CATEGORY, LOAN_INCOME_CATEGORY, DEBT_CATEGORY } from './accounting';
 import { creditOutstandingBalance } from './finance';
 import { installmentInCop, dueLibranzaInstallments, nextDateWithDay } from './creditRules';
+import { duePlanInstallments, planOverview, buildRedefer } from './creditCards';
 
 /* ------------------------- AUTH ------------------------- */
 export async function signUp(email, password, fullName) {
@@ -107,7 +108,7 @@ export async function redeemInvite(token, userId) {
 
 /* ---------------------- CARGA DE DATOS DEL HOGAR ---------------------- */
 export async function loadHouseholdData(householdId) {
-  const [membersRes, catsRes, accsRes, txRes, goalsRes, votesRes, budgetsRes, obligationsRes] = await Promise.all([
+  const [membersRes, catsRes, accsRes, txRes, goalsRes, votesRes, budgetsRes, obligationsRes, plansRes] = await Promise.all([
     supabase.from('household_members').select('user_id, role, color, profiles(full_name)').eq('household_id', householdId),
     supabase.from('categories').select('*').eq('household_id', householdId),
     supabase.from('accounts').select('*').eq('household_id', householdId),
@@ -116,6 +117,7 @@ export async function loadHouseholdData(householdId) {
     supabase.from('goal_votes').select('*'),
     supabase.from('budgets').select('*').eq('household_id', householdId),
     supabase.from('obligations').select('*').eq('household_id', householdId),
+    supabase.from('card_plans').select('*').eq('household_id', householdId),
   ]);
   for (const r of [membersRes, catsRes, accsRes, txRes, goalsRes, votesRes, budgetsRes, obligationsRes]) {
     if (r.error) throw r.error;
@@ -123,7 +125,14 @@ export async function loadHouseholdData(householdId) {
 
   const members = membersRes.data.map((m) => ({ id: m.user_id, name: m.profiles?.full_name || 'Integrante', color: m.color, role: m.role }));
   const categories = catsRes.data.map((c) => ({ ...c, groupName: c.group_name || null, isFixed: !!c.is_fixed, nature: c.nature || 'operativo' }));
-  const accounts = accsRes.data.map((a) => ({ id: a.id, name: a.name, type: a.type, ownerIds: a.owner_ids, paymentKind: a.payment_kind || 'otro' }));
+  const accounts = accsRes.data.map((a) => ({
+    id: a.id, name: a.name, type: a.type, ownerIds: a.owner_ids, paymentKind: a.payment_kind || 'otro',
+    creditLimit: a.credit_limit === null || a.credit_limit === undefined ? null : Number(a.credit_limit),
+    statementDay: a.statement_day || null, paymentDay: a.payment_day || null,
+    cardRate: a.card_rate === null || a.card_rate === undefined ? null : Number(a.card_rate),
+  }));
+  // si la tabla de planes fallara, la app sigue funcionando sin las compras diferidas
+  const cardPlans = plansRes.error ? [] : plansRes.data.map(dbPlanToJs);
   const transactions = txRes.data.map(dbTxToJs);
   const votesByGoal = {};
   votesRes.data.forEach((v) => { (votesByGoal[v.goal_id] ||= {})[v.member_id] = v.priority; });
@@ -140,7 +149,15 @@ export async function loadHouseholdData(householdId) {
     note: o.note, enabled: o.enabled,
   }));
 
-  return { members, categories, accounts, transactions, goals, budgets, obligations };
+  return { members, categories, accounts, transactions, goals, budgets, obligations, cardPlans };
+}
+
+function dbPlanToJs(p) {
+  return {
+    id: p.id, householdId: p.household_id, accountId: p.account_id, transactionId: p.transaction_id, memberId: p.member_id,
+    description: p.description, principal: Number(p.principal), annualRate: Number(p.annual_rate), installments: p.installments,
+    firstBillDate: p.first_bill_date, billedCount: p.billed_count, status: p.status, createdBy: p.created_by,
+  };
 }
 
 function dbTxToJs(t) {
@@ -225,7 +242,9 @@ export async function addTransaction(householdId, userId, t) {
     payment_kind: t.paymentKind || null, nature: t.nature || null, created_by: userId,
   };
   const { error } = await supabase.from('transactions').insert(row);
-  if (error) throw error;
+  // con un plan de cuotas, un 23505 (el movimiento ya estaba guardado) no corta: falta crear el plan
+  if (error && !(t.cardPlan && error.code === '23505')) throw error;
+  if (t.cardPlan) await createCardPlan(householdId, userId, t, row.id);
 }
 export async function deleteTransaction(id) {
   const { error } = await supabase.from('transactions').delete().eq('id', id);
@@ -345,10 +364,19 @@ export async function removeBudget(id) {
   if (error) throw error;
 }
 
+// Solo una tarjeta de crédito guarda cupo / corte / pago / tasa; en otra cuenta se limpian.
+function cardColumns(a) {
+  const isCard = a.paymentKind === 'tarjeta_credito';
+  const n = (v) => (v === '' || v === null || v === undefined || Number.isNaN(Number(v)) ? null : Number(v));
+  return {
+    credit_limit: isCard ? n(a.creditLimit) : null, statement_day: isCard ? n(a.statementDay) : null,
+    payment_day: isCard ? n(a.paymentDay) : null, card_rate: isCard ? n(a.cardRate) : null,
+  };
+}
 export async function addAccount(householdId, userId, account) {
   const { data: row, error } = await supabase.from('accounts').insert({
     household_id: householdId, name: account.name, type: account.type, owner_ids: account.ownerIds,
-    payment_kind: account.paymentKind || 'otro',
+    payment_kind: account.paymentKind || 'otro', ...cardColumns(account),
   }).select().single();
   if (error) throw error;
   if (account.initialBalance && account.initialBalance > 0) {
@@ -364,7 +392,7 @@ export async function addAccount(householdId, userId, account) {
 export async function updateAccount(id, account) {
   const { error } = await supabase.from('accounts').update({
     name: account.name, type: account.type, owner_ids: account.ownerIds,
-    payment_kind: account.paymentKind || 'otro',
+    payment_kind: account.paymentKind || 'otro', ...cardColumns(account),
   }).eq('id', id);
   if (error) throw error;
 }
@@ -871,6 +899,145 @@ export async function applyDuePayrollDeductions(householdId, userId) {
     }
   }
   return registered;
+}
+
+/* ---------------------- TARJETAS DE CRÉDITO ---------------------- */
+const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+
+async function insertPlanEvent(planId, userId, ev) {
+  try {
+    await supabase.from('card_plan_events').insert({
+      plan_id: planId, kind: ev.kind, event_date: ev.date || new Date().toISOString().slice(0, 10),
+      amount: ev.amount ?? null, balance_before: ev.balanceBefore ?? null, balance_after: ev.balanceAfter ?? null,
+      rate_before: ev.rateBefore ?? null, rate_after: ev.rateAfter ?? null, term_before: ev.termBefore ?? null, term_after: ev.termAfter ?? null,
+      installment_before: ev.installmentBefore ?? null, installment_after: ev.installmentAfter ?? null, note: ev.note || null, created_by: userId,
+    });
+  } catch { /* el historial es un extra: si falla no debe deshacer la operación */ }
+}
+
+// Compra diferida: crea el plan de cuotas ligado al movimiento de la compra.
+async function createCardPlan(householdId, userId, t, transactionId) {
+  const cp = t.cardPlan;
+  const { data: plan, error } = await supabase.from('card_plans').insert({
+    household_id: householdId, account_id: t.accountId, transaction_id: transactionId, member_id: t.memberId,
+    description: t.description || 'Compra con tarjeta', principal: t.amount, annual_rate: cp.annualRate || 0,
+    installments: cp.installments, first_bill_date: cp.firstBillDate, created_by: userId,
+  }).select().single();
+  if (error) {
+    if (error.code === '23505') return; // ya se había creado en un intento anterior
+    throw error;
+  }
+  const first = planOverview(dbPlanToJs(plan)).next;
+  await insertPlanEvent(plan.id, userId, {
+    kind: 'creacion', date: t.date, amount: t.amount, balanceAfter: t.amount, rateAfter: cp.annualRate || 0,
+    termAfter: cp.installments, installmentAfter: first ? round2(first.capital + first.interest) : null,
+  });
+}
+
+export async function loadCardPlanEvents(planId) {
+  const { data, error } = await supabase.from('card_plan_events').select('*').eq('plan_id', planId)
+    .order('event_date', { ascending: false }).order('created_at', { ascending: false });
+  if (error) throw error;
+  return data.map((e) => ({
+    id: e.id, kind: e.kind, date: e.event_date, amount: e.amount === null ? null : Number(e.amount),
+    balanceBefore: e.balance_before === null ? null : Number(e.balance_before), balanceAfter: e.balance_after === null ? null : Number(e.balance_after),
+    rateBefore: e.rate_before === null ? null : Number(e.rate_before), rateAfter: e.rate_after === null ? null : Number(e.rate_after),
+    termBefore: e.term_before, termAfter: e.term_after,
+    installmentBefore: e.installment_before === null ? null : Number(e.installment_before),
+    installmentAfter: e.installment_after === null ? null : Number(e.installment_after), note: e.note,
+  }));
+}
+
+// Rediferir: el capital que sigue diferido se reparte de nuevo (otro plazo y/o tasa) y,
+// opcionalmente, se le abona a capital. Solo cambia el plan: no se crea ningún
+// movimiento (el abono se paga aparte con "Pagar tarjeta").
+export async function redeferCardPlan(userId, plan, { annualRate, installments, extraPayment = 0, note, date }) {
+  const r = buildRedefer(plan, { annualRate, installments, extraPayment });
+  if (r.balanceBefore <= 0) throw new Error('Este plan ya no tiene cuotas por facturar.');
+  if (extraPayment > r.balanceBefore + 0.005) throw new Error('El abono no puede ser mayor al capital que sigue diferido.');
+  const payoff = r.plan.status === 'pagado';
+  const patch = payoff
+    ? { status: 'pagado', billed_count: plan.installments }
+    : { principal: r.plan.principal, annual_rate: annualRate, installments, first_bill_date: r.plan.firstBillDate, billed_count: 0, status: 'activo' };
+  // solo si el plan no cambió mientras tanto (ej. se facturó una cuota en otro dispositivo)
+  const { data: upd, error } = await supabase.from('card_plans').update(patch)
+    .eq('id', plan.id).eq('billed_count', plan.billedCount).select('id');
+  if (error) throw error;
+  if (!upd?.length) throw new Error('El plan cambió mientras lo editabas. Recarga e inténtalo de nuevo.');
+  const changed = Math.abs(annualRate - plan.annualRate) > 0.0001 || installments !== r.before.total - r.before.billed;
+  await insertPlanEvent(plan.id, userId, {
+    kind: extraPayment > 0 && !changed ? 'abono' : 'rediferido', date, amount: extraPayment || null, note,
+    balanceBefore: r.balanceBefore, balanceAfter: r.balanceAfter, rateBefore: plan.annualRate, rateAfter: annualRate,
+    termBefore: r.before.total - r.before.billed, termAfter: payoff ? 0 : installments,
+    installmentBefore: r.before.next ? round2(r.before.next.capital + r.before.next.interest) : null,
+    installmentAfter: r.after.next ? round2(r.after.next.capital + r.after.next.interest) : null,
+  });
+  return r;
+}
+
+export async function deleteCardPlan(planId) {
+  const { error } = await supabase.from('card_plans').delete().eq('id', planId);
+  if (error) throw error;
+}
+
+// Pagar la tarjeta: es una TRANSFERENCIA desde una cuenta hacia la tarjeta (baja la deuda,
+// no es un gasto: el gasto ya se registró al comprar).
+export async function payCreditCard(householdId, userId, { cardAccountId, cardName, fromAccountId, amount, date, memberId }) {
+  if (!(amount > 0)) throw new Error('Ingresa un monto válido.');
+  if (fromAccountId === cardAccountId) throw new Error('Elige una cuenta de origen distinta a la tarjeta.');
+  const { error } = await supabase.from('transactions').insert({
+    household_id: householdId, type: 'transfer', description: `Pago tarjeta — ${cardName}`, amount,
+    account_id: fromAccountId, member_id: memberId || userId, to_member_id: memberId || userId, to_account_id: cardAccountId,
+    date, created_by: userId, settles_debt: false,
+  });
+  if (error) throw error;
+}
+
+// Al abrir la app: factura las cuotas de compras diferidas cuyo corte ya llegó. Cada cuota
+// se "reclama" antes (billed_count k → k+1) para que dos dispositivos no la cobren dos
+// veces. El capital ya se gastó al comprar; aquí solo se registra el INTERÉS como gasto.
+export async function applyDueCardBilling(householdId, userId) {
+  const { data: rows, error } = await supabase.from('card_plans').select('*')
+    .eq('household_id', householdId).eq('created_by', userId).eq('status', 'activo');
+  if (error) throw error;
+  const plans = rows.map(dbPlanToJs);
+  if (!plans.length) return 0;
+  const today = new Date().toISOString().slice(0, 10);
+  let billed = 0;
+  let interestCategoryId = null;
+  for (const plan of plans) {
+    for (const row of duePlanInstallments(plan, today)) {
+      const k = plan.billedCount;
+      const { data: claimed, error: eClaim } = await supabase.from('card_plans')
+        .update({ billed_count: k + 1, status: k + 1 >= plan.installments ? 'pagado' : 'activo' })
+        .eq('id', plan.id).eq('billed_count', k).select('id');
+      if (eClaim) throw eClaim;
+      if (!claimed?.length) break; // otro dispositivo ya la facturó
+      plan.billedCount = k + 1;
+      const interest = round2(row.interest);
+      if (interest > 0) {
+        try {
+          interestCategoryId ||= await ensureCategory(householdId, INTEREST_CATEGORY);
+          const { error: eTx } = await supabase.from('transactions').insert({
+            household_id: householdId, type: 'expense', account_id: plan.accountId, member_id: plan.memberId || userId,
+            description: `Intereses cuota ${row.installmentNumber}/${plan.installments} — ${plan.description}`,
+            amount: interest, category_id: interestCategoryId, nature: 'operativo', date: row.dueDate,
+            recurring: false, is_shared: false, created_by: userId,
+          });
+          if (eTx) throw eTx;
+        } catch (e) {
+          await supabase.from('card_plans').update({ billed_count: k, status: 'activo' }).eq('id', plan.id);
+          throw e;
+        }
+      }
+      await insertPlanEvent(plan.id, userId, {
+        kind: 'cobro', date: row.dueDate, amount: interest, balanceAfter: round2(row.balanceAfter),
+        installmentAfter: round2(row.capital + row.interest), note: `Cuota ${row.installmentNumber}/${plan.installments}`,
+      });
+      billed++;
+    }
+  }
+  return billed;
 }
 
 /* ---------------------- UVR ---------------------- */

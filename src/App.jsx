@@ -14,6 +14,7 @@ import { FONT_BODY, FONT_DISPLAY, FONT_MONO, GOOGLE_FONTS_IMPORT, T, TAP_MIN, in
 import { Card, EmptyState, Field, GhostButton, IconButton, Modal, PrimaryButton } from './ui/primitives';
 import Conciliacion from './sections/Conciliacion';
 import { Cuentas, AccountModal } from './sections/Cuentas';
+import { CardPayModal, CardPlansModal, RedeferModal } from './sections/Tarjetas';
 import { Presupuestos, BudgetModal } from './sections/Presupuestos';
 import {
   Objetivos, GoalModal, VoteModal, ContributeModal, WithdrawGoalModal, EditGoalModal,
@@ -148,6 +149,10 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
         return;
       }
       setLoading(false);
+      // compras diferidas con tarjeta: factura (interés como gasto) las cuotas cuyo corte ya llegó
+      try {
+        if (await db.applyDueCardBilling(household.householdId, session.user.id)) d = await refresh();
+      } catch { /* si falla, se reintenta la próxima vez que se abra la app */ }
       // libranza con registro automático: registra los descuentos de nómina que ya vencieron
       try {
         if (await db.applyDuePayrollDeductions(household.householdId, session.user.id)) d = await refresh();
@@ -191,7 +196,7 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     currency: householdMeta?.currency || 'COP',
     viewMode, activeMemberId,
     members: raw.members, categories: raw.categories, accounts: raw.accounts,
-    transactions: mergePendingTransactions(raw.transactions, queue.items), goals: raw.goals, budgets: raw.budgets, obligations: raw.obligations,
+    transactions: mergePendingTransactions(raw.transactions, queue.items), goals: raw.goals, budgets: raw.budgets, obligations: raw.obligations, cardPlans: raw.cardPlans || [],
     settings, isPlatformAdmin, notifications: myNotifications, unreadCount, creditsWithPayments: creditsSnapshot,
     offline: { online: queue.online, stale, pending: queue.pending, failed: queue.failed, syncing: queue.syncing },
   };
@@ -258,6 +263,10 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     removeBudget: wrap((id) => db.removeBudget(id)),
     addAccount: wrap((a) => db.addAccount(household.householdId, session.user.id, a)),
     updateAccount: wrap((id, a) => db.updateAccount(id, a)),
+    payCreditCard: wrap((o) => db.payCreditCard(household.householdId, session.user.id, o)),
+    redeferCardPlan: wrap((plan, o) => db.redeferCardPlan(session.user.id, plan, o)),
+    deleteCardPlan: wrap((id) => db.deleteCardPlan(id)),
+    loadCardPlanEvents: (planId) => db.loadCardPlanEvents(planId),
     removeAccount: wrap((id) => db.removeAccount(id)),
     addObligation: wrap((o) => db.addObligation(household.householdId, session.user.id, o)),
     updateObligation: wrap((id, o) => db.updateObligation(id, o)),
@@ -599,6 +608,9 @@ function MainApp({ data, update, actions }) {
       {modal?.type === 'editCredit' && <EditCreditModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} onDone={modal.onDone} />}
       {modal?.type === 'refinanceCredit' && <RefinanceModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} onDone={modal.onDone} />}
       {modal?.type === 'creditInsurance' && <CreditInsuranceModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} onDone={modal.onDone} />}
+      {modal?.type === 'cardPay' && <CardPayModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
+      {modal?.type === 'cardPlans' && <CardPlansModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} setModal={setModal} />}
+      {modal?.type === 'redeferPlan' && <RedeferModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(modal.payload.account ? { type: 'cardPlans', payload: { account: modal.payload.account } } : null)} />}
       {modal?.type === 'memberTransfer' && <MemberTransferModal data={data} actions={actions} onClose={() => setModal(null)} />}
       {modal?.type === 'reminder' && <ReminderModal actions={actions} onClose={() => setModal(null)} onDone={modal.onDone} />}
     </div>
