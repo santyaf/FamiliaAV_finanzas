@@ -128,7 +128,14 @@ Objetivo: poder generar informes **mensuales, trimestrales, semestrales y anuale
 | Segmentación persona vs. hogar | Ya existe: cuentas individuales/compartidas, `is_shared` + reparto por integrante (`participants`). La base ya impide ver lo privado de otros, así que el informe *del hogar* solo puede incluir lo compartido y el *personal* tu parte (lo tuyo + tu cuota de lo compartido). | Selector de perspectiva **Personal / Hogar** en Informes; el consolidado respeta la privacidad (nunca incluye cuentas individuales ajenas). |
 | Sin períodos ni exportación | Solo hay vista mensual y tablas de tendencia. | Selector Mes / Trimestre / Semestre / Año (+ comparativo y acumulado del año); exportar a CSV y a PDF imprimible. |
 
-**Orden sugerido:** (1) `nature` + rubros en categorías + partir cuotas de crédito · (2) Estado de Resultados y Flujo de Efectivo con períodos y comparativo · (3) módulo Activos e inversiones · (4) Estado de Situación Financiera con saldos a fecha · (5) exportación PDF/CSV y Cambios en el Patrimonio.
+**Decisiones del usuario (2026-09-18):** primera entrega = Estado de Resultados + Flujo de Efectivo (el balance llega con Activos e inversiones); las cuotas de crédito se parten en capital (financiamiento) e intereses/seguro (gasto); **un préstamo recibido SÍ cuenta como ingreso al desembolso** (y como pasivo en Créditos) — se muestra en una línea aparte con un subtotal que lo excluye; la clasificación contable vive en la categoría, con excepción por movimiento.
+
+**Orden sugerido y avance:**
+1. ✅ `nature` + rubros en categorías + partir cuotas de crédito + desembolso de préstamos — migración `fase17_naturaleza_contable` (rubro, naturaleza y fijo por categoría; `transactions.nature`; `credit_payments.interest_transaction_id`; categorías nuevas *Intereses y comisiones* y *Préstamos recibidos*; el saldo inicial de una cuenta ya es `apertura`, no ingreso). Editor de categorías en Ajustes, campo *Naturaleza contable* en los formularios de movimiento (con historial).
+2. ✅ **Informes** (Gestión → Informes): Estado de Resultados y Flujo de Efectivo, mensual / trimestral / semestral / anual, con comparativo contra el período anterior, ámbito **Personal** (mis cuentas individuales) u **Hogar** (cuentas compartidas), exportación CSV (Excel en español) e impresión/PDF. `lib/statements.js` (lógica pura) con 29 pruebas — incluida la conciliación del flujo contra los saldos reales de las cuentas — más pruebas de humo de la pantalla con jsdom.
+3. ⏳ Módulo **Activos e inversiones** (la idea pendiente del usuario, ver memoria del proyecto).
+4. ⏳ Estado de Situación Financiera con saldos a fecha (necesita 3 y `paid_date` de las cuotas, que ya existe).
+5. ⏳ Cambios en el Patrimonio; alertas/borradores; reclasificar movimientos históricos (los pagos de tarjeta/préstamos anteriores a esta fase siguen contando según su categoría: revisar los de *Otros ingresos* que en realidad son préstamos).
 
 ---
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { ArrowLeftRight, Bell, ChevronLeft, CreditCard, History, Home, Landmark, LayoutGrid, List, Loader2, LogOut, PiggyBank, Plus, Settings, Sparkles, Target, TrendingUp, X } from 'lucide-react';
+import { ArrowLeftRight, Bell, ChevronLeft, CreditCard, FileText, History, Home, Landmark, LayoutGrid, List, Loader2, LogOut, PiggyBank, Plus, Settings, Sparkles, Target, TrendingUp, X } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import * as db from './lib/db';
 import { formatMoney, formatDate } from './lib/format';
@@ -29,6 +29,7 @@ import { Dashboard } from './sections/Dashboard';
 import { Ajustes, InviteModal, CategoryModal, ReminderModal } from './sections/Ajustes';
 import { Obligaciones, ObligationModal } from './sections/Obligaciones';
 import { Tendencias } from './sections/Tendencias';
+import { Informes } from './sections/Informes';
 import { Asistente } from './sections/Asistente';
 import { ResetPasswordScreen, LoadingScreen, AuthScreen, HouseholdSetup } from './sections/auth';
 import { AdminPanel } from './sections/AdminPanel';
@@ -343,6 +344,7 @@ const GESTION_SECTIONS = [
   { id: 'presupuestos', label: 'Presupuestos', icon: PiggyBank, desc: 'Límites de gasto por categoría, para todo el hogar o por integrante.' },
   { id: 'obligaciones', label: 'Obligaciones', icon: Bell, desc: 'Recordatorios de pagos por vencer — arriendo, servicios, suscripciones.' },
   { id: 'tendencias', label: 'Tendencias', icon: TrendingUp, desc: 'Flujo de caja y gasto por categoría de los últimos meses.' },
+  { id: 'informes', label: 'Informes', icon: FileText, desc: 'Estado de resultados y flujo de efectivo por mes, trimestre, semestre o año — personal o del hogar.' },
   { id: 'asistente', label: 'Asistente IA', icon: Sparkles, desc: 'Pregúntale sobre tus finanzas, o regístralas por chat o foto de recibo.', requiresAiChat: true },
   { id: 'conciliacion', label: 'Conciliación', icon: ArrowLeftRight, desc: 'Quién le debe a quién por los gastos compartidos, y cómo saldar.' },
   { id: 'cuentas', label: 'Cuentas', icon: Landmark, desc: 'Cuentas bancarias y efectivo, individuales o compartidas.' },
@@ -495,6 +497,7 @@ function MainApp({ data, update, actions }) {
           {tab === 'presupuestos' && <Presupuestos data={data} actions={actions} setModal={setModal} />}
           {tab === 'obligaciones' && <Obligaciones data={data} actions={actions} setModal={setModal} />}
           {tab === 'tendencias' && <Tendencias data={data} />}
+          {tab === 'informes' && <Informes data={data} actions={actions} />}
           {tab === 'asistente' && aiChatAvailable && <Asistente data={data} actions={actions} visibleTransactions={visibleTransactions} setModal={setModal} />}
           {tab === 'conciliacion' && <Conciliacion data={data} actions={actions} />}
           {tab === 'cuentas' && <Cuentas data={data} actions={actions} setModal={setModal} />}
