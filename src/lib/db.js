@@ -1,5 +1,6 @@
 import { supabase } from './supabaseClient';
 import { generateSchedule, recalcAfterExtraPayment } from './amortization';
+import { DEFAULT_CATEGORY_SPECS, INTEREST_CATEGORY, LOAN_INCOME_CATEGORY, splitInstallment } from './accounting';
 
 /* ------------------------- AUTH ------------------------- */
 export async function signUp(email, password, fullName) {
@@ -71,17 +72,12 @@ export async function createHousehold(userId, name, currency) {
   });
   if (e2) throw e2;
 
-  // categorías por defecto
-  const defaults = [
-    ['Salario', 'income', 'briefcase'], ['Negocio / Freelance', 'income', 'receipt'], ['Rentas', 'income', 'home'],
-    ['Inversiones', 'income', 'trending-up'], ['Otros ingresos', 'income', 'plus'],
-    ['Vivienda', 'expense', 'home'], ['Alimentación', 'expense', 'utensils'], ['Transporte', 'expense', 'car'],
-    ['Salud', 'expense', 'heart-pulse'], ['Educación', 'expense', 'graduation-cap'], ['Ocio y entretenimiento', 'expense', 'film'],
-    ['Ropa', 'expense', 'shirt'], ['Servicios (luz/agua/internet)', 'expense', 'lightbulb'],
-    ['Deudas y préstamos', 'expense', 'credit-card'], ['Ahorro / Inversión', 'expense', 'piggy-bank'], ['Otros gastos', 'expense', 'minus'],
-  ];
+  // categorías por defecto (con rubro y naturaleza contable)
   await supabase.from('categories').insert(
-    defaults.map(([name, type, icon]) => ({ household_id: household.id, name, type, icon }))
+    DEFAULT_CATEGORY_SPECS.map((c) => ({
+      household_id: household.id, name: c.name, type: c.type, icon: c.icon,
+      group_name: c.group, nature: c.nature, is_fixed: c.fixed,
+    }))
   );
 
   // cuenta compartida inicial
@@ -124,7 +120,7 @@ export async function loadHouseholdData(householdId) {
   }
 
   const members = membersRes.data.map((m) => ({ id: m.user_id, name: m.profiles?.full_name || 'Integrante', color: m.color, role: m.role }));
-  const categories = catsRes.data;
+  const categories = catsRes.data.map((c) => ({ ...c, groupName: c.group_name || null, isFixed: !!c.is_fixed, nature: c.nature || 'operativo' }));
   const accounts = accsRes.data.map((a) => ({ id: a.id, name: a.name, type: a.type, ownerIds: a.owner_ids, paymentKind: a.payment_kind || 'otro' }));
   const transactions = txRes.data.map(dbTxToJs);
   const votesByGoal = {};
@@ -161,7 +157,7 @@ function dbTxToJs(t) {
     id: t.id, type: t.type, description: t.description, amount: Number(t.amount),
     categoryId: t.category_id, accountId: t.account_id, memberId: t.member_id, date: t.date,
     recurring: t.recurring, frequency: t.frequency, isShared: t.is_shared, participants: t.participants,
-    paymentKind: t.payment_kind || null,
+    paymentKind: t.payment_kind || null, nature: t.nature || null,
     version: t.version || 1, editedBy: t.edited_by, editedAt: t.edited_at,
   };
 }
@@ -174,6 +170,7 @@ export async function updateTransactionWithHistory(userId, original, patch) {
     category_id: original.categoryId, account_id: original.accountId, member_id: original.memberId,
     date: original.date, recurring: original.recurring, frequency: original.frequency,
     is_shared: original.isShared, participants: original.participants, payment_kind: original.paymentKind,
+    nature: original.nature || null,
   };
   const { error: e1 } = await supabase.from('transaction_history').insert({
     transaction_id: original.id, data: snapshot, edited_by: userId,
@@ -186,6 +183,7 @@ export async function updateTransactionWithHistory(userId, original, patch) {
     category_id: patch.categoryId, account_id: patch.accountId, member_id: patch.memberId,
     date: patch.date, recurring: patch.recurring, frequency: patch.frequency,
     is_shared: patch.isShared, participants: patch.participants, payment_kind: patch.paymentKind || null,
+    nature: patch.nature || null,
     edited_by: userId, edited_at: new Date().toISOString(),
     version: (original.version || 1) + 1,
   };
@@ -222,7 +220,7 @@ export async function addTransaction(householdId, userId, t) {
     household_id: householdId, type: t.type, description: t.description, amount: t.amount,
     category_id: t.categoryId, account_id: t.accountId, member_id: t.memberId, date: t.date,
     recurring: t.recurring, frequency: t.frequency, is_shared: t.isShared, participants: t.participants,
-    payment_kind: t.paymentKind || null, created_by: userId,
+    payment_kind: t.paymentKind || null, nature: t.nature || null, created_by: userId,
   };
   const { error } = await supabase.from('transactions').insert(row);
   if (error) throw error;
@@ -354,6 +352,7 @@ export async function addAccount(householdId, userId, account) {
   if (account.initialBalance && account.initialBalance > 0) {
     await supabase.from('transactions').insert({
       household_id: householdId, type: 'income', description: 'Saldo inicial',
+      nature: 'apertura',
       amount: account.initialBalance, account_id: row.id, member_id: account.ownerIds?.[0] || userId,
       date: new Date().toISOString().slice(0, 10), is_shared: account.type === 'shared', created_by: userId,
     });
@@ -407,8 +406,30 @@ export async function removeObligation(id) {
 export async function addCategory(householdId, category) {
   const { error } = await supabase.from('categories').insert({
     household_id: householdId, name: category.name, type: category.type, icon: category.icon,
+    group_name: category.groupName || null, nature: category.nature || 'operativo', is_fixed: !!category.isFixed,
   });
   if (error) throw error;
+}
+export async function updateCategory(id, category) {
+  const { error } = await supabase.from('categories').update({
+    name: category.name, icon: category.icon,
+    group_name: category.groupName || null, nature: category.nature || 'operativo', is_fixed: !!category.isFixed,
+  }).eq('id', id);
+  if (error) throw error;
+}
+// Busca una categoría por nombre y tipo; si el hogar no la tiene (ej. hogares
+// anteriores a la Fase 17), la crea con la clasificación por defecto.
+export async function ensureCategory(householdId, spec) {
+  const { data: found, error } = await supabase.from('categories').select('id')
+    .eq('household_id', householdId).eq('name', spec.name).eq('type', spec.type).limit(1);
+  if (error) throw error;
+  if (found?.length) return found[0].id;
+  const { data, error: e2 } = await supabase.from('categories').insert({
+    household_id: householdId, name: spec.name, type: spec.type, icon: spec.icon,
+    group_name: spec.group, nature: spec.nature, is_fixed: spec.fixed,
+  }).select('id').single();
+  if (e2) throw e2;
+  return data.id;
 }
 export async function removeCategory(id) {
   const { error } = await supabase.from('categories').delete().eq('id', id);
@@ -488,6 +509,19 @@ export async function createCredit(householdId, userId, credit) {
     }))
   );
   if (e2) throw e2;
+
+  // Préstamo recibido ahora: el desembolso entra como ingreso de financiamiento
+  // (el pasivo ya queda en el crédito). Solo créditos en la moneda del hogar.
+  if (credit.registerDisbursement && credit.accountId && credit.currency !== 'UVR') {
+    const categoryId = await ensureCategory(householdId, LOAN_INCOME_CATEGORY);
+    const { error: e3 } = await supabase.from('transactions').insert({
+      household_id: householdId, type: 'income', description: `Desembolso — ${credit.name}`,
+      amount: credit.principal, category_id: categoryId, account_id: credit.accountId,
+      member_id: credit.ownerMemberId || userId, date: credit.startDate, recurring: false,
+      is_shared: !credit.ownerMemberId, nature: 'financiamiento', created_by: userId,
+    });
+    if (e3) throw e3;
+  }
   return row.id;
 }
 
@@ -596,19 +630,34 @@ export async function addMemberTransfer(householdId, userId, { amount, descripti
 }
 
 export async function markInstallmentPaid(householdId, userId, credit, installment, accountId, memberId, categoryId) {
-  // 1. crea el gasto correspondiente
+  // 1. registra el pago. Contablemente una cuota son DOS cosas: el capital baja
+  //    el pasivo (financiamiento, no es gasto) y los intereses + seguro sí son
+  //    gasto. Se guardan como dos movimientos que suman lo que salió de la cuenta.
+  const today = new Date().toISOString().slice(0, 10);
+  const { capital, cost } = splitInstallment(installment);
+  const base = {
+    household_id: householdId, type: 'expense', account_id: accountId, member_id: memberId,
+    date: today, recurring: false, is_shared: !credit.ownerMemberId, created_by: userId,
+  };
+  const label = `Cuota ${installment.installmentNumber}/${credit.termMonths} — ${credit.name}`;
   const { data: tx, error: e1 } = await supabase.from('transactions').insert({
-    household_id: householdId, type: 'expense',
-    description: `Cuota ${installment.installmentNumber}/${credit.termMonths} — ${credit.name}`,
-    amount: installment.total, category_id: categoryId, account_id: accountId, member_id: memberId,
-    date: new Date().toISOString().slice(0, 10), recurring: false, is_shared: !credit.ownerMemberId,
-    created_by: userId,
+    ...base, description: capital > 0 && cost > 0 ? `${label} (capital)` : label,
+    amount: capital > 0 ? capital : installment.total, category_id: categoryId, nature: 'financiamiento',
   }).select().single();
   if (e1) throw e1;
+  let interestTxId = null;
+  if (capital > 0 && cost > 0) {
+    const interestCategoryId = await ensureCategory(householdId, INTEREST_CATEGORY);
+    const { data: itx, error: eI } = await supabase.from('transactions').insert({
+      ...base, description: `${label} (intereses y seguro)`, amount: cost, category_id: interestCategoryId, nature: 'operativo',
+    }).select().single();
+    if (eI) throw eI;
+    interestTxId = itx.id;
+  }
 
-  // 2. marca la cuota como pagada y la enlaza con el gasto
+  // 2. marca la cuota como pagada y la enlaza con los movimientos
   const { error: e2 } = await supabase.from('credit_payments').update({
-    paid: true, paid_date: new Date().toISOString().slice(0, 10), transaction_id: tx.id,
+    paid: true, paid_date: today, transaction_id: tx.id, interest_transaction_id: interestTxId,
   }).eq('id', installment.id);
   if (e2) throw e2;
 

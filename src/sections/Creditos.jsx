@@ -221,6 +221,7 @@ export function CreditModal({ data, actions, onClose, onCreated }) {
   const [accountId, setAccountId] = useState(data.accounts[0]?.id || '');
   const [inProgress, setInProgress] = useState(false);
   const [installmentsAlreadyPaid, setInstallmentsAlreadyPaid] = useState('');
+  const [registerDisbursement, setRegisterDisbursement] = useState(false);
   const [uvr, setUvr] = useState(null);
   const [loadingUvr, setLoadingUvr] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -259,6 +260,7 @@ export function CreditModal({ data, actions, onClose, onCreated }) {
         amortizationSystem, insuranceMonthly: parseFloat(insuranceMonthly) || 0, startDate,
         ownerMemberId: ownerMemberId || null, accountId: accountId || null,
         installmentsAlreadyPaid: inProgress ? (parseInt(installmentsAlreadyPaid, 10) || 0) : 0,
+        registerDisbursement: registerDisbursement && !inProgress && currency !== 'UVR',
       });
       onCreated?.();
       onClose();
@@ -361,6 +363,15 @@ export function CreditModal({ data, actions, onClose, onCreated }) {
           {data.accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select>
       </Field>
+      {!inProgress && currency !== 'UVR' && (
+        <label className="flex items-start gap-2 mb-4 rounded-xl p-3" style={{ background: registerDisbursement ? T.tealSoft : T.bg }}>
+          <input type="checkbox" checked={registerDisbursement} onChange={(e) => setRegisterDisbursement(e.target.checked)} style={{ marginTop: 2 }} />
+          <span style={{ fontSize: 13, color: T.ink, fontFamily: FONT_BODY }}>
+            Recibí este préstamo ahora: registrar el desembolso como ingreso en la cuenta elegida
+            <span style={{ display: 'block', fontSize: 11.5, color: T.inkSoft }}>Entra como "Préstamos recibidos" (financiamiento) y la deuda queda como pasivo en Créditos.</span>
+          </span>
+        </label>
+      )}
       {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
       <PrimaryButton full onClick={save}>{saving ? 'Creando…' : 'Crear crédito y generar tabla de amortización'}</PrimaryButton>
     </Modal>
@@ -403,7 +414,9 @@ export function PayInstallmentModal({ data, actions, payload, onClose, onDone })
           {data.members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
         </select>
       </Field>
-      <p style={{ fontSize: 11.5, color: T.inkSoft }} className="mb-4">Esto registrará automáticamente un gasto en "Deudas y préstamos".</p>
+      <p style={{ fontSize: 11.5, color: T.inkSoft }} className="mb-4">
+        Se registran dos movimientos: el capital como pago de deuda ("Deudas y préstamos", no cuenta como gasto en los informes) y los intereses y seguro como gasto ("Intereses y comisiones").
+      </p>
       <PrimaryButton full onClick={confirm}>{saving ? 'Guardando…' : 'Confirmar pago'}</PrimaryButton>
     </Modal>
   );

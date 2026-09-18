@@ -9,6 +9,7 @@ import {
 } from '../ui/primitives';
 import { formatMoney, formatDate } from '../lib/format';
 import { todayISO, computeIncomeShares, occurrencesInMonth, getNextOccurrence, daysUntil } from '../lib/finance';
+import { NATURES, natureLabel } from '../lib/accounting';
 
 export function Movimientos({ data, actions, visibleTransactions, setModal }) {
   const [filter, setFilter] = useState('todos'); // todos | income | expense | recurring | sporadic
@@ -162,6 +163,20 @@ export function Movimientos({ data, actions, visibleTransactions, setModal }) {
 }
 
 
+// Naturaleza contable de un movimiento (para los estados financieros): por
+// defecto la de su categoría, pero se puede corregir puntualmente.
+function NatureField({ value, onChange, category }) {
+  return (
+    <Field label="Naturaleza contable">
+      <select style={inputStyle} value={value} onChange={(e) => onChange(e.target.value)}>
+        <option value="">Según la categoría ({natureLabel(category?.nature || 'operativo')})</option>
+        {NATURES.map((n) => <option key={n.id} value={n.id}>{n.label} — {n.hint}</option>)}
+        {value === 'apertura' && <option value="apertura">{natureLabel('apertura')}</option>}
+      </select>
+    </Field>
+  );
+}
+
 export function TransactionModal({ data, actions, payload, onClose }) {
   const [type, setType] = useState(payload?.type || 'expense');
   const [description, setDescription] = useState(payload?.description || '');
@@ -182,6 +197,7 @@ export function TransactionModal({ data, actions, payload, onClose }) {
   // mano, sigue el default de la cuenta si cambias de cuenta.
   const [paymentKind, setPaymentKind] = useState(payload?.paymentKind || data.accounts.find((a) => a.id === accountId)?.paymentKind || 'otro');
   const [paymentKindTouched, setPaymentKindTouched] = useState(!!payload?.paymentKind);
+  const [nature, setNature] = useState(payload?.nature || ''); // '' = la de su categoría
   useEffect(() => {
     if (paymentKindTouched) return;
     const acc = data.accounts.find((a) => a.id === accountId);
@@ -212,7 +228,7 @@ export function TransactionModal({ data, actions, payload, onClose }) {
       type, description, amount: amt, categoryId, accountId, memberId, date,
       recurring, frequency: recurring ? frequency : null,
       isShared: type === 'expense' ? isShared : false,
-      participants: participantsData, paymentKind,
+      participants: participantsData, paymentKind, nature: nature || null,
     };
     setSaving(true);
     try {
@@ -275,6 +291,7 @@ export function TransactionModal({ data, actions, payload, onClose }) {
           {PAYMENT_KIND_OPTIONS.map((k) => <option key={k} value={k}>{PAYMENT_KIND_LABEL[k]}</option>)}
         </select>
       </Field>
+      <NatureField value={nature} onChange={setNature} category={data.categories.find((c) => c.id === categoryId)} />
       <Field label={type === 'income' ? 'Recibido por' : 'Pagado por'}>
         <select style={inputStyle} value={memberId} onChange={(e) => setMemberId(e.target.value)}>
           {data.members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
@@ -371,7 +388,7 @@ export function TransactionModal({ data, actions, payload, onClose }) {
 const FIELD_LABELS = {
   type: 'Tipo', description: 'Descripción', amount: 'Monto', categoryId: 'Categoría',
   accountId: 'Cuenta', memberId: 'Integrante', date: 'Fecha', recurring: 'Recurrente',
-  frequency: 'Frecuencia', isShared: 'Compartido', paymentKind: 'Medio de pago',
+  frequency: 'Frecuencia', isShared: 'Compartido', paymentKind: 'Medio de pago', nature: 'Naturaleza contable',
 };
 
 export function describeValue(field, value, data) {
@@ -382,13 +399,14 @@ export function describeValue(field, value, data) {
   if (field === 'accountId') return data.accounts.find((a) => a.id === value)?.name || value;
   if (field === 'memberId') return data.members.find((m) => m.id === value)?.name || value;
   if (field === 'paymentKind') return PAYMENT_KIND_LABEL[value] || value;
+  if (field === 'nature') return natureLabel(value);
   if (field === 'date') return formatDate(value);
   if (field === 'recurring' || field === 'isShared') return value ? 'Sí' : 'No';
   return String(value);
 }
 
 export function diffTransactions(original, edited, data) {
-  const fields = ['type', 'description', 'amount', 'categoryId', 'accountId', 'memberId', 'date', 'recurring', 'frequency', 'isShared', 'paymentKind'];
+  const fields = ['type', 'description', 'amount', 'categoryId', 'accountId', 'memberId', 'date', 'recurring', 'frequency', 'isShared', 'paymentKind', 'nature'];
   return fields
     .filter((f) => String(original[f] ?? '') !== String(edited[f] ?? ''))
     .map((f) => ({ field: f, label: FIELD_LABELS[f], before: describeValue(f, original[f], data), after: describeValue(f, edited[f], data) }));
@@ -409,6 +427,7 @@ export function EditTransactionModal({ data, actions, payload: original, onClose
   const [error, setError] = useState('');
   const [paymentKind, setPaymentKind] = useState(original.paymentKind || data.accounts.find((a) => a.id === original.accountId)?.paymentKind || 'otro');
   const [paymentKindTouched, setPaymentKindTouched] = useState(false);
+  const [nature, setNature] = useState(original.nature || '');
   useEffect(() => {
     if (paymentKindTouched) return;
     const acc = data.accounts.find((a) => a.id === accountId);
@@ -420,7 +439,7 @@ export function EditTransactionModal({ data, actions, payload: original, onClose
   const edited = {
     type, description, amount: parseFloat(amount) || 0, categoryId, accountId, memberId, date,
     recurring, frequency: recurring ? frequency : null,
-    isShared: original.isShared, participants: original.participants, paymentKind,
+    isShared: original.isShared, participants: original.participants, paymentKind, nature: nature || null,
   };
   const changes = diffTransactions(original, edited, data);
 
@@ -499,6 +518,7 @@ export function EditTransactionModal({ data, actions, payload: original, onClose
           {PAYMENT_KIND_OPTIONS.map((k) => <option key={k} value={k}>{PAYMENT_KIND_LABEL[k]}</option>)}
         </select>
       </Field>
+      <NatureField value={nature} onChange={setNature} category={data.categories.find((c) => c.id === categoryId)} />
       <Field label={type === 'income' ? 'Recibido por' : 'Pagado por'}>
         <select style={inputStyle} value={memberId} onChange={(e) => setMemberId(e.target.value)}>
           {data.members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}

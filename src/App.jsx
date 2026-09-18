@@ -259,6 +259,7 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     setObligationEnabled: wrap((id, enabled) => db.setObligationEnabled(id, enabled)),
     removeObligation: wrap((id) => db.removeObligation(id)),
     addCategory: wrap((c) => db.addCategory(household.householdId, c)),
+    updateCategory: wrap((id, c) => db.updateCategory(id, c)),
     removeCategory: wrap((id) => db.removeCategory(id)),
     createInvite: () => db.createInvite(household.householdId, session.user.id),
     leaveHousehold: async () => { await db.leaveHousehold(household.householdId, session.user.id); onLeftHousehold(); },
@@ -580,7 +581,7 @@ function MainApp({ data, update, actions }) {
       {modal?.type === 'obligation' && <ObligationModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
       {modal?.type === 'vote' && <VoteModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
       {modal?.type === 'contribute' && <ContributeModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
-      {modal?.type === 'category' && <CategoryModal data={data} actions={actions} onClose={() => setModal(null)} />}
+      {modal?.type === 'category' && <CategoryModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
       {modal?.type === 'notifications' && <NotificationsPanel data={data} actions={actions} onClose={() => setModal(null)} />}
       {modal?.type === 'credit' && <CreditModal data={data} actions={actions} onClose={() => setModal(null)} onCreated={modal.onCreated} />}
       {modal?.type === 'extraPayment' && <ExtraPaymentModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} onDone={modal.onDone} />}

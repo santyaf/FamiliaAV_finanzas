@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import {
   QrCode, Copy, UserPlus, Plus, Trash2, ShieldAlert, ChevronRight, ExternalLink,
-  BellRing, BellOff, Clock,
+  BellRing, BellOff, Clock, Pencil,
 } from 'lucide-react';
 import { T, FONT_DISPLAY, FONT_BODY, FONT_MONO, TAP_MIN, inputStyle, DAY_LABELS, CURRENCIES } from '../ui/theme';
+import { NATURES, natureLabel, DEFAULT_CATEGORY_SPECS } from '../lib/accounting';
 import { MisSugerenciasCard } from './Sugerencias';
 import {
   Card, CategoryIcon, CATEGORY_ICON_OPTIONS, Field, GhostButton, IconButton, MemberChip, Modal, PrimaryButton,
@@ -258,6 +259,27 @@ export function ReminderModal({ actions, onClose, onDone }) {
   );
 }
 
+// Fila de la lista de categorías: nombre, rubro y naturaleza contable (lo que
+// usan los informes), con editar y eliminar.
+function CategoryRow({ c, onEdit, onRemove }) {
+  const detail = [c.groupName, c.nature && c.nature !== 'operativo' ? natureLabel(c.nature) : null, c.isFixed ? 'fijo' : null].filter(Boolean).join(' · ');
+  return (
+    <div className="flex items-center justify-between mb-1.5">
+      <span className="flex items-center gap-2 min-w-0" style={{ fontSize: 13, color: T.ink }}>
+        <CategoryIcon icon={c.icon} size={15} />
+        <span className="min-w-0">
+          {c.name}
+          <span style={{ display: 'block', fontSize: 10.5, color: c.groupName ? T.inkSoft : T.gold }}>{detail || 'Sin rubro — toca ✎ para clasificarla'}</span>
+        </span>
+      </span>
+      <span className="flex items-center flex-shrink-0">
+        <IconButton icon={Pencil} size={14} onClick={onEdit} label="Editar categoría" />
+        <IconButton icon={Trash2} variant="danger" size={14} onClick={onRemove} confirmMessage={`¿Eliminar la categoría "${c.name}"?`} label="Eliminar categoría" />
+      </span>
+    </div>
+  );
+}
+
 export function Ajustes({ data, update, actions, setModal, setTab }) {
   function removeCategory(id) {
     actions.removeCategory(id);
@@ -308,17 +330,11 @@ export function Ajustes({ data, update, actions, setModal, setTab }) {
         </div>
         <p style={{ fontSize: 11.5, color: T.inkSoft }} className="mb-2">Ingresos</p>
         {data.categories.filter((c) => c.type === 'income').map((c) => (
-          <div key={c.id} className="flex items-center justify-between mb-1.5">
-            <span className="flex items-center gap-2" style={{ fontSize: 13, color: T.ink }}><CategoryIcon icon={c.icon} size={15} /> {c.name}</span>
-            <IconButton icon={Trash2} variant="danger" size={14} onClick={() => removeCategory(c.id)} confirmMessage={`¿Eliminar la categoría "${c.name}"?`} label="Eliminar categoría" />
-          </div>
+          <CategoryRow key={c.id} c={c} onEdit={() => setModal({ type: 'category', payload: c })} onRemove={() => removeCategory(c.id)} />
         ))}
         <p style={{ fontSize: 11.5, color: T.inkSoft }} className="mb-2 mt-3">Gastos</p>
         {data.categories.filter((c) => c.type === 'expense').map((c) => (
-          <div key={c.id} className="flex items-center justify-between mb-1.5">
-            <span className="flex items-center gap-2" style={{ fontSize: 13, color: T.ink }}><CategoryIcon icon={c.icon} size={15} /> {c.name}</span>
-            <IconButton icon={Trash2} variant="danger" size={14} onClick={() => removeCategory(c.id)} confirmMessage={`¿Eliminar la categoría "${c.name}"?`} label="Eliminar categoría" />
-          </div>
+          <CategoryRow key={c.id} c={c} onEdit={() => setModal({ type: 'category', payload: c })} onRemove={() => removeCategory(c.id)} />
         ))}
       </Card>
 
@@ -396,26 +412,55 @@ export function InviteModal({ data, actions, onClose }) {
   );
 }
 
-export function CategoryModal({ data, actions, onClose }) {
-  const [name, setName] = useState('');
-  const [type, setType] = useState('expense');
-  const [icon, setIcon] = useState(CATEGORY_ICON_OPTIONS[0]);
+export function CategoryModal({ data, actions, payload: editing, onClose }) {
+  const [name, setName] = useState(editing?.name || '');
+  const [type, setType] = useState(editing?.type || 'expense');
+  const [icon, setIcon] = useState(editing?.icon || CATEGORY_ICON_OPTIONS[0]);
+  const [groupName, setGroupName] = useState(editing?.groupName || '');
+  const [nature, setNature] = useState(editing?.nature || 'operativo');
+  const [isFixed, setIsFixed] = useState(!!editing?.isFixed);
+  const [saving, setSaving] = useState(false);
+  // rubros ya usados en el hogar + los por defecto, para no escribirlos dos veces distinto
+  const groups = [...new Set([...DEFAULT_CATEGORY_SPECS.map((c) => c.group), ...data.categories.map((c) => c.groupName).filter(Boolean)])].sort();
+
   async function save() {
     if (!name.trim()) return;
-    await actions.addCategory({ name: name.trim(), type, icon });
-    onClose();
+    const payload = { name: name.trim(), type, icon, groupName: groupName.trim(), nature, isFixed: type === 'expense' && isFixed };
+    setSaving(true);
+    try {
+      if (editing) await actions.updateCategory(editing.id, payload);
+      else await actions.addCategory(payload);
+      onClose();
+    } finally {
+      setSaving(false);
+    }
   }
   return (
-    <Modal title="Nueva categoría" onClose={onClose}>
+    <Modal title={editing ? 'Editar categoría' : 'Nueva categoría'} onClose={onClose}>
       <Field label="Nombre">
         <input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej. Mascotas" />
       </Field>
       <Field label="Tipo">
-        <select style={inputStyle} value={type} onChange={(e) => setType(e.target.value)}>
+        <select style={inputStyle} value={type} onChange={(e) => setType(e.target.value)} disabled={!!editing}>
           <option value="expense">Gasto</option>
           <option value="income">Ingreso</option>
         </select>
       </Field>
+      <Field label="Rubro (para agrupar en los informes)">
+        <input style={inputStyle} value={groupName} onChange={(e) => setGroupName(e.target.value)} list="rubros-categorias" placeholder="Ej. Vivienda y servicios" />
+        <datalist id="rubros-categorias">{groups.map((g) => <option key={g} value={g} />)}</datalist>
+      </Field>
+      <Field label="Naturaleza contable">
+        <select style={inputStyle} value={nature} onChange={(e) => setNature(e.target.value)}>
+          {NATURES.map((n) => <option key={n.id} value={n.id}>{n.label} — {n.hint}</option>)}
+        </select>
+      </Field>
+      {type === 'expense' && (
+        <label className="flex items-center gap-2 mb-4">
+          <input type="checkbox" checked={isFixed} onChange={(e) => setIsFixed(e.target.checked)} />
+          <span style={{ fontSize: 14, color: T.ink, fontFamily: FONT_BODY }}>Es un gasto fijo (arriendo, cuotas, colegio…)</span>
+        </label>
+      )}
       <Field label="Ícono">
         <div className="grid grid-cols-6 gap-2">
           {CATEGORY_ICON_OPTIONS.map((key) => (
@@ -427,7 +472,7 @@ export function CategoryModal({ data, actions, onClose }) {
           ))}
         </div>
       </Field>
-      <PrimaryButton full onClick={save}>Crear categoría</PrimaryButton>
+      <PrimaryButton full onClick={save}>{saving ? 'Guardando…' : editing ? 'Guardar cambios' : 'Crear categoría'}</PrimaryButton>
     </Modal>
   );
 }
