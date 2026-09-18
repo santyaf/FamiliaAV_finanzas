@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Bell, AlertTriangle, Target, TrendingUp, Calendar, Sparkles, Info, Trash2 } from 'lucide-react';
+import { Bell, AlertTriangle, Target, TrendingUp, Calendar, Sparkles, Info, Trash2, Lightbulb } from 'lucide-react';
 import { T, FONT_DISPLAY, FONT_BODY } from '../ui/theme';
 import { Modal, EmptyState, IconButton } from '../ui/primitives';
 import { formatDate } from '../lib/format';
@@ -11,6 +11,8 @@ const NOTIFICATION_ICONS = {
   extra_income: { icon: TrendingUp, color: T.teal, bg: T.tealSoft },
   credit_due: { icon: Calendar, color: T.ink, bg: T.bg },
   surplus_opportunity: { icon: Sparkles, color: T.gold, bg: T.goldSoft },
+  suggestion: { icon: Lightbulb, color: T.gold, bg: T.goldSoft },
+  suggestion_update: { icon: Lightbulb, color: T.teal, bg: T.tealSoft },
 };
 
 export function relativeDay(iso) {

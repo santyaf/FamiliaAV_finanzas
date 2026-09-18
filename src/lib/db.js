@@ -22,6 +22,19 @@ export async function signInWithGoogle() {
   });
   if (error) throw error;
 }
+// Qué proveedores externos (Google, etc.) están habilitados en el proyecto de
+// Supabase. Devuelve null si no se pudo consultar (en ese caso la pantalla de
+// login muestra todo, como antes, en vez de esconder un botón que sí funciona).
+export async function getEnabledAuthProviders() {
+  try {
+    const res = await fetch(`${supabase.supabaseUrl}/auth/v1/settings`, { headers: { apikey: supabase.supabaseKey } });
+    if (!res.ok) return null;
+    const json = await res.json();
+    return json.external || null;
+  } catch {
+    return null;
+  }
+}
 export async function signOut() {
   await supabase.auth.signOut();
 }
@@ -839,4 +852,63 @@ export async function updateReminderSchedule(id, patch) {
 export async function removeReminderSchedule(id) {
   const { error } = await supabase.from('reminder_schedules').delete().eq('id', id);
   if (error) throw error;
+}
+
+/* ---------------------- SUGERENCIAS DE MEJORA ---------------------- */
+function dbSuggestion(r) {
+  return {
+    id: r.id, userId: r.user_id, householdId: r.household_id, title: r.title, description: r.description,
+    source: r.source, status: r.status, adminNote: r.admin_note, reviewedBy: r.reviewed_by,
+    createdAt: r.created_at, updatedAt: r.updated_at,
+    authorName: r.author?.full_name || null, householdName: r.households?.name || null,
+    events: (r.suggestion_events || [])
+      .map((e) => ({ id: e.id, status: e.status, note: e.note, createdAt: e.created_at }))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+  };
+}
+
+export async function addSuggestion(userId, householdId, { title, description, source = 'asistente' }) {
+  const { data, error } = await supabase.from('suggestions')
+    .insert({ user_id: userId, household_id: householdId, title, description, source })
+    .select('id').single();
+  if (error) throw error;
+  return data.id;
+}
+
+// Push a los administradores (best-effort: el aviso dentro de la app ya lo
+// creó un trigger, así que si esto falla la sugerencia igual llegó).
+export async function notifyAdminsOfSuggestion(suggestionId) {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    await fetch('/api/notify-suggestion', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}) },
+      body: JSON.stringify({ suggestionId }),
+    });
+  } catch { /* sin push, queda el aviso dentro de la app */ }
+}
+
+export async function loadMySuggestions(userId) {
+  const { data, error } = await supabase.from('suggestions')
+    .select('*, suggestion_events(*)').eq('user_id', userId).order('created_at', { ascending: false });
+  if (error) throw error;
+  return data.map(dbSuggestion);
+}
+
+// Solo para administradores de la plataforma (la base lo exige con RLS).
+export async function listAllSuggestions() {
+  const { data, error } = await supabase.from('suggestions')
+    .select('*, author:profiles!suggestions_user_id_fkey(full_name), households(name), suggestion_events(*)')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data.map(dbSuggestion);
+}
+
+export async function updateSuggestion(id, actorId, { status, adminNote }) {
+  const note = (adminNote || '').trim() || null;
+  const { error } = await supabase.from('suggestions')
+    .update({ status, admin_note: note, reviewed_by: actorId, updated_at: new Date().toISOString() }).eq('id', id);
+  if (error) throw error;
+  const { error: e2 } = await supabase.from('suggestion_events').insert({ suggestion_id: id, actor_id: actorId, status, note });
+  if (e2) throw e2;
 }

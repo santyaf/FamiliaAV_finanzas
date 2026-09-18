@@ -293,6 +293,15 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     listPlatformAdmins: () => db.listPlatformAdmins(),
     promoteToAdmin: (email) => db.promoteToAdmin(email),
     removeAdmin: (userId) => db.removeAdmin(userId),
+    // sugerencias de mejora (chat del Asistente → administrador)
+    addSuggestion: async (suggestion) => {
+      const id = await db.addSuggestion(session.user.id, household.householdId, suggestion);
+      db.notifyAdminsOfSuggestion(id);
+      return id;
+    },
+    loadMySuggestions: () => db.loadMySuggestions(session.user.id),
+    listAllSuggestions: () => db.listAllSuggestions(),
+    updateSuggestion: (id, patch) => db.updateSuggestion(id, session.user.id, patch),
     // notificaciones push / recordatorios
     savePushSubscription: (sub) => db.savePushSubscription(session.user.id, sub),
     removePushSubscription: (endpoint) => db.removePushSubscription(endpoint),
@@ -500,6 +509,19 @@ function MainApp({ data, update, actions }) {
             const Icon = tItem.icon;
             const active = tItem.id === 'gestion' ? inGestion : tab === tItem.id;
             const onClick = tItem.action === 'addTransaction' ? () => setModal({ type: 'transaction' }) : () => setTab(tItem.id);
+            // La acción principal ("Agregar") sobresale de la barra, en un círculo
+            // de color sólido con borde del color de la barra para que destaque.
+            if (tItem.action) {
+              return (
+                <button key={tItem.id} onClick={onClick} aria-label="Agregar movimiento" className="flex flex-col items-center gap-0.5 px-2" style={{ minWidth: 64, marginTop: -28 }}>
+                  <span className="flex items-center justify-center rounded-full shadow-lg active:scale-95 transition-transform"
+                    style={{ width: 58, height: 58, background: T.coral, border: `4px solid ${T.surface}` }}>
+                    <Icon size={28} color="#fff" strokeWidth={2.6} />
+                  </span>
+                  <span style={{ fontSize: 10.5, color: T.coral, fontFamily: FONT_BODY, fontWeight: 700 }}>{tItem.label}</span>
+                </button>
+              );
+            }
             return (
               <button key={tItem.id} onClick={onClick} className="flex flex-col items-center gap-0.5 px-2 py-1" style={{ minWidth: 56, minHeight: TAP_MIN }}>
                 <Icon size={20} color={active ? T.teal : T.inkSoft} />

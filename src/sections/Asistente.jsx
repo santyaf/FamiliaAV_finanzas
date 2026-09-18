@@ -1,11 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Sparkles, Send, Loader2, Camera, Image as ImageIcon, X } from 'lucide-react';
+import { Sparkles, Send, Loader2, Camera, Image as ImageIcon, X, Lightbulb } from 'lucide-react';
 import { T, FONT_DISPLAY, FONT_BODY, inputStyle } from '../ui/theme';
-import { Card, PrimaryButton, EmptyState, PAYMENT_KIND_LABEL } from '../ui/primitives';
+import { Card, PrimaryButton, GhostButton, EmptyState, PAYMENT_KIND_LABEL } from '../ui/primitives';
 import { callAiJson } from '../lib/ai';
 import { matchCategory, matchMember } from '../lib/aiParse';
 import { isAiFeatureEnabled } from '../lib/access';
 import { detectAnomalies, describeAnomaly } from '../lib/anomalies';
+import { suggestionFromAi } from '../lib/suggestions';
 import { formatMoney, formatDate } from '../lib/format';
 import {
   todayISO, thisMonthKey, lastMonthKeys, monthCashFlow, occurrencesInMonth,
@@ -18,8 +19,9 @@ const SUGGESTED_QUESTIONS = [
   '¿Cómo voy con mis presupuestos?',
   '¿Hay algo raro en mis gastos?',
   '¿Cómo va mi objetivo de ahorro principal?',
+  'Tengo una sugerencia para la app',
 ];
-const SUGGESTED_REGISTROS = ['Pagué 30000 de mercado hoy', 'Me depositaron 500000 de nómina'];
+const SUGGESTED_REGISTROS = ['Pagué 30000 de mercado hoy', 'Me depositaron 500000 de nómina', 'Tengo una sugerencia para la app'];
 
 const MAX_HISTORY_MESSAGES = 6; // últimos turnos que se le pasan como contexto a la IA
 const DIGEST_MONTHS = 6; // meses de historial que se le mandan a la IA, no solo el mes actual
@@ -36,28 +38,39 @@ function chatSystemPrompt({ currency, categoryNames, memberNames, canAsk, canReg
   const intro = `Eres el asistente financiero dentro de una app de finanzas familiares en Colombia (Finanzas del Hogar). Hoy es ${todayISO()}. Los montos están en ${currency}.`;
   const formatoRegistro = '{"tipo":"registro","type":"income|expense","amount":number,"date":"YYYY-MM-DD o null","description":"texto corto","category":"nombre exacto de una categoría de la lista","member":"nombre de integrante si se menciona, si no null"}';
   const formatoRespuesta = '{"tipo":"respuesta","texto":"tu respuesta en español, 1 a 4 frases, tono cercano y directo, sin tecnicismos ni consejos de inversión"}';
+  const formatoSugerencia = '{"tipo":"sugerencia","titulo":"resumen de máximo 80 caracteres","descripcion":"lo que pidió, redactado con claridad y con el contexto que dio"}';
+  const definicionSugerencia = 'una SUGERENCIA sobre la propia app (algo que la persona propone o pide: una función nueva, una mejora, un cambio, o un problema/error de la app). No es una pregunta sobre sus finanzas. Si quiere sugerir algo pero aún no dijo qué, contesta en el formato de respuesta pidiéndole que lo cuente.';
   const categoriasYIntegrantes = `Categorías de ingreso: ${categoryNames.income.join(', ')}. Categorías de gasto: ${categoryNames.expense.join(', ')}. Integrantes del hogar: ${memberNames.join(', ')}.`;
 
   const notaDatos = `El bloque "DATOS" trae "movimientos_recientes" (el detalle día a día, con descripción, de los últimos ${RECENT_TX_DAYS} días) y además totales agregados por mes en "flujo_de_caja_ultimos_meses" / "gasto_por_categoria_por_mes" para un rango más largo. Para preguntas sobre un día o una compra específica, usa "movimientos_recientes"; si la fecha que preguntan ya no está ahí, usa los totales por mes si alcanzan, y si tampoco alcanzan dilo con claridad — no digas que no tienes ningún dato solo porque falte el detalle día a día de un mes viejo. Si preguntan cuánto pueden gastar hoy, usa directamente "disponible_para_gastar_hoy" de cada presupuesto (o "disponible_para_gastar_hoy_total") — ya viene calculado repartiendo lo que queda del mes entre los días que faltan ("dias_restantes_del_mes"), no lo recalcules tú. Si preguntan si hay algo raro, inusual o duplicado en sus gastos, usa "anomalias" (son los mismos avisos que ve en el Dashboard, en "Para revisar"); si está vacía, dile que no detectaste nada raro.`;
 
   if (canAsk && canRegister) {
     return `${intro}
-Cada mensaje del usuario es UNA de estas dos cosas — decide cuál:
+Cada mensaje del usuario es UNA de estas tres cosas — decide cuál:
 1) Una PREGUNTA sobre sus finanzas (gastos de un día, de una categoría, presupuestos, objetivos, cuentas, créditos, patrimonio, meses anteriores, etc.). Respóndela usando ÚNICAMENTE los datos del bloque "DATOS" — nunca inventes cifras que no estén ahí. ${notaDatos}
 2) La descripción de un MOVIMIENTO que quiere registrar (ej. "pagué 30000 de mercado", "me depositaron el sueldo"). Extrae sus datos, usa null si algo no aparece.
-Responde SIEMPRE con un único JSON válido, sin texto adicional ni backticks, con EXACTAMENTE una de estas dos formas:
+3) ${definicionSugerencia}
+Responde SIEMPRE con un único JSON válido, sin texto adicional ni backticks, con EXACTAMENTE una de estas tres formas:
 - Pregunta → ${formatoRespuesta}
 - Registro → ${formatoRegistro}
+- Sugerencia → ${formatoSugerencia}
 ${categoriasYIntegrantes}`;
   }
   if (canRegister) {
     return `${intro}
-Extraes datos de un movimiento financiero de hogar a partir de un mensaje corto tipo WhatsApp. Responde SIEMPRE con este único JSON, sin texto adicional ni backticks: ${formatoRegistro}
+Cada mensaje del usuario es UNA de estas dos cosas: (1) la descripción corta, tipo WhatsApp, de un MOVIMIENTO financiero de hogar que quiere registrar — extrae sus datos; o (2) ${definicionSugerencia}
+Responde SIEMPRE con un único JSON, sin texto adicional ni backticks, con EXACTAMENTE una de estas formas:
+- Registro → ${formatoRegistro}
+- Sugerencia → ${formatoSugerencia}
+- Solo si quiere sugerir algo pero no dijo qué → ${formatoRespuesta}
 ${categoriasYIntegrantes}`;
   }
   return `${intro}
 Respondes preguntas del usuario sobre SUS finanzas (gastos de un día, de una categoría, presupuestos, objetivos, cuentas, créditos, patrimonio, meses anteriores, etc.) usando ÚNICAMENTE los datos del bloque "DATOS" — nunca inventes cifras. ${notaDatos}
-Responde SIEMPRE con este único JSON, sin texto adicional ni backticks: ${formatoRespuesta}`;
+Además, un mensaje puede ser ${definicionSugerencia}
+Responde SIEMPRE con un único JSON, sin texto adicional ni backticks, con EXACTAMENTE una de estas formas:
+- Pregunta → ${formatoRespuesta}
+- Sugerencia → ${formatoSugerencia}`;
 }
 
 function receiptSystemPrompt(categoryNames) {
@@ -246,7 +259,7 @@ function ChatPanel({ data, actions, visibleTransactions, setModal, canAsk, canRe
         });
       } else {
         const history = nextMessages.slice(-MAX_HISTORY_MESSAGES - 1, -1)
-          .map((m) => `${m.role === 'user' ? 'Usuario' : 'Asistente'}: ${m.text || (m.draft ? '[registró un movimiento]' : '')}`).join('\n');
+          .map((m) => `${m.role === 'user' ? 'Usuario' : 'Asistente'}: ${m.text || (m.draft ? '[registró un movimiento]' : m.suggestion ? '[propuso una sugerencia para la app]' : '')}`).join('\n');
         const digestBlock = canAsk ? `DATOS (JSON):\n${JSON.stringify(buildDigest(data, visibleTransactions))}\n\n` : '';
         const prompt = `${digestBlock}${history ? `Conversación previa:\n${history}\n\n` : ''}Mensaje del usuario: ${q}`;
         parsed = await callAiJson({
@@ -257,6 +270,11 @@ function ChatPanel({ data, actions, visibleTransactions, setModal, canAsk, canRe
       }
       if (parsed.tipo === 'registro') {
         setMessages((m) => [...m, { role: 'assistant', draft: buildDraft(data, parsed, asMember, q || 'Foto de recibo') }]);
+      } else if (parsed.tipo === 'sugerencia') {
+        const suggestion = suggestionFromAi(parsed);
+        setMessages((m) => [...m, suggestion
+          ? { role: 'assistant', suggestion, suggestionState: 'pending' }
+          : { role: 'assistant', text: 'Cuéntame con más detalle qué te gustaría que la app hiciera o mejorara, y lo envío al equipo.' }]);
       } else {
         setMessages((m) => [...m, { role: 'assistant', text: parsed.texto || 'No obtuve una respuesta — intenta de nuevo.' }]);
       }
@@ -264,6 +282,19 @@ function ChatPanel({ data, actions, visibleTransactions, setModal, canAsk, canRe
       setError(e.message || 'No se pudo contactar al asistente.');
     } finally {
       setLoading(false);
+    }
+  }
+
+  function patchMessage(index, patch) {
+    setMessages((list) => list.map((m, i) => (i === index ? { ...m, ...patch } : m)));
+  }
+  async function sendSuggestion(index) {
+    patchMessage(index, { suggestionState: 'sending', suggestionError: '' });
+    try {
+      await actions.addSuggestion(messages[index].suggestion);
+      patchMessage(index, { suggestionState: 'sent' });
+    } catch (e) {
+      patchMessage(index, { suggestionState: 'pending', suggestionError: 'No se pudo enviar. Revisa tu conexión e inténtalo de nuevo.' });
     }
   }
 
@@ -309,7 +340,31 @@ function ChatPanel({ data, actions, visibleTransactions, setModal, canAsk, canRe
         )}
         {messages.map((m, i) => (
           <div key={i} style={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '85%' }}>
-            {m.draft ? (
+            {m.suggestion ? (
+              <Card style={{ padding: 12 }}>
+                <div className="flex items-center gap-1.5 mb-1">
+                  <Lightbulb size={14} color={T.gold} />
+                  <p style={{ fontSize: 11, color: T.inkSoft, fontFamily: FONT_BODY }}>Sugerencia para la app</p>
+                </div>
+                <p style={{ fontSize: 14, color: T.ink, fontFamily: FONT_BODY, fontWeight: 600 }}>{m.suggestion.title}</p>
+                <p style={{ fontSize: 12.5, color: T.inkSoft, fontFamily: FONT_BODY, whiteSpace: 'pre-wrap' }} className="mb-2">{m.suggestion.description}</p>
+                {(m.suggestionState === 'pending' || m.suggestionState === 'sending') && (
+                  <div className="flex gap-2">
+                    <PrimaryButton onClick={() => sendSuggestion(i)} style={{ opacity: m.suggestionState === 'sending' ? 0.6 : 1 }}>
+                      {m.suggestionState === 'sending' ? 'Enviando…' : 'Enviar al equipo'}
+                    </PrimaryButton>
+                    <GhostButton onClick={() => patchMessage(i, { suggestionState: 'dismissed' })}>Descartar</GhostButton>
+                  </div>
+                )}
+                {m.suggestionError && <p style={{ fontSize: 12, color: T.danger, fontFamily: FONT_BODY }} className="mt-2">{m.suggestionError}</p>}
+                {m.suggestionState === 'sent' && (
+                  <p style={{ fontSize: 12, color: T.teal, fontFamily: FONT_BODY }}>
+                    Enviada, gracias. Te avisaremos cuando la revisen; también puedes ver su estado en Ajustes → Mis sugerencias.
+                  </p>
+                )}
+                {m.suggestionState === 'dismissed' && <p style={{ fontSize: 12, color: T.inkSoft, fontFamily: FONT_BODY }}>Descartada — no se envió.</p>}
+              </Card>
+            ) : m.draft ? (
               <Card style={{ padding: 12 }}>
                 <p style={{ fontSize: 11, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-1">Detecté este movimiento:</p>
                 <p style={{ fontSize: 14, color: T.ink, fontFamily: FONT_BODY, fontWeight: 600 }}>

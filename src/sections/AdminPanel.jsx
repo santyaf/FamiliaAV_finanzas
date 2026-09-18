@@ -4,6 +4,7 @@ import { T, FONT_DISPLAY, FONT_BODY, FONT_MONO, TAP_MIN, inputStyle } from '../u
 import { Card, IconButton, PrimaryButton, GhostButton, Field } from '../ui/primitives';
 import { formatDate } from '../lib/format';
 import { DEFAULT_AI_ACCESS } from '../lib/access';
+import { SugerenciasAdmin } from './Sugerencias';
 
 const AI_PROVIDERS = [
   { id: 'none', label: 'Ninguna (IA desactivada)', defaultModel: null },
@@ -118,6 +119,8 @@ export function AdminPanel({ data, actions }) {
       <p style={{ fontSize: 12.5, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-4">
         Panel de superusuario — estos cambios afectan a toda la plataforma, no solo a tu hogar.
       </p>
+
+      <SugerenciasAdmin actions={actions} />
 
       <Card style={{ marginBottom: 14 }}>
         <div className="flex items-center gap-2 mb-3">

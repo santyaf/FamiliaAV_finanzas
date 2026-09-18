@@ -24,7 +24,8 @@ Estado a 2026-09-09. Continúa la numeración de fases del README (la última fu
 
 ### Pendiente de configuración
 
-Nada — todo configurado y verificado. (Si algún día rotas las claves VAPID, marca las variables en Vercel para *todos* los entornos, no solo Production.)
+- **Login con Google** — el proveedor está **apagado en Supabase** (`/auth/v1/authorize?provider=google` responde *Unsupported provider: provider is not enabled*), por eso nunca funcionó; no es un bug de código. La pantalla de login ya oculta el botón mientras esté apagado (consulta `/auth/v1/settings`) y aparece solo cuando se habilite. Para habilitarlo: (1) Google Cloud Console → APIs y servicios → Credenciales → *ID de cliente OAuth* tipo *Aplicación web*, con URI de redirección autorizado `https://aijjleoywcisbifgtrms.supabase.co/auth/v1/callback`; (2) Supabase → Authentication → Providers → Google: activarlo y pegar *Client ID* y *Client Secret*; (3) Authentication → URL Configuration: *Site URL* `https://finanzasav.vercel.app` y agregar `https://finanzasav.vercel.app/**` a *Redirect URLs*.
+- (Si algún día rotas las claves VAPID, marca las variables en Vercel para *todos* los entornos, no solo Production.)
 
 ---
 
@@ -69,6 +70,7 @@ El mayor predictor de que una app de finanzas sobreviva es qué tan fácil es me
 - ~~**Control de acceso por función de IA**~~ ✅ — Registro rápido y el Asistente se activan por separado desde Admin, cada uno para *todos*, *nadie*, o una lista específica de personas (`app_settings.quick_capture_access` / `assistant_access`, `{mode, userIds}`) — para probar una función nueva con un grupo chico antes de abrirla a todo el mundo. Si el proveedor de IA está en "Ninguna", ninguna de las dos funciona sin importar el acceso configurado.
 - ~~**Unificar Registro rápido + Asistente en un solo chat**~~ ✅ — un único chat (tarjeta "Asistente" en Gestión + botón flotante) donde la IA decide por mensaje si es una pregunta o un movimiento a registrar; también acepta la foto de un recibo con un botón de cámara junto al de enviar. Si la persona solo tiene acceso a una de las dos funciones, el chat se limita a esa (sin selector de modo). El botón flotante de agregar movimiento manual se movió a la barra inferior (antes era "Registro rápido"). El control de acceso sigue siendo independiente por función — solo se unificó la interfaz, no el permiso.
 - ~~**Detección de anomalías**~~ ✅ — tarjeta **"Para revisar"** en el Dashboard (`lib/anomalies.js`, lógica pura con 34 tests). Cinco reglas sobre gastos: *duplicados* (mismo monto + descripción + integrante en ≤1 día), *gasto inusual* (muy por encima de lo normal de su categoría — mediana + MAD, mínimo 5 gastos previos), *subida de precio* de un cobro mensual estable (Netflix 15.000 → 18.000), *categoría disparada* este mes vs. el promedio de los 3 anteriores, y *4+ cobros que se repiten cada mes* en la misma categoría. Cada aviso se puede descartar (se recuerda en el dispositivo) y el Asistente también los conoce ("¿hay algo raro en mis gastos?"). Las reglas necesitan historia: con pocos meses de datos la tarjeta no aparece, que es lo esperado. Falta: alertas push de anomalías y ajustar umbrales con datos reales.
+- ~~**Sugerencias de las personas al administrador**~~ ✅ — desde el chat del Asistente, la IA detecta cuando alguien propone algo para la app y muestra una tarjeta "Sugerencia para la app" (título + descripción) con *Enviar al equipo* / *Descartar* — nada se manda sin confirmar. Se guarda en `suggestions` (+ historial en `suggestion_events`), avisa al administrador con notificación en la campana (trigger) y push (`api/notify-suggestion.js`, una sola vez por sugerencia). El administrador las gestiona en Ajustes → Administración → *Sugerencias de las personas*: filtro por estado, **aprobar / rechazar**, mover de etapa (en revisión → aprobada → en desarrollo → implementada), y una nota que ve quien sugirió; cada cambio le avisa al autor. Cada persona ve las suyas y su estado en Ajustes → *Mis sugerencias*. RLS: solo el autor y los admins ven una sugerencia; nadie puede aprobarse la propia. Falta: votos/duplicados entre sugerencias parecidas.
 - ~~**"Disponible para gastar hoy"**~~ ✅ (en el Asistente) — cálculo (`daysLeftInMonth` en `lib/finance.js`) disponible en el resumen del Asistente, por presupuesto y total. Falta: tarjeta propia en el Dashboard (hoy solo se puede preguntar por chat).
 - **Proyección a fin de mes** — ¿vas a llegar a la quincena? (parte ya está en el motor de notificaciones).
 - **Estrategias de pago de deuda a nivel portafolio** — avalancha vs bola de nieve entre todos los créditos, simulador "si abono $X/mes". Hoy el simulador es por crédito individual.
@@ -89,7 +91,7 @@ El mayor predictor de que una app de finanzas sobreviva es qué tan fácil es me
 
 ## Fase 15 — Confianza, seguridad y cumplimiento
 
-- **Auditoría de RLS y advisors de Supabase** — hay 11 funciones `SECURITY DEFINER` ejecutables por `anon`; revisar una por una. Activar "Leaked Password Protection". Suite de tests de RLS.
+- **Auditoría de RLS y advisors de Supabase** — *Auditoría de privacidad hecha (2026-09-18):* la **lectura** ya estaba bien cerrada en la base (no solo en la interfaz): cuentas individuales, sus movimientos (`can_see_transaction`), objetivos, presupuestos, créditos, obligaciones y notificaciones personales solo los ve su dueño; lo compartido lo ven todos los del hogar. Hallazgos corregidos en la migración `fase15_privacidad_rls`: (1) **editar una cuenta no guardaba nada** — nunca existió la política de UPDATE en `accounts`; (2) cualquier integrante podía *inyectar* movimientos en la cuenta individual de otro — ahora un movimiento exige `created_by = yo` y una cuenta que yo veo; (3) `profiles` era legible por cualquier usuario de la plataforma — ahora solo el propio, los de tu hogar y los admins. Verificado con pruebas en la base simulando a dos usuarios. **Pendiente:** `uvr_rates` la puede escribir cualquier usuario autenticado (mover la escritura al endpoint con service role); 11 funciones `SECURITY DEFINER` ejecutables por `anon`, revisar una por una; activar "Leaked Password Protection"; suite automática de tests de RLS.
 - **2FA / MFA** en el login.
 - **Exportar todos mis datos** (CSV/JSON) y **borrar la cuenta** — expectativa básica hoy en día.
 - **Rate-limit real** en los endpoints de IA (ver Fase 11).
@@ -107,6 +109,26 @@ El mayor predictor de que una app de finanzas sobreviva es qué tan fácil es me
 - **App en las tiendas** — envolver la PWA en TWA (Play Store) y Capacitor (App Store). Desbloquea push real en iOS, biométrico, widgets nativos.
 - **Digest mensual** por push/correo — reusa la infra de `send-reminders`.
 - **Referidos / compartir**.
+
+---
+
+## Fase 17 — Contabilidad y estados financieros (informes como los de una empresa)
+
+Objetivo: poder generar informes **mensuales, trimestrales, semestrales y anuales** — Estado de Resultados, Estado de Situación Financiera (balance), Estado de Flujos de Efectivo (y, más adelante, Cambios en el Patrimonio) — tanto de las **finanzas personales de cada quien** como del **hogar** (2 o más personas), con comparativo contra el período anterior y exportables (PDF/CSV).
+
+**Diagnóstico de lo que hoy impide hacerlo bien** (revisión de toda la app, 2026-09-18):
+
+| Hueco | Por qué estorba | Propuesta |
+|---|---|---|
+| Los movimientos no tienen *naturaleza contable* | El saldo inicial de una cuenta se guarda como **ingreso**, un préstamo recibido ("Restante préstamo…") también, y el pago de tarjeta/crédito como **gasto**. Con eso el Estado de Resultados quedaría inflado o falseado (deuda ≠ gasto, préstamo ≠ ingreso). | Columna `nature` en `transactions`: `operativo` (default) · `financiamiento` (préstamos recibidos, capital de deuda pagado) · `inversion` · `apertura` (saldo inicial) · `traspaso`. Default por categoría, con opción de corregir por movimiento. |
+| Las categorías son una lista plana | "Bien segmentado" pide rubros: Vivienda, Alimentación, Transporte, Financieros (intereses), Impuestos…; y fijo vs. variable. | `group_name` e `is_fixed` en `categories` + editor en Ajustes; plantilla de rubros por defecto. |
+| Pagar una cuota de crédito registra **todo** como gasto | En contabilidad solo los **intereses y seguros** son gasto; el **capital** baja el pasivo. | Al marcar una cuota pagada, partirla en capital (financiamiento) e intereses/seguro (operativo) usando la tabla de amortización que ya existe. |
+| No hay activos | Sin propiedades, inversiones, cuentas por cobrar ni vehículos el balance solo tendría efectivo y ahorros. | Módulo **Activos e inversiones** (la idea pendiente del usuario) con su historial de valor. |
+| Saldos solo *de hoy* | Un balance a fin de mes/trimestre/año necesita saldos **a una fecha**. Cuentas y objetivos se pueden reconstruir del historial de movimientos; el saldo de un crédito a una fecha necesita la fecha real de pago de cada cuota (`paid_at`); activos necesitan valoraciones fechadas. | Funciones puras `balanceAt(fecha)`; `paid_at` en `credit_payments`; snapshots mensuales de patrimonio (ya anotado en Fase 13). |
+| Segmentación persona vs. hogar | Ya existe: cuentas individuales/compartidas, `is_shared` + reparto por integrante (`participants`). La base ya impide ver lo privado de otros, así que el informe *del hogar* solo puede incluir lo compartido y el *personal* tu parte (lo tuyo + tu cuota de lo compartido). | Selector de perspectiva **Personal / Hogar** en Informes; el consolidado respeta la privacidad (nunca incluye cuentas individuales ajenas). |
+| Sin períodos ni exportación | Solo hay vista mensual y tablas de tendencia. | Selector Mes / Trimestre / Semestre / Año (+ comparativo y acumulado del año); exportar a CSV y a PDF imprimible. |
+
+**Orden sugerido:** (1) `nature` + rubros en categorías + partir cuotas de crédito · (2) Estado de Resultados y Flujo de Efectivo con períodos y comparativo · (3) módulo Activos e inversiones · (4) Estado de Situación Financiera con saldos a fecha · (5) exportación PDF/CSV y Cambios en el Patrimonio.
 
 ---
 

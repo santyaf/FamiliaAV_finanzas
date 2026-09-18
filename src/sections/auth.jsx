@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Wallet, Eye, EyeOff } from 'lucide-react';
 import { T, FONT_DISPLAY, FONT_BODY, FONT_MONO, inputStyle, CURRENCIES, GOOGLE_FONTS_IMPORT } from '../ui/theme';
 import { Card, Field, PrimaryButton, GhostButton } from '../ui/primitives';
@@ -102,6 +102,12 @@ export function AuthScreen() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(false);
+  // false = Google no está habilitado en Supabase: se oculta el botón en vez de
+  // mandar a la persona a una pantalla de error. null = no se pudo saber (se muestra).
+  const [googleEnabled, setGoogleEnabled] = useState(null);
+  useEffect(() => {
+    db.getEnabledAuthProviders().then((p) => setGoogleEnabled(p ? !!p.google : null));
+  }, []);
 
   async function submit() {
     setError(''); setNotice(''); setLoading(true);
@@ -170,7 +176,7 @@ export function AuthScreen() {
         <PrimaryButton full onClick={submit}>
           {loading ? 'Un momento…' : mode === 'signup' ? 'Crear cuenta' : mode === 'forgot' ? 'Enviar enlace' : 'Entrar'}
         </PrimaryButton>
-        {mode !== 'forgot' && (
+        {mode !== 'forgot' && googleEnabled !== false && (
           <>
             <div className="flex items-center gap-3 my-4">
               <div style={{ flex: 1, height: 1, background: T.border }} />

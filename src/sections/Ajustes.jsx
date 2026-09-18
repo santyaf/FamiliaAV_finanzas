@@ -4,6 +4,7 @@ import {
   BellRing, BellOff, Clock,
 } from 'lucide-react';
 import { T, FONT_DISPLAY, FONT_BODY, FONT_MONO, TAP_MIN, inputStyle, DAY_LABELS, CURRENCIES } from '../ui/theme';
+import { MisSugerenciasCard } from './Sugerencias';
 import {
   Card, CategoryIcon, CATEGORY_ICON_OPTIONS, Field, GhostButton, IconButton, MemberChip, Modal, PrimaryButton,
 } from '../ui/primitives';
@@ -267,6 +268,7 @@ export function Ajustes({ data, update, actions, setModal, setTab }) {
 
       <InstallAppCard />
       <RemindersCard actions={actions} setModal={setModal} />
+      <MisSugerenciasCard actions={actions} />
 
       <Card style={{ marginBottom: 14 }}>
         <Field label="Nombre del hogar">
