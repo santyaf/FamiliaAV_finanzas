@@ -18,7 +18,7 @@ Estado a 2026-09-09. Continúa la numeración de fases del README (la última fu
 - **Fase 11 (cimientos)** — ✅ tests de la lógica pura (`amortization`, `finance`, `notifications` — ~50 casos), ✅ CI en cada push (`npm test` + build), ✅ error boundary, ✅ routing por hash con deep-links y botón atrás. En progreso: partir `App.jsx` en `src/sections/`.
 - **Fase 12 — Medio de pago en Cuentas** — cada cuenta se marca como efectivo, tarjeta débito, cuenta de ahorros o tarjeta de crédito (`accounts.payment_kind`); Cuentas muestra disponible (o gastado, para tarjeta de crédito) agrupado por medio de pago. Tarjeta de crédito es solo informativa por ahora, sin cupo/límite.
 - **Fase 12 — Obligaciones** — nuevo módulo en Gestión para pagos recurrentes (arriendo, servicios, suscripciones) con recordatorio push propio (`obligations` + `obligation_sent_log`, cron `send-reminders.js` extendido). Monto opcional (vacío = variable). El aviso, al tocarlo, navega a `#/movimientos?ob=<id>` y abre el registro del gasto ya prellenado con categoría/cuenta/monto/integrante.
-- **Fase 12 — Medio de pago por transacción** — el medio de pago de la cuenta ahora es solo un *default*: cada movimiento puede anularlo (`transactions.payment_kind`, nullable). El selector del formulario se autocompleta con el de la cuenta elegida y sigue seguiendo ese default mientras no lo toques a mano.
+- ~~**Fase 12 — Medio de pago por transacción**~~ ↩️ **Revertido (2026-09-18, pedido del usuario):** el medio de pago vuelve a definirse **solo por cuenta** (`accounts.payment_kind`); los formularios de movimiento ya no lo piden ni lo guardan. La columna `transactions.payment_kind` sigue en la base (sin borrar datos) pero la app la ignora; se puede eliminar en una migración futura.
 - **Fase 12 — "Próximos pagos" unificado** — el widget del Dashboard mostraba solo transacciones recurrentes; ahora también incluye las Obligaciones próximas a vencer (14 días) en la misma lista, y tocar una obligación abre el registro del gasto ya prellenado (mismo flujo que el aviso push). Se mantienen ambos conceptos por separado a propósito: las recurrentes siguen sirviendo para que el presupuesto cuente un gasto de monto fijo automáticamente sin pedir confirmación (ej. mercado semanal); Obligaciones es el camino recomendado para cualquier recordatorio nuevo, incluidos los de monto variable (que una recurrente no puede representar).
 - **Bugs arreglados (heredados de partir `App.jsx`)** — `AdminPanel.jsx` y `Ajustes.jsx` usaban `TAP_MIN` sin importarlo (rompían el panel de Admin y el selector de ícono de categorías); `NotificationsPanel.jsx` usaba `Trash2` sin importarlo (rompía la campana en cuanto había alguna notificación). El build no los detecta porque un identificador JSX sin importar no es un error de compilación, solo revienta en tiempo de ejecución. Verificado con un chequeo estático de todo `src/` que no quedan más casos.
 
@@ -152,6 +152,19 @@ Objetivo: poder generar informes **mensuales, trimestrales, semestrales y anuale
 - Privacidad: una transferencia hacia/desde una cuenta compartida ahora la ve todo el hogar (antes solo las dos personas), para que el saldo de una tarjeta compartida sea igual para todos.
 - **Simplificaciones conocidas:** el interés de la 1.ª cuota es de un mes completo aunque la compra sea a mitad de ciclo; el "pago sin intereses" es aproximado (incluye compras de un pago hechas después del último corte); no hay cuota de manejo ni pago mínimo (se registran como gasto normal); en el Flujo de efectivo la tarjeta cuenta como una cuenta con saldo negativo (la compra sale al comprar). Los pagos de tarjeta registrados como **gasto** antes de esta fase (p. ej. "Pago TC") duplican el gasto: reclasificarlos como transferencia.
 - Pendiente: tarjetas: avances en efectivo, tarjeta adicional/compartida por integrante, alertas de corte/pago por notificación push.
+
+
+## Fase 20 — Notificaciones y gestión de usuarios (pedido del usuario, 2026-09-18)
+
+**Centro de notificaciones renovado** (hoy es una pantalla completa con la lista simple):
+- Cada notificación se puede **marcar como leída, archivar y eliminar**, con **iconos que aparecen al deslizar la notificación hacia la izquierda** (gesto swipe en móvil; en escritorio, los mismos iconos al pasar el cursor).
+- La ventana pasa a ser un **pop-up anclado a la campana** que **no ocupa toda la pantalla** y muestra **solo las no leídas**.
+- Las **archivadas** se ven en **otra interfaz** (enlace "Ver archivadas" dentro del pop-up), con opción de desarchivar o eliminar.
+- Por hacer: columnas `read_at` / `archived_at` en `notifications` (o tabla de estados por usuario, porque algunas notificaciones son del hogar), políticas RLS de UPDATE/DELETE solo sobre las propias, contador de la campana = no leídas, "marcar todas como leídas". Reusar el patrón de deslizar de `Movimientos`, si existe, o un componente `SwipeRow` con pruebas.
+
+**Gestión de usuarios:**
+- **Eliminar cuenta** (la propia): borrar el perfil y sus datos personales, con confirmación fuerte y qué pasa con lo compartido del hogar (transferir la propiedad o dejar los movimientos como "ex integrante"); también la baja de un integrante por el administrador del hogar y por el admin de la plataforma. Necesita un endpoint con service role (`auth.admin.deleteUser`) y revisar las llaves foráneas (`created_by`, `member_id`…) para no dejar datos huérfanos. Ver también *Exportar todos mis datos y borrar la cuenta* en la Fase 15.
+- Más gestión de usuarios (por definir con el usuario): suspender/reactivar, cambiar rol, ver último acceso, restablecer contraseña desde Admin.
 
 ---
 

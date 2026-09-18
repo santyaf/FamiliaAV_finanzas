@@ -176,7 +176,7 @@ function dbTxToJs(t) {
     id: t.id, type: t.type, description: t.description, amount: Number(t.amount),
     categoryId: t.category_id, accountId: t.account_id, memberId: t.member_id, date: t.date,
     recurring: t.recurring, frequency: t.frequency, isShared: t.is_shared, participants: t.participants,
-    paymentKind: t.payment_kind || null, nature: t.nature || null,
+    nature: t.nature || null,
     version: t.version || 1, editedBy: t.edited_by, editedAt: t.edited_at,
   };
 }
@@ -188,7 +188,7 @@ export async function updateTransactionWithHistory(userId, original, patch) {
     type: original.type, description: original.description, amount: original.amount,
     category_id: original.categoryId, account_id: original.accountId, member_id: original.memberId,
     date: original.date, recurring: original.recurring, frequency: original.frequency,
-    is_shared: original.isShared, participants: original.participants, payment_kind: original.paymentKind,
+    is_shared: original.isShared, participants: original.participants,
     nature: original.nature || null,
   };
   const { error: e1 } = await supabase.from('transaction_history').insert({
@@ -201,7 +201,7 @@ export async function updateTransactionWithHistory(userId, original, patch) {
     type: patch.type, description: patch.description, amount: patch.amount,
     category_id: patch.categoryId, account_id: patch.accountId, member_id: patch.memberId,
     date: patch.date, recurring: patch.recurring, frequency: patch.frequency,
-    is_shared: patch.isShared, participants: patch.participants, payment_kind: patch.paymentKind || null,
+    is_shared: patch.isShared, participants: patch.participants,
     nature: patch.nature || null,
     edited_by: userId, edited_at: new Date().toISOString(),
     version: (original.version || 1) + 1,
@@ -225,7 +225,7 @@ export async function getTransactionHistory(transactionId) {
       type: h.data.type, description: h.data.description, amount: Number(h.data.amount),
       categoryId: h.data.category_id, accountId: h.data.account_id, memberId: h.data.member_id,
       date: h.data.date, recurring: h.data.recurring, frequency: h.data.frequency,
-      isShared: h.data.is_shared, participants: h.data.participants, paymentKind: h.data.payment_kind,
+      isShared: h.data.is_shared, participants: h.data.participants,
     },
   }));
 }
@@ -239,7 +239,7 @@ export async function addTransaction(householdId, userId, t) {
     household_id: householdId, type: t.type, description: t.description, amount: t.amount,
     category_id: t.categoryId, account_id: t.accountId, member_id: t.memberId, date: t.date,
     recurring: t.recurring, frequency: t.frequency, is_shared: t.isShared, participants: t.participants,
-    payment_kind: t.paymentKind || null, nature: t.nature || null, created_by: userId,
+    nature: t.nature || null, created_by: userId,
   };
   const { error } = await supabase.from('transactions').insert(row);
   // con un plan de cuotas, un 23505 (el movimiento ya estaba guardado) no corta: falta crear el plan
