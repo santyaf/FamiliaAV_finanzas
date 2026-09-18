@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  readJSON, writeJSON, enqueueItem, removeItem, retryAllFailed, countByStatus,
-  flushQueue, applyFlushResult, withTimeout, getStorage,
+  enqueueItem, removeItem, retryAllFailed, countByStatus,
+  flushQueue, applyFlushResult, withTimeout,
 } from './offlineQueue';
+import { readJSON, writeJSON, getStorage } from './safeStorage';
 
 export const SEND_TIMEOUT_MS = 10000; // más de esto sin respuesta = tratar como sin señal
 const RETRY_EVERY_MS = 20000;

@@ -41,31 +41,6 @@ export function newId() {
   });
 }
 
-/* ---- almacenamiento (localStorage inyectado; nunca debe romper la app) ---- */
-// Solo tocar `localStorage` puede lanzar (ej. navegación privada / cookies bloqueadas).
-export function getStorage() {
-  try { return globalThis.localStorage; } catch { return undefined; }
-}
-export function readJSON(storage, key, fallback) {
-  try {
-    const raw = storage?.getItem(key);
-    return raw == null ? fallback : JSON.parse(raw);
-  } catch {
-    return fallback;
-  }
-}
-export function writeJSON(storage, key, value) {
-  try {
-    storage.setItem(key, JSON.stringify(value));
-    return true;
-  } catch {
-    return false;
-  }
-}
-export function removeKey(storage, key) {
-  try { storage.removeItem(key); } catch { /* sin acceso a storage: nada que borrar */ }
-}
-
 /* ---- operaciones sobre la cola (inmutables) ---- */
 export function enqueueItem(items, item) {
   return [...items, { status: 'pending', error: null, createdAt: new Date().toISOString(), ...item }];

@@ -5,6 +5,7 @@ import { Card, PrimaryButton, EmptyState, PAYMENT_KIND_LABEL } from '../ui/primi
 import { callAiJson } from '../lib/ai';
 import { matchCategory, matchMember } from '../lib/aiParse';
 import { isAiFeatureEnabled } from '../lib/access';
+import { detectAnomalies, describeAnomaly } from '../lib/anomalies';
 import { formatMoney, formatDate } from '../lib/format';
 import {
   todayISO, thisMonthKey, lastMonthKeys, monthCashFlow, occurrencesInMonth,
@@ -15,6 +16,7 @@ const SUGGESTED_QUESTIONS = [
   '¿Cuánto puedo gastar hoy?',
   '¿Cuánto llevo gastado este mes?',
   '¿Cómo voy con mis presupuestos?',
+  '¿Hay algo raro en mis gastos?',
   '¿Cómo va mi objetivo de ahorro principal?',
 ];
 const SUGGESTED_REGISTROS = ['Pagué 30000 de mercado hoy', 'Me depositaron 500000 de nómina'];
@@ -36,7 +38,7 @@ function chatSystemPrompt({ currency, categoryNames, memberNames, canAsk, canReg
   const formatoRespuesta = '{"tipo":"respuesta","texto":"tu respuesta en español, 1 a 4 frases, tono cercano y directo, sin tecnicismos ni consejos de inversión"}';
   const categoriasYIntegrantes = `Categorías de ingreso: ${categoryNames.income.join(', ')}. Categorías de gasto: ${categoryNames.expense.join(', ')}. Integrantes del hogar: ${memberNames.join(', ')}.`;
 
-  const notaDatos = `El bloque "DATOS" trae "movimientos_recientes" (el detalle día a día, con descripción, de los últimos ${RECENT_TX_DAYS} días) y además totales agregados por mes en "flujo_de_caja_ultimos_meses" / "gasto_por_categoria_por_mes" para un rango más largo. Para preguntas sobre un día o una compra específica, usa "movimientos_recientes"; si la fecha que preguntan ya no está ahí, usa los totales por mes si alcanzan, y si tampoco alcanzan dilo con claridad — no digas que no tienes ningún dato solo porque falte el detalle día a día de un mes viejo. Si preguntan cuánto pueden gastar hoy, usa directamente "disponible_para_gastar_hoy" de cada presupuesto (o "disponible_para_gastar_hoy_total") — ya viene calculado repartiendo lo que queda del mes entre los días que faltan ("dias_restantes_del_mes"), no lo recalcules tú.`;
+  const notaDatos = `El bloque "DATOS" trae "movimientos_recientes" (el detalle día a día, con descripción, de los últimos ${RECENT_TX_DAYS} días) y además totales agregados por mes en "flujo_de_caja_ultimos_meses" / "gasto_por_categoria_por_mes" para un rango más largo. Para preguntas sobre un día o una compra específica, usa "movimientos_recientes"; si la fecha que preguntan ya no está ahí, usa los totales por mes si alcanzan, y si tampoco alcanzan dilo con claridad — no digas que no tienes ningún dato solo porque falte el detalle día a día de un mes viejo. Si preguntan cuánto pueden gastar hoy, usa directamente "disponible_para_gastar_hoy" de cada presupuesto (o "disponible_para_gastar_hoy_total") — ya viene calculado repartiendo lo que queda del mes entre los días que faltan ("dias_restantes_del_mes"), no lo recalcules tú. Si preguntan si hay algo raro, inusual o duplicado en sus gastos, usa "anomalias" (son los mismos avisos que ve en el Dashboard, en "Para revisar"); si está vacía, dile que no detectaste nada raro.`;
 
   if (canAsk && canRegister) {
     return `${intro}
@@ -144,8 +146,19 @@ function buildDigest(data, visibleTransactions) {
   const deudaMismaMoneda = creditos.filter((c) => c.moneda === data.currency).reduce((s, c) => s + c.saldo_pendiente, 0);
   const deudaEnOtraMonedaNoIncluida = creditos.filter((c) => c.moneda !== data.currency);
 
+  // Lo que el Dashboard muestra en "Para revisar" — para poder contestar
+  // "¿hay algo raro en mis gastos?" con los mismos avisos que ve la persona.
+  const anomalias = detectAnomalies(visibleTransactions).slice(0, 8).map((a) => {
+    const d = describeAnomaly(a, {
+      formatMoney: (v) => String(Math.round(v)), formatDate: (x) => x,
+      categoryName: (id) => data.categories.find((c) => c.id === id)?.name || 'Otro',
+    });
+    return { tipo: a.type, gravedad: a.severity, titulo: d.title, detalle: d.detail };
+  });
+
   return {
     moneda: data.currency,
+    anomalias,
     movimientos_recientes: movimientosRecientes,
     ventana_movimientos_recientes_dias: RECENT_TX_DAYS,
     flujo_de_caja_ultimos_meses: flujoDeCaja,

@@ -4,6 +4,7 @@ import {
 } from 'lucide-react';
 import { T, FONT_DISPLAY, FONT_BODY, FONT_MONO } from '../ui/theme';
 import { Card, ProgressBar, EmptyState, CategoryIcon } from '../ui/primitives';
+import { AnomaliasCard } from './AnomaliasCard';
 import { formatMoney, formatDate } from '../lib/format';
 import {
   thisMonthKey, daysUntil, occurrencesInMonth, getNextOccurrence, goalPriorityScore, todayISO,
@@ -257,6 +258,8 @@ export function Dashboard({ data, update, actions, visibleTransactions, visibleM
           })}
         </Card>
       )}
+
+      <AnomaliasCard data={data} actions={actions} transactions={visibleTransactions} setModal={setModal} />
 
       {upcoming.length > 0 && (
         <Card style={{ marginBottom: 16 }}>
