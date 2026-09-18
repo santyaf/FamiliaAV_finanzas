@@ -26,11 +26,22 @@ export function accountBalance(transactions, accountId) {
   return total;
 }
 
-// Saldo pendiente de un crédito: el balance_after de la última cuota pagada,
-// o el capital inicial si aún no se ha pagado ninguna. Extraída de
-// Creditos.jsx para reusarla en el cálculo de patrimonio neto.
+// Saldo pendiente de un crédito: lo que falta de capital ANTES de pagar la próxima
+// cuota = el saldo que queda tras esa cuota + el capital que esa cuota amortiza.
+// Así un retanqueo o un rediferido se reflejan de inmediato (el calendario de
+// cuotas pendientes ya se recalculó) sin esperar a pagar una cuota. Sin cuotas:
+// el capital inicial. Todas pagadas: 0. Si las filas no traen "capital" (datos
+// antiguos), usa el saldo de la última cuota pagada.
 export function creditOutstandingBalance(credit, payments) {
-  return payments?.length ? (payments.filter((p) => p.paid).slice(-1)[0]?.balanceAfter ?? credit.principal) : credit.principal;
+  if (!payments?.length) return credit.principal;
+  const sorted = [...payments].sort((a, b) => (a.installmentNumber ?? 0) - (b.installmentNumber ?? 0));
+  const firstUnpaid = sorted.find((p) => !p.paid);
+  if (!firstUnpaid) return 0;
+  if (typeof firstUnpaid.capital === 'number' && typeof firstUnpaid.balanceAfter === 'number') {
+    return Math.round((firstUnpaid.balanceAfter + firstUnpaid.capital + Number.EPSILON) * 100) / 100;
+  }
+  const lastPaid = sorted.filter((p) => p.paid).slice(-1)[0];
+  return lastPaid?.balanceAfter ?? credit.principal;
 }
 
 export function daysUntil(d) {

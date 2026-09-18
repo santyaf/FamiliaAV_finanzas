@@ -52,6 +52,7 @@ export const DEFAULT_CATEGORY_SPECS = [
 // cuota de crédito (intereses) y al registrar el desembolso de un préstamo.
 export const INTEREST_CATEGORY = DEFAULT_CATEGORY_SPECS.find((c) => c.name === 'Intereses y comisiones');
 export const LOAN_INCOME_CATEGORY = DEFAULT_CATEGORY_SPECS.find((c) => c.name === 'Préstamos recibidos');
+export const DEBT_CATEGORY = DEFAULT_CATEGORY_SPECS.find((c) => c.name === 'Deudas y préstamos');
 
 // Al pagar una cuota de crédito: el capital baja el pasivo (financiamiento) y
 // solo intereses + seguro son gasto. Devuelve los montos de cada movimiento

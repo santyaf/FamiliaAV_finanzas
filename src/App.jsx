@@ -20,7 +20,7 @@ import {
 } from './sections/Objetivos';
 import {
   Creditos, CreditModal, PayInstallmentModal, ExtraPaymentModal, EditCreditModal,
-  CreditInsuranceModal, MemberTransferModal,
+  CreditInsuranceModal, MemberTransferModal, RefinanceModal,
 } from './sections/Creditos';
 import {
   Movimientos, TransactionModal, EditTransactionModal, HistoryModal,
@@ -148,6 +148,10 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
         return;
       }
       setLoading(false);
+      // libranza con registro automático: registra los descuentos de nómina que ya vencieron
+      try {
+        if (await db.applyDuePayrollDeductions(household.householdId, session.user.id)) d = await refresh();
+      } catch { /* si falla, se puede registrar a mano desde Créditos */ }
       // motor de detección: corre una vez por sesión, en silencio, cuando se abre la app
       try {
         const credits = await db.loadCredits(household.householdId);
@@ -278,14 +282,17 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     loadCreditExtraPayments: (creditId) => db.loadCreditExtraPayments(creditId),
     createCredit: (credit) => db.createCredit(household.householdId, session.user.id, credit),
     deleteCredit: (id) => db.deleteCredit(id),
-    updateCredit: (creditId, patch, currentCredit, payments) => db.updateCreditAndRecalc(creditId, patch, currentCredit, payments),
+    updateCredit: (creditId, patch, currentCredit, payments) => db.updateCreditAndRecalc(creditId, patch, currentCredit, payments, session.user.id),
     loadCreditInsurances: (creditId) => db.loadCreditInsurances(creditId),
     addCreditInsurance: (creditId, insurance) => db.addCreditInsurance(creditId, insurance),
     removeCreditInsurance: (id, creditId) => db.removeCreditInsurance(id, creditId),
-    markInstallmentPaid: (credit, installment, accountId, memberId, categoryId) =>
-      db.markInstallmentPaid(household.householdId, session.user.id, credit, installment, accountId, memberId, categoryId),
-    applyExtraPayment: (credit, payments, extraAmount, strategy, applyDate, accountId, memberId, categoryId, registerAsExpense) =>
-      db.applyExtraPayment(household.householdId, session.user.id, credit, payments, extraAmount, strategy, applyDate, accountId, memberId, categoryId, registerAsExpense),
+    markInstallmentPaid: (credit, installment, accountId, memberId, categoryId, options) =>
+      db.markInstallmentPaid(household.householdId, session.user.id, credit, installment, accountId, memberId, categoryId, options),
+    unmarkInstallmentPaid: (credit, installment, payments) => db.unmarkInstallmentPaid(session.user.id, credit, installment, payments),
+    refinanceCredit: (credit, payments, options) => db.refinanceCredit(household.householdId, session.user.id, credit, payments, options),
+    loadCreditEvents: (creditId) => db.loadCreditEvents(creditId),
+    applyExtraPayment: (credit, payments, extraAmount, strategy, applyDate, accountId, memberId, categoryId, registerAsExpense, uvrValue) =>
+      db.applyExtraPayment(household.householdId, session.user.id, credit, payments, extraAmount, strategy, applyDate, accountId, memberId, categoryId, registerAsExpense, uvrValue),
     getLatestUvr: () => db.getLatestUvr(),
     saveManualUvr: (date, value) => db.saveManualUvr(date, value),
     addMemberTransfer: wrap((t) => db.addMemberTransfer(household.householdId, session.user.id, t)),
@@ -590,6 +597,7 @@ function MainApp({ data, update, actions }) {
       {modal?.type === 'extraPayment' && <ExtraPaymentModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} onDone={modal.onDone} />}
       {modal?.type === 'payInstallment' && <PayInstallmentModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} onDone={modal.onDone} />}
       {modal?.type === 'editCredit' && <EditCreditModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} onDone={modal.onDone} />}
+      {modal?.type === 'refinanceCredit' && <RefinanceModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} onDone={modal.onDone} />}
       {modal?.type === 'creditInsurance' && <CreditInsuranceModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} onDone={modal.onDone} />}
       {modal?.type === 'memberTransfer' && <MemberTransferModal data={data} actions={actions} onClose={() => setModal(null)} />}
       {modal?.type === 'reminder' && <ReminderModal actions={actions} onClose={() => setModal(null)} onDone={modal.onDone} />}

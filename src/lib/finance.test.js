@@ -91,17 +91,42 @@ describe('accountBalance', () => {
 });
 
 describe('creditOutstandingBalance', () => {
-  it('sin cuotas pagadas: el saldo es el capital inicial', () => {
+  it('sin cuotas: el saldo es el capital inicial', () => {
     expect(creditOutstandingBalance({ principal: 10000 }, [])).toBe(10000);
     expect(creditOutstandingBalance({ principal: 10000 }, null)).toBe(10000);
   });
-  it('con cuotas pagadas: el saldo es el balanceAfter de la última pagada', () => {
+  it('datos antiguos sin capital por cuota: usa el saldo de la última pagada', () => {
     const payments = [
       { paid: true, balanceAfter: 9000 },
       { paid: true, balanceAfter: 8000 },
       { paid: false, balanceAfter: 7000 },
     ];
     expect(creditOutstandingBalance({ principal: 10000 }, payments)).toBe(8000);
+  });
+  it('con cuotas completas: saldo tras la próxima cuota + el capital que esa cuota amortiza', () => {
+    const payments = [
+      { installmentNumber: 1, paid: true, capital: 1000, balanceAfter: 9000 },
+      { installmentNumber: 2, paid: false, capital: 1100, balanceAfter: 7900 },
+      { installmentNumber: 3, paid: false, capital: 1200, balanceAfter: 6700 },
+    ];
+    expect(creditOutstandingBalance({ principal: 10000 }, payments)).toBe(9000);
+  });
+  it('un retanqueo se refleja de inmediato: el calendario nuevo ya trae el saldo mayor', () => {
+    const payments = [
+      { installmentNumber: 1, paid: true, capital: 1000, balanceAfter: 9000 },
+      { installmentNumber: 2, paid: false, capital: 1500, balanceAfter: 13500 }, // 9.000 + 6.000 nuevos − 1.500 de capital
+    ];
+    expect(creditOutstandingBalance({ principal: 10000 }, payments)).toBe(15000);
+  });
+  it('todas pagadas: 0', () => {
+    expect(creditOutstandingBalance({ principal: 10000 }, [{ installmentNumber: 1, paid: true, capital: 10000, balanceAfter: 0 }])).toBe(0);
+  });
+  it('no depende del orden en que lleguen las cuotas', () => {
+    const payments = [
+      { installmentNumber: 2, paid: false, capital: 1100, balanceAfter: 7900 },
+      { installmentNumber: 1, paid: true, capital: 1000, balanceAfter: 9000 },
+    ];
+    expect(creditOutstandingBalance({ principal: 10000 }, payments)).toBe(9000);
   });
 });
 

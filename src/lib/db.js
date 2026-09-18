@@ -1,6 +1,8 @@
 import { supabase } from './supabaseClient';
-import { generateSchedule, recalcAfterExtraPayment } from './amortization';
-import { DEFAULT_CATEGORY_SPECS, INTEREST_CATEGORY, LOAN_INCOME_CATEGORY, splitInstallment } from './accounting';
+import { generateSchedule, recalcAfterExtraPayment, buildRefinance } from './amortization';
+import { DEFAULT_CATEGORY_SPECS, INTEREST_CATEGORY, LOAN_INCOME_CATEGORY, DEBT_CATEGORY } from './accounting';
+import { creditOutstandingBalance } from './finance';
+import { installmentInCop, dueLibranzaInstallments, nextDateWithDay } from './creditRules';
 
 /* ------------------------- AUTH ------------------------- */
 export async function signUp(email, password, fullName) {
@@ -459,6 +461,8 @@ function dbCreditToJs(c) {
     principal: Number(c.principal), annualRate: Number(c.annual_rate), termMonths: c.term_months,
     amortizationSystem: c.amortization_system, insuranceMonthly: Number(c.insurance_monthly),
     ownerMemberId: c.owner_member_id, accountId: c.account_id, startDate: c.start_date, status: c.status,
+    paymentSource: c.payment_source || 'cuenta', payrollEmployer: c.payroll_employer || '',
+    payrollDay: c.payroll_day || null, autoRegister: !!c.auto_register,
   };
 }
 function dbPaymentToJs(p) {
@@ -466,6 +470,7 @@ function dbPaymentToJs(p) {
     id: p.id, creditId: p.credit_id, installmentNumber: p.installment_number, dueDate: p.due_date,
     capital: Number(p.capital), interest: Number(p.interest), insurance: Number(p.insurance), total: Number(p.total),
     balanceAfter: Number(p.balance_after), paid: p.paid, paidDate: p.paid_date, transactionId: p.transaction_id,
+    interestTransactionId: p.interest_transaction_id || null, paidUvrValue: p.paid_uvr_value ? Number(p.paid_uvr_value) : null,
   };
 }
 
@@ -485,25 +490,78 @@ export async function loadCreditExtraPayments(creditId) {
   return data.map((e) => ({ id: e.id, amount: Number(e.amount), strategy: e.strategy, appliedDate: e.applied_date, byName: e.profiles?.full_name || 'Alguien' }));
 }
 
+const paymentRow = (creditId, r) => ({
+  credit_id: creditId, installment_number: r.installmentNumber, due_date: r.dueDate,
+  capital: r.capital, interest: r.interest, insurance: r.insurance, total: r.total, balance_after: r.balanceAfter,
+});
+
+// Reemplaza las cuotas NO pagadas por un calendario nuevo (abono, retanqueo, cambio
+// de condiciones). Si falla el insert de las nuevas, restaura las anteriores para
+// no dejar el crédito sin calendario.
+async function replaceUnpaidRows(creditId, oldUnpaid, newRows) {
+  const { error: eDel } = await supabase.from('credit_payments').delete().eq('credit_id', creditId).eq('paid', false);
+  if (eDel) throw eDel;
+  if (!newRows.length) return;
+  const { error: eIns } = await supabase.from('credit_payments').insert(newRows.map((r) => paymentRow(creditId, r)));
+  if (eIns) {
+    await supabase.from('credit_payments').insert(oldUnpaid.map((p) => paymentRow(creditId, p)));
+    throw eIns;
+  }
+}
+
+// Historial del crédito (retanqueos, rediferidos, abonos…). Es informativo: si no
+// se puede guardar, la operación principal ya se hizo y no debe deshacerse.
+async function insertCreditEvent(creditId, userId, ev) {
+  try {
+    await supabase.from('credit_events').insert({
+      credit_id: creditId, kind: ev.kind, event_date: ev.date || new Date().toISOString().slice(0, 10),
+      amount: ev.amount ?? null, balance_before: ev.balanceBefore ?? null, balance_after: ev.balanceAfter ?? null,
+      rate_before: ev.rateBefore ?? null, rate_after: ev.rateAfter ?? null,
+      term_before: ev.termBefore ?? null, term_after: ev.termAfter ?? null,
+      installment_before: ev.installmentBefore ?? null, installment_after: ev.installmentAfter ?? null,
+      note: ev.note || null, created_by: userId,
+    });
+  } catch { /* historial opcional */ }
+}
+
+export async function loadCreditEvents(creditId) {
+  const { data, error } = await supabase.from('credit_events').select('*, profiles(full_name)')
+    .eq('credit_id', creditId).order('event_date', { ascending: false }).order('created_at', { ascending: false });
+  if (error) throw error;
+  return data.map((e) => ({
+    id: e.id, kind: e.kind, date: e.event_date, amount: e.amount === null ? null : Number(e.amount),
+    balanceBefore: e.balance_before === null ? null : Number(e.balance_before), balanceAfter: e.balance_after === null ? null : Number(e.balance_after),
+    rateBefore: e.rate_before === null ? null : Number(e.rate_before), rateAfter: e.rate_after === null ? null : Number(e.rate_after),
+    termBefore: e.term_before, termAfter: e.term_after,
+    installmentBefore: e.installment_before === null ? null : Number(e.installment_before),
+    installmentAfter: e.installment_after === null ? null : Number(e.installment_after),
+    note: e.note, byName: e.profiles?.full_name || 'Alguien',
+  }));
+}
+
 export async function createCredit(householdId, userId, credit) {
+  const libranza = credit.paymentSource === 'libranza';
+  // En una libranza la cuota vence el día de nómina; si no, un mes después del inicio.
+  const firstDueDate = libranza && credit.payrollDay ? nextDateWithDay(credit.startDate, credit.payrollDay) : undefined;
   const { data: row, error } = await supabase.from('credits').insert({
     household_id: householdId, name: credit.name, credit_type: credit.creditType, currency: credit.currency,
     principal: credit.principal, annual_rate: credit.annualRate, term_months: credit.termMonths,
     amortization_system: credit.amortizationSystem, insurance_monthly: credit.insuranceMonthly,
     owner_member_id: credit.ownerMemberId || null, account_id: credit.accountId || null,
     start_date: credit.startDate, created_by: userId,
+    payment_source: libranza ? 'libranza' : 'cuenta', payroll_employer: libranza ? (credit.payrollEmployer || null) : null,
+    payroll_day: libranza ? (credit.payrollDay || null) : null, auto_register: libranza && !!credit.autoRegister,
   }).select().single();
   if (error) throw error;
 
   const schedule = generateSchedule({
     principal: credit.principal, annualRate: credit.annualRate, termMonths: credit.termMonths,
-    system: credit.amortizationSystem, insuranceMonthly: credit.insuranceMonthly, startDate: credit.startDate,
+    system: credit.amortizationSystem, insuranceMonthly: credit.insuranceMonthly, startDate: credit.startDate, firstDueDate,
   });
   const alreadyPaid = Math.min(credit.installmentsAlreadyPaid || 0, schedule.length);
   const { error: e2 } = await supabase.from('credit_payments').insert(
     schedule.map((r, i) => ({
-      credit_id: row.id, installment_number: r.installmentNumber, due_date: r.dueDate,
-      capital: r.capital, interest: r.interest, insurance: r.insurance, total: r.total, balance_after: r.balanceAfter,
+      ...paymentRow(row.id, r),
       // las cuotas ya pagadas antes de usar la app se marcan pagadas, sin generar un gasto retroactivo
       paid: i < alreadyPaid,
     }))
@@ -522,6 +580,10 @@ export async function createCredit(householdId, userId, credit) {
     });
     if (e3) throw e3;
   }
+  await insertCreditEvent(row.id, userId, {
+    kind: 'creacion', date: credit.startDate, amount: credit.principal, balanceAfter: credit.principal,
+    rateAfter: credit.annualRate, termAfter: credit.termMonths, installmentAfter: schedule[0]?.total,
+  });
   return row.id;
 }
 
@@ -532,12 +594,16 @@ export async function deleteCredit(id) {
 
 // Edita un crédito y, si cambió algo que afecta el cálculo (tasa, plazo,
 // sistema), recalcula las cuotas NO pagadas desde el saldo actual — las ya
-// pagadas quedan intactas (son historia real, no se tocan).
-export async function updateCreditAndRecalc(creditId, patch, currentCredit, payments) {
+// pagadas quedan intactas (son historia real, no se tocan). Conserva el
+// vencimiento de la próxima cuota y los seguros vigentes.
+export async function updateCreditAndRecalc(creditId, patch, currentCredit, payments, userId) {
+  const libranza = patch.paymentSource === 'libranza';
   const { error: e1 } = await supabase.from('credits').update({
     name: patch.name, credit_type: patch.creditType, owner_member_id: patch.ownerMemberId || null,
     account_id: patch.accountId || null, annual_rate: patch.annualRate, term_months: patch.termMonths,
     amortization_system: patch.amortizationSystem,
+    payment_source: libranza ? 'libranza' : 'cuenta', payroll_employer: libranza ? (patch.payrollEmployer || null) : null,
+    payroll_day: libranza ? (patch.payrollDay || null) : null, auto_register: libranza && !!patch.autoRegister,
   }).eq('id', creditId);
   if (e1) throw e1;
 
@@ -548,28 +614,22 @@ export async function updateCreditAndRecalc(creditId, patch, currentCredit, paym
   );
   if (!affectsSchedule) return;
 
-  const paidRows = payments.filter((p) => p.paid).sort((a, b) => a.installmentNumber - b.installmentNumber);
-  const unpaidCount = payments.length - paidRows.length;
-  const currentBalance = paidRows.length ? paidRows[paidRows.length - 1].balanceAfter : currentCredit.principal;
-  const remainingMonths = Math.max(1, patch.termMonths - paidRows.length);
-  const nextInstallmentNumber = paidRows.length + 1;
-  const fromDate = paidRows.length ? paidRows[paidRows.length - 1].dueDate : currentCredit.startDate;
-
+  const unpaid = payments.filter((p) => !p.paid).sort((a, b) => a.installmentNumber - b.installmentNumber);
+  if (!unpaid.length) return;
+  const paidCount = payments.length - unpaid.length;
+  const currentBalance = creditOutstandingBalance(currentCredit, payments);
   const newRows = generateSchedule({
-    principal: currentBalance, annualRate: patch.annualRate, termMonths: remainingMonths,
+    principal: currentBalance, annualRate: patch.annualRate, termMonths: Math.max(1, patch.termMonths - paidCount),
     system: patch.amortizationSystem, insuranceMonthly: currentCredit.insuranceMonthly,
-    startDate: fromDate, startInstallment: nextInstallmentNumber,
+    firstDueDate: unpaid[0].dueDate, startInstallment: unpaid[0].installmentNumber,
   });
-
-  const { error: eDel } = await supabase.from('credit_payments').delete().eq('credit_id', creditId).eq('paid', false);
-  if (eDel) throw eDel;
-  const { error: eIns } = await supabase.from('credit_payments').insert(
-    newRows.map((r) => ({
-      credit_id: creditId, installment_number: r.installmentNumber, due_date: r.dueDate,
-      capital: r.capital, interest: r.interest, insurance: r.insurance, total: r.total, balance_after: r.balanceAfter,
-    }))
-  );
-  if (eIns) throw eIns;
+  await replaceUnpaidRows(creditId, unpaid, newRows);
+  await recalcInsuranceOnPayments(creditId);
+  await insertCreditEvent(creditId, userId, {
+    kind: 'cambio_condiciones', balanceBefore: currentBalance, balanceAfter: currentBalance,
+    rateBefore: currentCredit.annualRate, rateAfter: patch.annualRate,
+    termBefore: unpaid.length, termAfter: newRows.length, installmentBefore: unpaid[0].total, installmentAfter: newRows[0]?.total,
+  });
 }
 
 /* ---------------------- SEGUROS DE CRÉDITO (con vigencia) ---------------------- */
@@ -607,6 +667,8 @@ async function recalcInsuranceOnPayments(creditId) {
   ]);
   if (e1) throw e1;
   if (e2) throw e2;
+  // sin seguros con vigencia registrados se conserva el seguro fijo con el que se generaron las cuotas
+  if (!insurances.length) return;
 
   const updates = payments.map((p) => {
     const dueDate = p.due_date;
@@ -629,39 +691,53 @@ export async function addMemberTransfer(householdId, userId, { amount, descripti
   if (error) throw error;
 }
 
-export async function markInstallmentPaid(householdId, userId, credit, installment, accountId, memberId, categoryId) {
-  // 1. registra el pago. Contablemente una cuota son DOS cosas: el capital baja
-  //    el pasivo (financiamiento, no es gasto) y los intereses + seguro sí son
-  //    gasto. Se guardan como dos movimientos que suman lo que salió de la cuenta.
+// Registra el pago de una cuota. Contablemente son DOS cosas: el capital baja el
+// pasivo (financiamiento, no es gasto) y los intereses + seguro sí son gasto.
+//  options: { paidDate, uvrValue (créditos en UVR: se convierte a pesos), libranza }
+// La cuota se "reclama" primero (paid=false → true en una sola operación) para que
+// un doble clic, o dos dispositivos a la vez, no la registren dos veces.
+export async function markInstallmentPaid(householdId, userId, credit, installment, accountId, memberId, categoryId, options = {}) {
   const today = new Date().toISOString().slice(0, 10);
-  const { capital, cost } = splitInstallment(installment);
-  const base = {
-    household_id: householdId, type: 'expense', account_id: accountId, member_id: memberId,
-    date: today, recurring: false, is_shared: !credit.ownerMemberId, created_by: userId,
-  };
-  const label = `Cuota ${installment.installmentNumber}/${credit.termMonths} — ${credit.name}`;
-  const { data: tx, error: e1 } = await supabase.from('transactions').insert({
-    ...base, description: capital > 0 && cost > 0 ? `${label} (capital)` : label,
-    amount: capital > 0 ? capital : installment.total, category_id: categoryId, nature: 'financiamiento',
-  }).select().single();
-  if (e1) throw e1;
-  let interestTxId = null;
-  if (capital > 0 && cost > 0) {
-    const interestCategoryId = await ensureCategory(householdId, INTEREST_CATEGORY);
-    const { data: itx, error: eI } = await supabase.from('transactions').insert({
-      ...base, description: `${label} (intereses y seguro)`, amount: cost, category_id: interestCategoryId, nature: 'operativo',
+  const paidDate = options.paidDate || today;
+  const { capital, cost, total } = installmentInCop(installment, credit, options.uvrValue);
+
+  const { data: claimed, error: eClaim } = await supabase.from('credit_payments').update({
+    paid: true, paid_date: paidDate, paid_uvr_value: credit.currency === 'UVR' ? options.uvrValue : null,
+  }).eq('id', installment.id).eq('paid', false).select('id');
+  if (eClaim) throw eClaim;
+  if (!claimed?.length) throw new Error('Esta cuota ya estaba registrada como pagada.');
+
+  try {
+    const base = {
+      household_id: householdId, type: 'expense', account_id: accountId, member_id: memberId,
+      date: paidDate, recurring: false, is_shared: !credit.ownerMemberId, created_by: userId,
+    };
+    const label = `${options.libranza ? 'Descuento de nómina' : 'Cuota'} ${installment.installmentNumber}/${credit.termMonths} — ${credit.name}`;
+    const { data: tx, error: e1 } = await supabase.from('transactions').insert({
+      ...base, description: capital > 0 && cost > 0 ? `${label} (capital)` : label,
+      amount: capital > 0 ? capital : total, category_id: categoryId, nature: 'financiamiento',
     }).select().single();
-    if (eI) throw eI;
-    interestTxId = itx.id;
+    if (e1) throw e1;
+    let interestTxId = null;
+    if (capital > 0 && cost > 0) {
+      const interestCategoryId = await ensureCategory(householdId, INTEREST_CATEGORY);
+      const { data: itx, error: eI } = await supabase.from('transactions').insert({
+        ...base, description: `${label} (intereses y seguro)`, amount: cost, category_id: interestCategoryId, nature: 'operativo',
+      }).select().single();
+      if (eI) throw eI;
+      interestTxId = itx.id;
+    }
+    const { error: e2 } = await supabase.from('credit_payments').update({
+      transaction_id: tx.id, interest_transaction_id: interestTxId,
+    }).eq('id', installment.id);
+    if (e2) throw e2;
+  } catch (err) {
+    // no dejar la cuota marcada como pagada sin sus movimientos
+    await supabase.from('credit_payments').update({ paid: false, paid_date: null, paid_uvr_value: null }).eq('id', installment.id);
+    throw err;
   }
 
-  // 2. marca la cuota como pagada y la enlaza con los movimientos
-  const { error: e2 } = await supabase.from('credit_payments').update({
-    paid: true, paid_date: today, transaction_id: tx.id, interest_transaction_id: interestTxId,
-  }).eq('id', installment.id);
-  if (e2) throw e2;
-
-  // 3. si era la última cuota, marca el crédito como pagado
+  // si era la última cuota, marca el crédito como pagado
   const { count } = await supabase.from('credit_payments').select('id', { count: 'exact', head: true })
     .eq('credit_id', credit.id).eq('paid', false);
   if (count === 0) {
@@ -669,46 +745,132 @@ export async function markInstallmentPaid(householdId, userId, credit, installme
   }
 }
 
-export async function applyExtraPayment(householdId, userId, credit, payments, extraAmount, strategy, applyDate, accountId, memberId, categoryId, registerAsExpense) {
+// Deshace el ÚLTIMO pago registrado (ej. se marcó por error): borra sus movimientos
+// y vuelve a dejar la cuota pendiente. Solo la última, para no descuadrar el saldo.
+export async function unmarkInstallmentPaid(userId, credit, installment, payments) {
+  const lastPaid = [...payments].filter((p) => p.paid).sort((a, b) => a.installmentNumber - b.installmentNumber).pop();
+  if (!lastPaid || lastPaid.id !== installment.id) throw new Error('Solo se puede revertir el último pago registrado.');
+  const { error: e1 } = await supabase.from('credit_payments').update({
+    paid: false, paid_date: null, transaction_id: null, interest_transaction_id: null, paid_uvr_value: null,
+  }).eq('id', installment.id);
+  if (e1) throw e1;
+  const txIds = [installment.transactionId, installment.interestTransactionId].filter(Boolean);
+  if (txIds.length) {
+    const { error: e2 } = await supabase.from('transactions').delete().in('id', txIds);
+    if (e2) throw new Error('La cuota volvió a quedar pendiente, pero no se pudieron borrar sus movimientos: bórralos a mano en Movimientos.');
+  }
+  if (credit.status === 'pagado') await supabase.from('credits').update({ status: 'activo' }).eq('id', credit.id);
+  await insertCreditEvent(credit.id, userId, { kind: 'pago_revertido', note: `Cuota ${installment.installmentNumber}` });
+}
+
+// Abono a capital: recalcula las cuotas que faltan (menos plazo o menos cuota).
+// uvrValue: para créditos en UVR, convierte el abono a pesos al registrarlo como movimiento.
+export async function applyExtraPayment(householdId, userId, credit, payments, extraAmount, strategy, applyDate, accountId, memberId, categoryId, registerAsExpense, uvrValue) {
   const unpaid = payments.filter((p) => !p.paid).sort((a, b) => a.installmentNumber - b.installmentNumber);
   if (!unpaid.length) throw new Error('Este crédito ya no tiene cuotas pendientes.');
-  const paidRows = payments.filter((p) => p.paid);
-  const currentBalance = paidRows.length ? paidRows[paidRows.length - 1].balanceAfter : credit.principal;
-  const remainingMonths = unpaid.length;
-  const nextInstallmentNumber = unpaid[0].installmentNumber;
+  const currentBalance = creditOutstandingBalance(credit, payments);
+  if (extraAmount > currentBalance + 0.01) throw new Error('El abono no puede ser mayor que el saldo del crédito.');
+  if (registerAsExpense && credit.currency === 'UVR' && !(uvrValue > 0)) throw new Error('Falta el valor de la UVR para registrar el abono en pesos.');
 
   const newRows = recalcAfterExtraPayment({
     currentBalance, extraAmount, strategy, annualRate: credit.annualRate, system: credit.amortizationSystem,
-    remainingMonths, insuranceMonthly: credit.insuranceMonthly, fromDate: applyDate, nextInstallmentNumber,
+    remainingMonths: unpaid.length, insuranceMonthly: credit.insuranceMonthly, fromDate: applyDate,
+    firstDueDate: unpaid[0].dueDate, nextInstallmentNumber: unpaid[0].installmentNumber,
   });
 
-  // borra las cuotas futuras no pagadas y crea las nuevas recalculadas
-  const { error: eDel } = await supabase.from('credit_payments').delete().eq('credit_id', credit.id).eq('paid', false);
-  if (eDel) throw eDel;
+  await replaceUnpaidRows(credit.id, unpaid, newRows);
+  if (!newRows.length) await supabase.from('credits').update({ status: 'pagado' }).eq('id', credit.id);
+  else await recalcInsuranceOnPayments(credit.id);
 
-  if (newRows.length) {
-    const { error: eIns } = await supabase.from('credit_payments').insert(
-      newRows.map((r) => ({
-        credit_id: credit.id, installment_number: r.installmentNumber, due_date: r.dueDate,
-        capital: r.capital, interest: r.interest, insurance: r.insurance, total: r.total, balance_after: r.balanceAfter,
-      }))
-    );
-    if (eIns) throw eIns;
-  } else {
-    await supabase.from('credits').update({ status: 'pagado' }).eq('id', credit.id);
-  }
-
-  await supabase.from('credit_extra_payments').insert({
+  const { error: eExtra } = await supabase.from('credit_extra_payments').insert({
     credit_id: credit.id, amount: extraAmount, strategy, applied_date: applyDate, created_by: userId,
   });
+  if (eExtra) throw eExtra;
 
   if (registerAsExpense) {
-    await supabase.from('transactions').insert({
+    const { error: eTx } = await supabase.from('transactions').insert({
       household_id: householdId, type: 'expense', description: `Abono a capital — ${credit.name}`,
-      amount: extraAmount, category_id: categoryId, account_id: accountId, member_id: memberId,
+      amount: Math.round(extraAmount * (credit.currency === 'UVR' ? uvrValue : 1) * 100) / 100,
+      category_id: categoryId, account_id: accountId, member_id: memberId, nature: 'financiamiento',
       date: applyDate, recurring: false, is_shared: !credit.ownerMemberId, created_by: userId,
     });
+    if (eTx) throw eTx;
   }
+  await insertCreditEvent(credit.id, userId, {
+    kind: 'abono', date: applyDate, amount: extraAmount, note: strategy === 'reducir_plazo' ? 'Redujo el plazo' : 'Redujo la cuota',
+    balanceBefore: currentBalance, balanceAfter: Math.max(0, currentBalance - extraAmount),
+    termBefore: unpaid.length, termAfter: newRows.length, installmentBefore: unpaid[0].total, installmentAfter: newRows[0]?.total,
+  });
+}
+
+// Retanqueo (dinero nuevo sobre el mismo crédito) o rediferido / reestructuración
+// (mismo saldo, nuevo plazo y/o tasa). Recalcula las cuotas que faltan sobre el saldo
+// nuevo — puede cambiar la cuota, el saldo y la tasa; las cuotas ya pagadas no se tocan.
+//  o: { kind: 'retanqueo'|'rediferido', topUp, annualRate (E.A. %), termMonths (cuotas que faltarán),
+//       date, firstDueDate?, accountId, memberId, registerDisbursement, note }
+export async function refinanceCredit(householdId, userId, credit, payments, o) {
+  const unpaid = payments.filter((p) => !p.paid).sort((a, b) => a.installmentNumber - b.installmentNumber);
+  if (!unpaid.length) throw new Error('Este crédito ya no tiene cuotas pendientes.');
+  const topUp = o.kind === 'retanqueo' ? (Number(o.topUp) || 0) : 0;
+  if (o.kind === 'retanqueo' && topUp <= 0) throw new Error('Indica cuánto dinero nuevo recibes en el retanqueo.');
+  const balanceBefore = creditOutstandingBalance(credit, payments);
+  const { rows, newBalance, summary } = buildRefinance({
+    currentBalance: balanceBefore, topUp, annualRate: o.annualRate, termMonths: o.termMonths,
+    system: credit.amortizationSystem, insuranceMonthly: credit.insuranceMonthly,
+    firstDueDate: o.firstDueDate || unpaid[0].dueDate, nextInstallmentNumber: unpaid[0].installmentNumber,
+  });
+
+  await replaceUnpaidRows(credit.id, unpaid, rows);
+  const paidCount = payments.length - unpaid.length;
+  const { error: eCred } = await supabase.from('credits').update({
+    annual_rate: o.annualRate, term_months: paidCount + rows.length, status: 'activo',
+  }).eq('id', credit.id);
+  if (eCred) throw eCred;
+  await recalcInsuranceOnPayments(credit.id);
+
+  // el dinero nuevo entra a la cuenta como ingreso de financiamiento (pasivo ya está en el crédito)
+  if (topUp > 0 && o.registerDisbursement && o.accountId && credit.currency !== 'UVR') {
+    const categoryId = await ensureCategory(householdId, LOAN_INCOME_CATEGORY);
+    const { error: eTx } = await supabase.from('transactions').insert({
+      household_id: householdId, type: 'income', description: `Retanqueo — ${credit.name}`,
+      amount: topUp, category_id: categoryId, account_id: o.accountId, member_id: o.memberId || userId,
+      date: o.date, recurring: false, is_shared: !credit.ownerMemberId, nature: 'financiamiento', created_by: userId,
+    });
+    if (eTx) throw eTx;
+  }
+  await insertCreditEvent(credit.id, userId, {
+    kind: o.kind, date: o.date, amount: topUp || null, note: o.note,
+    balanceBefore, balanceAfter: newBalance, rateBefore: credit.annualRate, rateAfter: o.annualRate,
+    termBefore: unpaid.length, termAfter: rows.length, installmentBefore: unpaid[0].total, installmentAfter: rows[0]?.total,
+  });
+  return { balanceBefore, balanceAfter: newBalance, summary };
+}
+
+// Libranza con registro automático: al abrir la app, registra como descontadas de la
+// nómina las cuotas que ya vencieron. Solo lo hace quien es el responsable del crédito
+// (el empleado), y la cuota se "reclama" antes de registrarla, así que abrir la app en
+// dos dispositivos no la duplica. Devuelve cuántas cuotas registró.
+export async function applyDuePayrollDeductions(householdId, userId) {
+  const { data: rows, error } = await supabase.from('credits').select('*')
+    .eq('household_id', householdId).eq('payment_source', 'libranza').eq('auto_register', true)
+    .eq('owner_member_id', userId).neq('status', 'pagado');
+  if (error) throw error;
+  const credits = rows.map(dbCreditToJs).filter((c) => c.accountId && c.currency !== 'UVR');
+  if (!credits.length) return 0;
+  const today = new Date().toISOString().slice(0, 10);
+  const debtCategoryId = await ensureCategory(householdId, DEBT_CATEGORY);
+  let registered = 0;
+  for (const credit of credits) {
+    const payments = await loadCreditPayments(credit.id);
+    for (const installment of dueLibranzaInstallments(credit, payments, today)) {
+      try {
+        await markInstallmentPaid(householdId, userId, credit, installment, credit.accountId, userId, debtCategoryId,
+          { paidDate: installment.dueDate, libranza: true });
+        registered++;
+      } catch { break; /* si una cuota falla, no seguir con las siguientes de este crédito */ }
+    }
+  }
+  return registered;
 }
 
 /* ---------------------- UVR ---------------------- */
