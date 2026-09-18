@@ -8,13 +8,13 @@ import { isAiFeatureEnabled } from '../lib/access';
 import { formatMoney, formatDate } from '../lib/format';
 import {
   todayISO, thisMonthKey, lastMonthKeys, monthCashFlow, occurrencesInMonth,
-  accountBalance, creditOutstandingBalance, goalPriorityScore,
+  accountBalance, creditOutstandingBalance, goalPriorityScore, daysLeftInMonth,
 } from '../lib/finance';
 
 const SUGGESTED_QUESTIONS = [
+  '¿Cuánto puedo gastar hoy?',
   '¿Cuánto llevo gastado este mes?',
   '¿Cómo voy con mis presupuestos?',
-  '¿Me alcanza para llegar a fin de mes?',
   '¿Cómo va mi objetivo de ahorro principal?',
 ];
 const SUGGESTED_REGISTROS = ['Pagué 30000 de mercado hoy', 'Me depositaron 500000 de nómina'];
@@ -36,7 +36,7 @@ function chatSystemPrompt({ currency, categoryNames, memberNames, canAsk, canReg
   const formatoRespuesta = '{"tipo":"respuesta","texto":"tu respuesta en español, 1 a 4 frases, tono cercano y directo, sin tecnicismos ni consejos de inversión"}';
   const categoriasYIntegrantes = `Categorías de ingreso: ${categoryNames.income.join(', ')}. Categorías de gasto: ${categoryNames.expense.join(', ')}. Integrantes del hogar: ${memberNames.join(', ')}.`;
 
-  const notaDatos = `El bloque "DATOS" trae "movimientos_recientes" (el detalle día a día, con descripción, de los últimos ${RECENT_TX_DAYS} días) y además totales agregados por mes en "flujo_de_caja_ultimos_meses" / "gasto_por_categoria_por_mes" para un rango más largo. Para preguntas sobre un día o una compra específica, usa "movimientos_recientes"; si la fecha que preguntan ya no está ahí, usa los totales por mes si alcanzan, y si tampoco alcanzan dilo con claridad — no digas que no tienes ningún dato solo porque falte el detalle día a día de un mes viejo.`;
+  const notaDatos = `El bloque "DATOS" trae "movimientos_recientes" (el detalle día a día, con descripción, de los últimos ${RECENT_TX_DAYS} días) y además totales agregados por mes en "flujo_de_caja_ultimos_meses" / "gasto_por_categoria_por_mes" para un rango más largo. Para preguntas sobre un día o una compra específica, usa "movimientos_recientes"; si la fecha que preguntan ya no está ahí, usa los totales por mes si alcanzan, y si tampoco alcanzan dilo con claridad — no digas que no tienes ningún dato solo porque falte el detalle día a día de un mes viejo. Si preguntan cuánto pueden gastar hoy, usa directamente "disponible_para_gastar_hoy" de cada presupuesto (o "disponible_para_gastar_hoy_total") — ya viene calculado repartiendo lo que queda del mes entre los días que faltan ("dias_restantes_del_mes"), no lo recalcules tú.`;
 
   if (canAsk && canRegister) {
     return `${intro}
@@ -106,13 +106,22 @@ function buildDigest(data, visibleTransactions) {
     }));
 
   const mKey = thisMonthKey();
+  const diasRestantesMes = daysLeftInMonth();
   const presupuestos = data.budgets.map((b) => {
     const cat = data.categories.find((c) => c.id === b.categoryId)?.name || 'Otro';
     const gastado = data.transactions
       .filter((t) => t.type === 'expense' && t.categoryId === b.categoryId && occurrencesInMonth(t, mKey) && (b.scope === 'household' || t.memberId === b.scope))
       .reduce((s, t) => s + t.amount * occurrencesInMonth(t, mKey), 0);
-    return { categoria: cat, limite_mensual: b.limit, gastado_este_mes: gastado };
+    const restante = b.limit - gastado;
+    return {
+      categoria: cat, limite_mensual: b.limit, gastado_este_mes: gastado,
+      restante_este_mes: restante, disponible_para_gastar_hoy: Math.round((restante / diasRestantesMes) * 100) / 100,
+    };
   });
+  // Repartiendo lo que queda de cada presupuesto entre los días que faltan
+  // del mes — si algún presupuesto ya se pasó, resta de lo disponible total
+  // (no se recorta a 0, para que se note que hay que compensar en otro lado).
+  const disponibleParaGastarHoyTotal = Math.round(presupuestos.reduce((s, p) => s + p.disponible_para_gastar_hoy, 0) * 100) / 100;
 
   const objetivos = [...data.goals]
     .sort((a, b) => goalPriorityScore(b) - goalPriorityScore(a))
@@ -141,6 +150,8 @@ function buildDigest(data, visibleTransactions) {
     ventana_movimientos_recientes_dias: RECENT_TX_DAYS,
     flujo_de_caja_ultimos_meses: flujoDeCaja,
     gasto_por_categoria_por_mes: gastoPorCategoriaPorMes,
+    dias_restantes_del_mes: diasRestantesMes,
+    disponible_para_gastar_hoy_total: disponibleParaGastarHoyTotal,
     presupuestos,
     objetivos,
     cuentas,

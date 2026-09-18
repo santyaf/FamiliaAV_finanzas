@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   monthKey, thisMonthKey, daysUntil, getNextOccurrence, occurrencesInMonth,
   computeIncomeShares, computeBalances, simplifyDebts, goalPriorityScore, advanceByFrequency,
-  accountBalance, creditOutstandingBalance, lastMonthKeys, monthCashFlow,
+  accountBalance, creditOutstandingBalance, lastMonthKeys, monthCashFlow, daysLeftInMonth,
 } from './finance';
 
 // Fijamos "hoy" = 2026-06-15 para que las funciones que dependen de la fecha
@@ -136,6 +136,21 @@ describe('lastMonthKeys', () => {
   });
   it('n=1 devuelve solo el mes actual', () => {
     expect(lastMonthKeys(1)).toEqual(['2026-06']);
+  });
+});
+
+describe('daysLeftInMonth', () => {
+  it('cuenta hoy y los días que faltan del mes', () => {
+    // "hoy" está fijado en 2026-06-15, junio tiene 30 días
+    expect(daysLeftInMonth()).toBe(16);
+  });
+  it('el último día del mes devuelve 1', () => {
+    vi.setSystemTime(new Date('2026-06-30T12:00:00Z'));
+    expect(daysLeftInMonth()).toBe(1);
+  });
+  it('funciona en febrero (mes corto)', () => {
+    vi.setSystemTime(new Date('2026-02-01T12:00:00Z'));
+    expect(daysLeftInMonth()).toBe(28);
   });
 });
 

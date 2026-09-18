@@ -96,6 +96,14 @@ export function lastMonthKeys(n) {
   return keys;
 }
 
+// Días que quedan en el mes actual, contando hoy — para repartir lo que
+// falta de un presupuesto en un "disponible para gastar hoy" por día.
+export function daysLeftInMonth() {
+  const now = new Date(todayISO() + 'T00:00:00');
+  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  return lastDay - now.getDate() + 1;
+}
+
 // Ingresos y gastos totales de un mes (incluye recurrentes, vía occurrencesInMonth).
 export function monthCashFlow(transactions, mKey) {
   let income = 0, expense = 0;
