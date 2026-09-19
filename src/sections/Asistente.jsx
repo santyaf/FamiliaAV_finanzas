@@ -294,7 +294,7 @@ function ChatPanel({ data, actions, visibleTransactions, setModal, canAsk, canRe
         });
       }
       if (parsed.tipo === 'registro') {
-        setMessages((m) => [...m, { role: 'assistant', draft: buildDraft(data, parsed, asMember, q || 'Foto de recibo') }]);
+        setMessages((m) => [...m, { role: 'assistant', draft: { ...buildDraft(data, parsed, asMember, q || 'Foto de recibo'), receiptFile: pendingImageFile || undefined } }]);
       } else if (parsed.tipo === 'sugerencia') {
         const suggestion = suggestionFromAi(parsed);
         setMessages((m) => [...m, suggestion

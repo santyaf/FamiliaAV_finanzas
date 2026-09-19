@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Repeat, Pencil, History, Trash2, ArrowRight, ArrowLeftRight, ChevronRight, Calendar,
-  Info, List, PiggyBank,
+  Info, List, PiggyBank, Paperclip,
 } from 'lucide-react';
 import { T, FONT_DISPLAY, FONT_BODY, FONT_MONO, inputStyle } from '../ui/theme';
 import {
@@ -11,6 +11,8 @@ import { formatMoney, formatDate } from '../lib/format';
 import { todayISO, computeIncomeShares, occurrencesInMonth, getNextOccurrence, daysUntil } from '../lib/finance';
 import { NATURES, natureLabel } from '../lib/accounting';
 import { DeferralFields, emptyDeferral, deferralToPlan, isCard } from './Tarjetas';
+import { ReceiptPicker } from './Recibos';
+import { compressImage } from '../lib/imageCompress';
 
 export function Movimientos({ data, actions, visibleTransactions, setModal }) {
   const [filter, setFilter] = useState('todos'); // todos | income | expense | recurring | sporadic
@@ -131,6 +133,11 @@ export function Movimientos({ data, actions, visibleTransactions, setModal }) {
                           </span>
                         </span>
                       )}
+                      {(data.attachmentCounts?.[t.id] || 0) > 0 && (
+                        <button onClick={() => setModal({ type: 'receipts', payload: { transaction: t } })} aria-label={`Ver recibos (${data.attachmentCounts[t.id]})`} className="flex items-center gap-1 rounded-full px-2 py-0.5" style={{ background: T.bg }}>
+                          <Paperclip size={10} color={T.inkSoft} /><span style={{ fontSize: 10, color: T.inkSoft }}>{data.attachmentCounts[t.id]}</span>
+                        </button>
+                      )}
                       {t.version > 1 && (
                         <button onClick={() => setModal({ type: 'history', payload: t })} className="flex items-center gap-1 rounded-full px-2 py-0.5" style={{ background: T.bg }}>
                           <History size={10} color={T.inkSoft} /><span style={{ fontSize: 10, color: T.inkSoft }}>Editado ({t.version - 1})</span>
@@ -148,6 +155,7 @@ export function Movimientos({ data, actions, visibleTransactions, setModal }) {
                       <IconButton icon={Trash2} variant="danger" onClick={() => actions.discardPending(t.id)} confirmMessage="¿Descartar este movimiento? Todavía no se ha guardado en el servidor, así que se perdería." label="Descartar movimiento pendiente" />
                     ) : (
                       <>
+                        <IconButton icon={Paperclip} onClick={() => setModal({ type: 'receipts', payload: { transaction: t } })} label="Recibos del movimiento" />
                         <IconButton icon={Pencil} onClick={() => setModal({ type: 'editTransaction', payload: t })} label="Editar movimiento" />
                         <IconButton icon={Trash2} variant="danger" onClick={() => removeTransaction(t.id)} confirmMessage="¿Eliminar este movimiento? Esta acción no se puede deshacer." label="Eliminar movimiento" />
                       </>
@@ -194,6 +202,7 @@ export function TransactionModal({ data, actions, payload, onClose }) {
   const [splitMode, setSplitMode] = useState('equal'); // equal | custom | income
   const [customPercents, setCustomPercents] = useState({});
   const [nature, setNature] = useState(payload?.nature || ''); // '' = la de su categoría
+  const [receipt, setReceipt] = useState(payload?.receiptFile || null);
   const [deferral, setDeferral] = useState(() => emptyDeferral(data.accounts.find((a) => a.id === (payload?.accountId || data.accounts[0]?.id))));
   const [error, setError] = useState('');
   const chosenAccount = data.accounts.find((a) => a.id === accountId);
@@ -233,7 +242,14 @@ export function TransactionModal({ data, actions, payload, onClose }) {
     }
     setSaving(true); setError('');
     try {
-      await actions.addTransaction(t);
+      const saved = await actions.addTransaction(t);
+      if (receipt) {
+        if (saved?.queued) alert('El movimiento quedó guardado en tu dispositivo (sin conexión). Cuando se sincronice, adjunta el recibo desde el clip del movimiento.');
+        else {
+          try { await actions.uploadAttachment(saved.id, await compressImage(receipt)); }
+          catch { alert('El movimiento se guardó, pero el recibo no se pudo subir. Adjúntalo desde el clip del movimiento.'); }
+        }
+      }
       onClose();
     } catch (e) {
       setError(e.message || 'No se pudo guardar el movimiento.');
@@ -289,6 +305,10 @@ export function TransactionModal({ data, actions, payload, onClose }) {
           {data.accounts.map((a) => <option key={a.id} value={a.id}>{a.name} — {PAYMENT_KIND_LABEL[a.paymentKind || 'otro']}</option>)}
         </select>
       </Field>
+      {payload?.receiptFile ? (
+        <p style={{ fontSize: 11.5, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-4">La foto del recibo se guardará con el movimiento.{' '}
+          {receipt ? <button type="button" onClick={() => setReceipt(null)} style={{ color: T.teal, fontWeight: 500 }}>No guardarla</button> : <button type="button" onClick={() => setReceipt(payload.receiptFile)} style={{ color: T.teal, fontWeight: 500 }}>Guardarla</button>}</p>
+      ) : <ReceiptPicker file={receipt} onChange={setReceipt} />}
       {canDefer && <DeferralFields account={chosenAccount} amount={amount} date={date} value={deferral} onChange={setDeferral} currency={data.currency} />}
       <NatureField value={nature} onChange={setNature} category={data.categories.find((c) => c.id === categoryId)} />
       <Field label={type === 'income' ? 'Recibido por' : 'Pagado por'}>

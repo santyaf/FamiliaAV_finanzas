@@ -36,6 +36,7 @@ import { Asistente } from './sections/Asistente';
 import { ResetPasswordScreen, LoadingScreen, AuthScreen, HouseholdSetup } from './sections/auth';
 import { AdminPanel } from './sections/AdminPanel';
 import { AccountStatusScreen } from './sections/Usuarios';
+import { ReceiptsModal } from './sections/Recibos';
 import { NotificationsPanel } from './sections/NotificationsPanel';
 
 /* ---------------------------------------------------------------------- */
@@ -215,7 +216,7 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     currency: householdMeta?.currency || 'COP',
     viewMode, activeMemberId,
     members: raw.members, categories: raw.categories, accounts: raw.accounts,
-    transactions: mergePendingTransactions(raw.transactions, queue.items), goals: raw.goals, budgets: raw.budgets, obligations: raw.obligations, cardPlans: raw.cardPlans || [],
+    transactions: mergePendingTransactions(raw.transactions, queue.items), goals: raw.goals, budgets: raw.budgets, obligations: raw.obligations, cardPlans: raw.cardPlans || [], attachmentCounts: raw.attachmentCounts || {},
     settings, isPlatformAdmin, notifications: myNotifications, unreadCount, creditsWithPayments: creditsSnapshot,
     offline: { online: queue.online, stale, pending: queue.pending, failed: queue.failed, syncing: queue.syncing },
   };
@@ -250,7 +251,7 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     // servidor, queda en la cola offline con un id propio (reintentar no duplica).
     addTransaction: async (t) => {
       const id = newId();
-      const queueIt = () => queue.enqueue({ id, kind: 'addTransaction', payload: t });
+      const queueIt = () => { queue.enqueue({ id, kind: 'addTransaction', payload: t }); return { id, queued: true }; };
       if (!queue.online) return queueIt();
       try {
         await withTimeout(db.addTransaction(household.householdId, session.user.id, { ...t, id }), SEND_TIMEOUT_MS);
@@ -259,7 +260,12 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
         return queueIt();
       }
       try { await refresh(); } catch (e) { if (!isNetworkError(e)) throw e; }
+      return { id, queued: false }; // queued: true = aún no está en el servidor (no se le puede adjuntar un recibo)
     },
+    loadAttachments: (transactionId) => db.loadAttachments(transactionId),
+    uploadAttachment: async (transactionId, file) => { await db.uploadAttachment(household.householdId, transactionId, file); await refresh(); },
+    getAttachmentUrl: (path) => db.getAttachmentUrl(path),
+    deleteAttachment: wrap((attachment) => db.deleteAttachment(attachment)),
     discardPending: (id) => queue.discard(id),
     retryPending: () => queue.retryFailed(),
     syncNow: () => queue.syncNow(),
@@ -614,6 +620,7 @@ function MainApp({ data, update, actions }) {
 
       {modal?.type === 'transaction' && <TransactionModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
       {modal?.type === 'editTransaction' && <EditTransactionModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
+      {modal?.type === 'receipts' && <ReceiptsModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
       {modal?.type === 'history' && <HistoryModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
       {modal?.type === 'goal' && <GoalModal data={data} actions={actions} onClose={() => setModal(null)} />}
       {modal?.type === 'editGoal' && <EditGoalModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}

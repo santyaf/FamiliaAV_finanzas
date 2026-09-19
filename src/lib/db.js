@@ -4,6 +4,7 @@ import { DEFAULT_CATEGORY_SPECS, INTEREST_CATEGORY, LOAN_INCOME_CATEGORY, DEBT_C
 import { creditOutstandingBalance } from './finance';
 import { installmentInCop, dueLibranzaInstallments, nextDateWithDay } from './creditRules';
 import { duePlanInstallments, planOverview, buildRedefer } from './creditCards';
+import { attachmentPath, countByTransaction } from './attachments';
 
 /* ------------------------- AUTH ------------------------- */
 export async function signUp(email, password, fullName) {
@@ -108,7 +109,7 @@ export async function redeemInvite(token, userId) {
 
 /* ---------------------- CARGA DE DATOS DEL HOGAR ---------------------- */
 export async function loadHouseholdData(householdId) {
-  const [membersRes, catsRes, accsRes, txRes, goalsRes, votesRes, budgetsRes, obligationsRes, plansRes] = await Promise.all([
+  const [membersRes, catsRes, accsRes, txRes, goalsRes, votesRes, budgetsRes, obligationsRes, plansRes, attRes] = await Promise.all([
     supabase.from('household_members').select('user_id, role, color, profiles(full_name)').eq('household_id', householdId),
     supabase.from('categories').select('*').eq('household_id', householdId),
     supabase.from('accounts').select('*').eq('household_id', householdId),
@@ -118,6 +119,7 @@ export async function loadHouseholdData(householdId) {
     supabase.from('budgets').select('*').eq('household_id', householdId),
     supabase.from('obligations').select('*').eq('household_id', householdId),
     supabase.from('card_plans').select('*').eq('household_id', householdId),
+    supabase.from('transaction_attachments').select('transaction_id').eq('household_id', householdId),
   ]);
   for (const r of [membersRes, catsRes, accsRes, txRes, goalsRes, votesRes, budgetsRes, obligationsRes]) {
     if (r.error) throw r.error;
@@ -133,6 +135,8 @@ export async function loadHouseholdData(householdId) {
   }));
   // si la tabla de planes fallara, la app sigue funcionando sin las compras diferidas
   const cardPlans = plansRes.error ? [] : plansRes.data.map(dbPlanToJs);
+  // cuántos recibos tiene cada movimiento (si falla, la app sigue sin el clip)
+  const attachmentCounts = attRes.error ? {} : countByTransaction(attRes.data.map((r) => ({ transactionId: r.transaction_id })));
   const transactions = txRes.data.map(dbTxToJs);
   const votesByGoal = {};
   votesRes.data.forEach((v) => { (votesByGoal[v.goal_id] ||= {})[v.member_id] = v.priority; });
@@ -149,7 +153,7 @@ export async function loadHouseholdData(householdId) {
     note: o.note, enabled: o.enabled,
   }));
 
-  return { members, categories, accounts, transactions, goals, budgets, obligations, cardPlans };
+  return { members, categories, accounts, transactions, goals, budgets, obligations, cardPlans, attachmentCounts };
 }
 
 function dbPlanToJs(p) {
@@ -247,7 +251,49 @@ export async function addTransaction(householdId, userId, t) {
   if (t.cardPlan) await createCardPlan(householdId, userId, t, row.id);
 }
 export async function deleteTransaction(id) {
+  // los archivos de los recibos no se borran solos con el movimiento: se quitan antes (mejor esfuerzo)
+  try {
+    const { data: atts } = await supabase.from('transaction_attachments').select('path').eq('transaction_id', id);
+    if (atts?.length) await supabase.storage.from('receipts').remove(atts.map((a) => a.path));
+  } catch { /* si falla, queda un archivo huérfano pero el movimiento sí se borra */ }
   const { error } = await supabase.from('transactions').delete().eq('id', id);
+  if (error) throw error;
+}
+
+/* ---------------------- RECIBOS ADJUNTOS ---------------------- */
+export async function loadAttachments(transactionId) {
+  const { data, error } = await supabase.from('transaction_attachments').select('*')
+    .eq('transaction_id', transactionId).order('created_at');
+  if (error) throw error;
+  return data.map((a) => ({ id: a.id, path: a.path, mime: a.mime, sizeBytes: a.size_bytes, fileName: a.file_name, createdAt: a.created_at }));
+}
+
+// Sube el archivo al bucket privado y registra su fila; si la fila falla, deshace la subida.
+export async function uploadAttachment(householdId, transactionId, file) {
+  const path = attachmentPath(householdId, transactionId, file.type, globalThis.crypto.randomUUID());
+  const { error: eUp } = await supabase.storage.from('receipts').upload(path, file, { contentType: file.type, upsert: false });
+  if (eUp) throw new Error(eUp.message || 'No se pudo subir el archivo');
+  const { error } = await supabase.from('transaction_attachments').insert({
+    household_id: householdId, transaction_id: transactionId, path, mime: file.type, size_bytes: file.size, file_name: file.name || null,
+  });
+  if (error) {
+    await supabase.storage.from('receipts').remove([path]);
+    throw error;
+  }
+}
+
+// URL temporal (1 h): el bucket es privado.
+export async function getAttachmentUrl(path) {
+  const { data, error } = await supabase.storage.from('receipts').createSignedUrl(path, 3600);
+  if (error) throw error;
+  return data.signedUrl;
+}
+
+// Primero el archivo (su política mira el movimiento) y luego la fila.
+export async function deleteAttachment(attachment) {
+  const { error: eFile } = await supabase.storage.from('receipts').remove([attachment.path]);
+  if (eFile) throw new Error(eFile.message || 'No se pudo borrar el archivo');
+  const { error } = await supabase.from('transaction_attachments').delete().eq('id', attachment.id);
   if (error) throw error;
 }
 export async function addSettlement(householdId, userId, from, to, amount) {
