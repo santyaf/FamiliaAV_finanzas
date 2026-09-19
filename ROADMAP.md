@@ -163,9 +163,11 @@ Objetivo: poder generar informes **mensuales, trimestrales, semestrales y anuale
 - Lógica pura y con pruebas en `lib/notificationStates.js`; pruebas de humo con jsdom del pop-up, las vistas y el arrastre con puntero.
 - Pendiente opcional: purgar notificaciones eliminadas/antiguas (>90 días), marcar como no leída, "archivar todas".
 
-**Gestión de usuarios:**
-- **Eliminar cuenta** (la propia): borrar el perfil y sus datos personales, con confirmación fuerte y qué pasa con lo compartido del hogar (transferir la propiedad o dejar los movimientos como "ex integrante"); también la baja de un integrante por el administrador del hogar y por el admin de la plataforma. Necesita un endpoint con service role (`auth.admin.deleteUser`) y revisar las llaves foráneas (`created_by`, `member_id`…) para no dejar datos huérfanos. Ver también *Exportar todos mis datos y borrar la cuenta* en la Fase 15.
-- Más gestión de usuarios (por definir con el usuario): suspender/reactivar, cambiar rol, ver último acceso, restablecer contraseña desde Admin.
+**Gestión de usuarios — ✅ hecho (migración `fase21_gestion_de_usuarios`; decisiones del usuario: solo desactivar, sin borrar datos; cada persona gestiona su cuenta y el administrador de la plataforma puede suspender):**
+- **Mi cuenta** (Ajustes): descargar mis datos (JSON completo y CSV de movimientos; `lib/dataExport.js` con pruebas) y **desactivar mi cuenta** con confirmación escrita (`DESACTIVAR`). No se borra nada; al volver a entrar aparece una pantalla para **reactivarla** en un clic.
+- **Administrador de la plataforma** (Admin → Usuarios): lista con correo, hogares, estado, último acceso y alta; **suspender** (con motivo) y **reactivar**. Una cuenta suspendida no puede reactivarse sola. Historial en `user_status_events`.
+- **Bloqueo real en la base**: `is_household_member()` ahora exige cuenta activa, así que todas las políticas RLS dejan sin datos a una cuenta desactivada/suspendida; un trigger impide cambiar el estado editando el perfil directo (solo las funciones `deactivate_my_account`, `reactivate_my_account`, `admin_set_user_status`). Los endpoints `/api` también la rechazan. Probado en la base simulando al usuario.
+- Pendiente: los recordatorios push (`send-reminders`) aún se envían a cuentas desactivadas; cambiar rol / sacar a alguien de un hogar como administrador del hogar; borrado definitivo con reglas de retención (si algún día se pide).
 
 ---
 

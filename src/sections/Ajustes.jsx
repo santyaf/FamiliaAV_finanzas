@@ -6,6 +6,7 @@ import {
 import { T, FONT_DISPLAY, FONT_BODY, FONT_MONO, TAP_MIN, inputStyle, DAY_LABELS, CURRENCIES } from '../ui/theme';
 import { NATURES, natureLabel, DEFAULT_CATEGORY_SPECS } from '../lib/accounting';
 import { MisSugerenciasCard } from './Sugerencias';
+import { MiCuentaCard } from './Usuarios';
 import {
   Card, CategoryIcon, CATEGORY_ICON_OPTIONS, Field, GhostButton, IconButton, MemberChip, Modal, PrimaryButton,
 } from '../ui/primitives';
@@ -291,6 +292,7 @@ export function Ajustes({ data, update, actions, setModal, setTab }) {
       <InstallAppCard />
       <RemindersCard actions={actions} setModal={setModal} />
       <MisSugerenciasCard actions={actions} />
+      <MiCuentaCard data={data} actions={actions} />
 
       <Card style={{ marginBottom: 14 }}>
         <Field label="Nombre del hogar">

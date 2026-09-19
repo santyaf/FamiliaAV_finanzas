@@ -17,6 +17,14 @@ export async function getAuthedUser(req) {
   const supabase = createClient(supabaseUrl, supabaseAnonKey);
   const { data, error } = await supabase.auth.getUser(token);
   if (error || !data?.user) return null;
+
+  // una cuenta desactivada o suspendida tampoco puede usar los endpoints (Fase 21).
+  // Se consulta con el propio token del usuario; si la consulta falla no se bloquea.
+  try {
+    const asUser = createClient(supabaseUrl, supabaseAnonKey, { global: { headers: { Authorization: `Bearer ${token}` } } });
+    const { data: profile } = await asUser.from('profiles').select('status').eq('id', data.user.id).maybeSingle();
+    if (profile && profile.status && profile.status !== 'active') return null;
+  } catch { /* fail-open */ }
   return data.user;
 }
 

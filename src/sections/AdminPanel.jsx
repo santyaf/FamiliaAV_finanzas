@@ -5,6 +5,7 @@ import { Card, IconButton, PrimaryButton, GhostButton, Field } from '../ui/primi
 import { formatDate } from '../lib/format';
 import { DEFAULT_AI_ACCESS } from '../lib/access';
 import { SugerenciasAdmin } from './Sugerencias';
+import { UsuariosAdmin } from './Usuarios';
 
 const AI_PROVIDERS = [
   { id: 'none', label: 'Ninguna (IA desactivada)', defaultModel: null },
@@ -121,6 +122,8 @@ export function AdminPanel({ data, actions }) {
       </p>
 
       <SugerenciasAdmin actions={actions} />
+
+      <UsuariosAdmin actions={actions} />
 
       <Card style={{ marginBottom: 14 }}>
         <div className="flex items-center gap-2 mb-3">

@@ -35,6 +35,7 @@ import { Informes } from './sections/Informes';
 import { Asistente } from './sections/Asistente';
 import { ResetPasswordScreen, LoadingScreen, AuthScreen, HouseholdSetup } from './sections/auth';
 import { AdminPanel } from './sections/AdminPanel';
+import { AccountStatusScreen } from './sections/Usuarios';
 import { NotificationsPanel } from './sections/NotificationsPanel';
 
 /* ---------------------------------------------------------------------- */
@@ -53,6 +54,7 @@ export default function App() {
   const [household, setHousehold] = useState(undefined); // undefined = cargando, null = sin hogar
   const [joinError, setJoinError] = useState('');
   const [recovery, setRecovery] = useState(false);
+  const [accountStatus, setAccountStatus] = useState(undefined); // undefined = cargando
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session ?? null));
@@ -65,8 +67,15 @@ export default function App() {
 
   useEffect(() => {
     if (session === undefined) return;
-    if (!session) { setHousehold(null); return; }
+    if (!session) { setHousehold(null); setAccountStatus(undefined); return; }
     (async () => {
+      // una cuenta desactivada o suspendida no carga datos: ve una pantalla aparte
+      try {
+        const status = await db.getMyAccountStatus(session.user.id);
+        setAccountStatus(status);
+        if (status !== 'active') { setHousehold(null); return; }
+        db.touchLastSeen();
+      } catch { setAccountStatus('active'); /* sin señal: no bloquear */ }
       const params = new URLSearchParams(window.location.search);
       const token = params.get('token');
       if (token) {
@@ -92,8 +101,11 @@ export default function App() {
   }, [session]);
 
   if (recovery) return <ResetPasswordScreen onDone={() => setRecovery(false)} />;
-  if (session === undefined || (session && household === undefined)) return <LoadingScreen />;
+  if (session === undefined || (session && (household === undefined || accountStatus === undefined))) return <LoadingScreen />;
   if (!session) return <AuthScreen />;
+  if (accountStatus && accountStatus !== 'active') {
+    return <AccountStatusScreen status={accountStatus} onSignOut={() => db.signOut()} onReactivate={async () => { await db.reactivateMyAccount(); window.location.reload(); }} />;
+  }
   if (!household) return <HouseholdSetup userId={session.user.id} onReady={setHousehold} joinError={joinError} />;
   return <HouseholdApp session={session} household={household} onLeftHousehold={() => setHousehold(null)} />;
 }
@@ -316,6 +328,9 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     updateSetting: async (key, value) => { await db.updateSetting(key, value, session.user.id); await refreshSettings(); },
     listAllHouseholdsAdmin: () => db.listAllHouseholdsAdmin(),
     listPlatformAdmins: () => db.listPlatformAdmins(),
+    deactivateMyAccount: () => db.deactivateMyAccount(),
+    adminListUsers: () => db.adminListUsers(),
+    adminSetUserStatus: (userId, status, reason) => db.adminSetUserStatus(userId, status, reason),
     promoteToAdmin: (email) => db.promoteToAdmin(email),
     removeAdmin: (userId) => db.removeAdmin(userId),
     // sugerencias de mejora (chat del Asistente → administrador)

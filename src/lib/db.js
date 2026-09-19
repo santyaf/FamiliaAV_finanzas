@@ -1099,6 +1099,37 @@ export async function listAllHouseholdsAdmin() {
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
+/* ---------------------- GESTIÓN DE USUARIOS ---------------------- */
+// 'active' | 'deactivated' | 'suspended'. Si no se puede leer, se asume activa (no bloquear por un fallo).
+export async function getMyAccountStatus(userId) {
+  const { data, error } = await supabase.from('profiles').select('status').eq('id', userId).maybeSingle();
+  if (error) throw error;
+  return data?.status || 'active';
+}
+export async function deactivateMyAccount() {
+  const { error } = await supabase.rpc('deactivate_my_account');
+  if (error) throw new Error(error.message.replace(/^.*: /, ''));
+}
+export async function reactivateMyAccount() {
+  const { error } = await supabase.rpc('reactivate_my_account');
+  if (error) throw new Error(error.message.replace(/^.*: /, ''));
+}
+export async function touchLastSeen() {
+  try { await supabase.rpc('touch_last_seen'); } catch { /* es solo informativo */ }
+}
+export async function adminListUsers() {
+  const { data, error } = await supabase.rpc('admin_list_users');
+  if (error) throw new Error(error.message.replace(/^.*: /, ''));
+  return data.map((u) => ({
+    userId: u.user_id, name: u.full_name, email: u.email, status: u.status, lastSeenAt: u.last_seen_at,
+    createdAt: u.created_at, isAdmin: u.is_admin, households: u.households, statusChangedAt: u.status_changed_at,
+  }));
+}
+export async function adminSetUserStatus(userId, status, reason) {
+  const { error } = await supabase.rpc('admin_set_user_status', { p_user: userId, p_status: status, p_reason: reason });
+  if (error) throw new Error(error.message.replace(/^.*: /, ''));
+}
+
 export async function listPlatformAdmins() {
   const { data, error } = await supabase.from('platform_admins')
     .select('user_id, created_at, profiles(full_name)')
