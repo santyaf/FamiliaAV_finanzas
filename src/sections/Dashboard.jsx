@@ -7,6 +7,7 @@ import { Card, ProgressBar, EmptyState, CategoryIcon } from '../ui/primitives';
 import { AnomaliasCard } from './AnomaliasCard';
 import { cardUsage, cardCycle, payToAvoidInterest } from '../lib/creditCards';
 import { projectMonth, budgetAllowances } from '../lib/projection';
+import { assetValueAt } from '../lib/assets';
 import { formatMoney, formatDate } from '../lib/format';
 import {
   thisMonthKey, daysUntil, occurrencesInMonth, getNextOccurrence, goalPriorityScore, todayISO,
@@ -61,8 +62,10 @@ export function Dashboard({ data, update, actions, visibleTransactions, visibleM
     }
   }, [hasUvrCredits]);
 
+  // activos registrados (propiedades, vehículos, inversiones…) a su valor de hoy
+  const assetsValue = (data.assets || []).reduce((s, a) => s + assetValueAt(a, a.valuations, todayISO()).value, 0);
   const totalAssets = data.accounts.reduce((s, a) => s + accountBalance(data.transactions, a.id), 0)
-    + data.goals.reduce((s, g) => s + g.currentAmount, 0);
+    + data.goals.reduce((s, g) => s + g.currentAmount, 0) + assetsValue;
   let totalLiabilities = 0, uvrLiabilitiesPending = 0;
   creditsWithPayments.forEach((cp) => {
     const bal = creditOutstandingBalance(cp.credit, cp.payments);
@@ -213,6 +216,7 @@ export function Dashboard({ data, update, actions, visibleTransactions, visibleM
           <span style={{ fontSize: 11, color: '#fff', opacity: 0.7 }}>Activos {formatMoney(totalAssets, currency)}</span>
           <span style={{ fontSize: 11, color: '#fff', opacity: 0.7 }}>Pasivos {formatMoney(totalLiabilities, currency)}</span>
         </div>
+        {assetsValue > 0 && <p style={{ fontSize: 10, color: '#fff', opacity: 0.6 }} className="mt-1">Incluye {formatMoney(assetsValue, currency)} en propiedades, vehículos e inversiones</p>}
         {uvrLiabilitiesPending > 0 && (
           <p style={{ fontSize: 10, color: '#fff', opacity: 0.6 }} className="mt-1">
             + {uvrLiabilitiesPending.toLocaleString('es-CO', { maximumFractionDigits: 2 })} UVR en créditos {uvrFailed ? '(no se pudo consultar la tasa)' : '(consultando tasa…)'}

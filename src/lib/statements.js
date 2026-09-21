@@ -223,7 +223,7 @@ export function buildCashFlow({ transactions, categories, accounts, range, scope
 /* ------------------------- filas para pantalla/export ------------------------- */
 // Cada fila: { kind, label, level, amount, previous, delta, pct }.
 // kinds: title | group | line | subtotal | total | memo | note
-function row(kind, label, level, amount = null, previous = null) {
+export function row(kind, label, level, amount = null, previous = null) {
   const hasBoth = amount !== null && previous !== null;
   const delta = hasBoth ? round2(amount - previous) : null;
   return { kind, label, level, amount, previous, delta, pct: hasBoth && previous !== 0 ? round2((delta / Math.abs(previous)) * 100) : null };

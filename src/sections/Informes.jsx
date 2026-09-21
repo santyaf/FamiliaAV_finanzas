@@ -1,9 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { FileText, Download, Printer, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { T, FONT_DISPLAY, FONT_BODY, FONT_MONO, inputStyle } from '../ui/theme';
 import { Card, EmptyState, GhostButton } from '../ui/primitives';
 import { formatMoney } from '../lib/format';
 import { todayISO } from '../lib/finance';
+import { buildBalanceSheet, balanceSheetRows, buildEquityChanges, equityRows } from '../lib/balance';
 import {
   PERIOD_TYPES, recentPeriods, previousPeriod, accountsInScope,
   buildIncomeStatement, buildCashFlow, incomeStatementRows, cashFlowRows, rowsToCsv, statementToHtml,
@@ -13,6 +14,8 @@ const HOW_MANY = { mes: 12, trimestre: 8, semestre: 6, anio: 5 };
 const STATEMENTS = [
   { id: 'resultados', label: 'Estado de resultados' },
   { id: 'flujo', label: 'Flujo de efectivo' },
+  { id: 'situacion', label: 'Situación financiera' },
+  { id: 'patrimonio', label: 'Cambios en el patrimonio' },
 ];
 const slug = (s) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
@@ -39,6 +42,12 @@ export function Informes({ data, actions }) {
   const [compare, setCompare] = useState(true);
   const currency = data.currency;
   const money = (n) => formatMoney(n, currency);
+  // créditos en UVR: para el balance se convierten con la última UVR conocida
+  const [uvrValue, setUvrValue] = useState(null);
+  const hasUvr = (data.creditsWithPayments || []).some((cp) => cp.credit.currency === 'UVR');
+  useEffect(() => {
+    if (hasUvr && actions.getLatestUvr) actions.getLatestUvr().then((r) => r && setUvrValue(r.value)).catch(() => {});
+  }, [hasUvr]);
 
   const periods = useMemo(() => recentPeriods(periodType, todayISO(), HOW_MANY[periodType]), [periodType]);
   const range = periods.find((p) => p.start === periodStart) || periods[0];
@@ -47,18 +56,29 @@ export function Informes({ data, actions }) {
   const scopeAccounts = accountsInScope(data.accounts, scope);
   const me = data.members.find((m) => m.id === actions.userId);
 
-  const { rows, cashFlow, hasNoRubro } = useMemo(() => {
+  const { rows, cashFlow, hasNoRubro, uvrPending, other } = useMemo(() => {
     const base = { transactions: data.transactions, categories: data.categories, accounts: data.accounts, scope };
+    const bs = { accounts: data.accounts, transactions: data.transactions, assets: data.assets || [], creditsWithPayments: data.creditsWithPayments || [], scope, uvrValue };
+    if (statement === 'situacion') {
+      const cur = buildBalanceSheet({ ...bs, dateISO: range.end });
+      const prev = compare ? buildBalanceSheet({ ...bs, dateISO: prevRange.end }) : null;
+      return { rows: balanceSheetRows(cur, prev), cashFlow: null, hasNoRubro: false, uvrPending: cur.uvrPending, other: null };
+    }
+    if (statement === 'patrimonio') {
+      const cur = buildEquityChanges({ ...bs, categories: data.categories, range });
+      const prev = compare ? buildEquityChanges({ ...bs, categories: data.categories, range: prevRange }) : null;
+      return { rows: equityRows(cur, prev), cashFlow: null, hasNoRubro: false, uvrPending: cur.closingSheet.uvrPending, other: cur.other };
+    }
     if (statement === 'resultados') {
       const cur = buildIncomeStatement({ ...base, range });
       const prev = compare ? buildIncomeStatement({ ...base, range: prevRange }) : null;
       const noRubro = [cur.ingresosOperativos, cur.ingresosFinanciamiento, cur.gastosOperativos].some((s) => s.groups.some((g) => g.name === 'Sin rubro'));
-      return { rows: incomeStatementRows(cur, prev), cashFlow: null, hasNoRubro: noRubro };
+      return { rows: incomeStatementRows(cur, prev), cashFlow: null, hasNoRubro: noRubro, uvrPending: false, other: null };
     }
     const cur = buildCashFlow({ ...base, range });
     const prev = compare ? buildCashFlow({ ...base, range: prevRange }) : null;
-    return { rows: cashFlowRows(cur, prev), cashFlow: cur, hasNoRubro: false };
-  }, [data.transactions, data.categories, data.accounts, scopeKind, actions.userId, range.start, range.end, statement, compare]);
+    return { rows: cashFlowRows(cur, prev), cashFlow: cur, hasNoRubro: false, uvrPending: false, other: null };
+  }, [data.transactions, data.categories, data.accounts, data.assets, data.creditsWithPayments, uvrValue, scopeKind, actions.userId, range.start, range.end, statement, compare]);
 
   const statementLabel = STATEMENTS.find((s) => s.id === statement).label;
   const scopeLabel = scopeKind === 'hogar' ? `Hogar ${data.householdName}` : `Personal — ${me?.name || 'yo'}`;
@@ -67,7 +87,11 @@ export function Informes({ data, actions }) {
     scopeKind === 'hogar'
       ? 'Ámbito Hogar: movimientos de las cuentas compartidas. Lo que está en cuentas individuales de cada integrante no se incluye.'
       : 'Ámbito Personal: movimientos de tus cuentas individuales. Un gasto compartido pagado desde tu cuenta cuenta solo por tu parte del reparto.',
-    statement === 'resultados'
+    statement === 'situacion'
+      ? `Situación financiera al ${range.end}: efectivo y cuentas según lo registrado hasta esa fecha, activos a su valor a esa fecha (Gestión → Activos) y créditos con el saldo de su tabla de amortización. Un abono o rediferido posterior puede cambiar el saldo histórico.`
+      : statement === 'patrimonio'
+        ? 'Cambios en el patrimonio: patrimonio inicial + resultado operativo + saldos iniciales + transferencias con cuentas de fuera del ámbito + valorización de activos + otros = patrimonio final. "Otros" reúne diferencias de estimación (créditos, gastos compartidos).'
+        : statement === 'resultados'
       ? 'El capital de las deudas pagado, el ahorro/inversión y los saldos iniciales no son gasto ni ingreso operativo. Un préstamo recibido se muestra como ingreso por financiamiento; el resultado operativo lo excluye. Los gastos recurrentes se cuentan cada mes.'
       : 'Flujo de efectivo: solo movimientos efectivamente registrados (los recurrentes, en su fecha), para que cuadre con los saldos reales de las cuentas.',
   ];
@@ -180,6 +204,18 @@ export function Informes({ data, actions }) {
                   ? 'El flujo cuadra con los saldos de las cuentas: saldo inicial + flujo neto = saldo final.'
                   : `No cuadra con los saldos por ${money(cashFlow.difference)}. Revisa movimientos de este período.`}
               </p>
+            </div>
+          )}
+          {uvrPending && (
+            <div className="flex items-start gap-2 rounded-xl px-3 py-2 mt-3" style={{ background: T.goldSoft }}>
+              <AlertTriangle size={15} color={T.gold} style={{ marginTop: 2, flexShrink: 0 }} />
+              <p style={{ fontSize: 12, color: T.ink, fontFamily: FONT_BODY }}>Tienes un crédito en UVR y aún no hay un valor de la UVR para convertirlo a pesos; no está incluido en este informe. Guarda la UVR en Ajustes y vuelve a abrirlo.</p>
+            </div>
+          )}
+          {other !== null && Math.abs(other) >= 1 && (
+            <div className="flex items-start gap-2 rounded-xl px-3 py-2 mt-3" style={{ background: T.bg }}>
+              <AlertTriangle size={15} color={T.inkSoft} style={{ marginTop: 2, flexShrink: 0 }} />
+              <p style={{ fontSize: 12, color: T.ink, fontFamily: FONT_BODY }}>"Otros movimientos y diferencias" ({money(other)}) es lo que el resto de líneas no explica: por lo general saldos de créditos calculados con su tabla de amortización, gastos compartidos repartidos distinto entre ámbitos, o activos registrados sin salida de dinero de una cuenta.</p>
             </div>
           )}
           {hasNoRubro && (

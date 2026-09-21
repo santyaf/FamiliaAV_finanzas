@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { ArrowLeftRight, Bell, ChevronLeft, CreditCard, FileText, History, Home, Landmark, LayoutGrid, List, Loader2, LogOut, PiggyBank, Plus, Settings, Sparkles, Target, TrendingUp, Upload, X } from 'lucide-react';
+import { ArrowLeftRight, BadgeDollarSign, Bell, ChevronLeft, CreditCard, FileText, History, Home, Landmark, LayoutGrid, List, Loader2, LogOut, PiggyBank, Plus, Settings, Sparkles, Target, TrendingUp, Upload, X } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import * as db from './lib/db';
 import { formatMoney, formatDate } from './lib/format';
@@ -38,6 +38,7 @@ import { AdminPanel } from './sections/AdminPanel';
 import { AccountStatusScreen } from './sections/Usuarios';
 import { ReceiptsModal } from './sections/Recibos';
 import { ImportarExtractos } from './sections/ImportarExtractos';
+import { Activos, AssetModal, ValuationModal, SellAssetModal } from './sections/Activos';
 import { NotificationsPanel } from './sections/NotificationsPanel';
 
 /* ---------------------------------------------------------------------- */
@@ -217,7 +218,7 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     currency: householdMeta?.currency || 'COP',
     viewMode, activeMemberId,
     members: raw.members, categories: raw.categories, accounts: raw.accounts,
-    transactions: mergePendingTransactions(raw.transactions, queue.items), goals: raw.goals, budgets: raw.budgets, obligations: raw.obligations, cardPlans: raw.cardPlans || [], attachmentCounts: raw.attachmentCounts || {},
+    transactions: mergePendingTransactions(raw.transactions, queue.items), goals: raw.goals, budgets: raw.budgets, obligations: raw.obligations, cardPlans: raw.cardPlans || [], attachmentCounts: raw.attachmentCounts || {}, assets: raw.assets || [],
     settings, isPlatformAdmin, notifications: myNotifications, unreadCount, creditsWithPayments: creditsSnapshot,
     offline: { online: queue.online, stale, pending: queue.pending, failed: queue.failed, syncing: queue.syncing },
   };
@@ -266,6 +267,12 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     importTransactions: async (o) => {
       try { return await db.importTransactions(household.householdId, session.user.id, o); } finally { await refresh(); }
     },
+    createAsset: wrap((a) => db.createAsset(household.householdId, session.user.id, a)),
+    updateAsset: wrap((id, a) => db.updateAsset(id, a)),
+    addAssetValuation: wrap((assetId, v) => db.addAssetValuation(assetId, v)),
+    deleteAssetValuation: wrap((id) => db.deleteAssetValuation(id)),
+    sellAsset: wrap((asset, o) => db.sellAsset(household.householdId, session.user.id, asset, o)),
+    deleteAsset: wrap((id) => db.deleteAsset(id)),
     loadAttachments: (transactionId) => db.loadAttachments(transactionId),
     uploadAttachment: async (transactionId, file) => { await db.uploadAttachment(household.householdId, transactionId, file); await refresh(); },
     getAttachmentUrl: (path) => db.getAttachmentUrl(path),
@@ -394,6 +401,7 @@ const GESTION_SECTIONS = [
   { id: 'presupuestos', label: 'Presupuestos', icon: PiggyBank, desc: 'Límites de gasto por categoría, para todo el hogar o por integrante.' },
   { id: 'obligaciones', label: 'Obligaciones', icon: Bell, desc: 'Recordatorios de pagos por vencer — arriendo, servicios, suscripciones.' },
   { id: 'tendencias', label: 'Tendencias', icon: TrendingUp, desc: 'Flujo de caja y gasto por categoría de los últimos meses.' },
+  { id: 'activos', label: 'Activos', icon: BadgeDollarSign, desc: 'Propiedades, vehículos, inversiones y cuentas por cobrar, con su valor a hoy y su historial.' },
   { id: 'importar', label: 'Importar extracto', icon: Upload, desc: 'Sube el CSV de tu banco o pega filas desde Excel: revisa, categoriza y evita duplicados.' },
   { id: 'informes', label: 'Informes', icon: FileText, desc: 'Estado de resultados y flujo de efectivo por mes, trimestre, semestre o año — personal o del hogar.' },
   { id: 'asistente', label: 'Asistente IA', icon: Sparkles, desc: 'Pregúntale sobre tus finanzas, o regístralas por chat o foto de recibo.', requiresAiChat: true },
@@ -550,6 +558,7 @@ function MainApp({ data, update, actions }) {
           {tab === 'tendencias' && <Tendencias data={data} />}
           {tab === 'informes' && <Informes data={data} actions={actions} />}
           {tab === 'importar' && <ImportarExtractos data={data} actions={actions} />}
+          {tab === 'activos' && <Activos data={data} actions={actions} setModal={setModal} />}
           {tab === 'asistente' && aiChatAvailable && <Asistente data={data} actions={actions} visibleTransactions={visibleTransactions} setModal={setModal} />}
           {tab === 'conciliacion' && <Conciliacion data={data} actions={actions} />}
           {tab === 'cuentas' && <Cuentas data={data} actions={actions} setModal={setModal} />}
@@ -626,6 +635,9 @@ function MainApp({ data, update, actions }) {
 
       {modal?.type === 'transaction' && <TransactionModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
       {modal?.type === 'editTransaction' && <EditTransactionModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
+      {modal?.type === 'asset' && <AssetModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
+      {modal?.type === 'assetValuation' && <ValuationModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
+      {modal?.type === 'sellAsset' && <SellAssetModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
       {modal?.type === 'receipts' && <ReceiptsModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
       {modal?.type === 'history' && <HistoryModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
       {modal?.type === 'goal' && <GoalModal data={data} actions={actions} onClose={() => setModal(null)} />}

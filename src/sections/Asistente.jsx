@@ -9,6 +9,7 @@ import { detectAnomalies, describeAnomaly } from '../lib/anomalies';
 import { suggestionFromAi } from '../lib/suggestions';
 import { cardUsage, cardCycle, planOverview } from '../lib/creditCards';
 import { projectMonth } from '../lib/projection';
+import { assetValueAt, assetKindLabel } from '../lib/assets';
 import { formatMoney, formatDate } from '../lib/format';
 import {
   todayISO, thisMonthKey, lastMonthKeys, monthCashFlow, occurrencesInMonth,
@@ -150,6 +151,10 @@ function buildDigest(data, visibleTransactions) {
   }));
   const totalEnCuentas = cuentas.reduce((s, c) => s + c.saldo, 0);
   const totalAhorradoObjetivos = objetivos.reduce((s, g) => s + g.ahorrado, 0);
+  const activos = (data.assets || []).filter((a) => a.status !== 'vendido')
+    .map((a) => ({ nombre: a.name, tipo: assetKindLabel(a.kind), valor_actual: assetValueAt(a, a.valuations, todayISO()).value, costo: a.acquisitionCost || null }))
+    .filter((a) => a.valor_actual > 0);
+  const totalActivos = activos.reduce((s, a) => s + a.valor_actual, 0);
 
   // Créditos: solo se suman a la deuda los que están en la misma moneda del
   // hogar — los créditos en UVR se listan aparte porque convertirlos requiere
@@ -207,7 +212,8 @@ function buildDigest(data, visibleTransactions) {
       const p = projectMonth({ transactions: visibleTransactions, categories: data.categories, todayISO: todayISO() });
       return { gasto_proyectado: p.projectedExpense, ingresos_registrados: p.incomeSoFar, saldo_proyectado: p.projectedBalance, promedio_diario_variable: p.dailyAverage, gastos_fijos_y_recurrentes: p.fixed, nota: 'Estimación a este ritmo; solo ingresos y gastos operativos.' };
     })(),
-    patrimonio_aproximado: totalEnCuentas + totalAhorradoObjetivos - deudaMismaMoneda,
+    activos,
+    patrimonio_aproximado: totalEnCuentas + totalAhorradoObjetivos + totalActivos - deudaMismaMoneda,
     nota_patrimonio: deudaEnOtraMonedaNoIncluida.length
       ? 'El patrimonio_aproximado no incluye la deuda de los créditos en otra moneda listados en "creditos" — menciónalo si el usuario pregunta por su patrimonio total.'
       : undefined,

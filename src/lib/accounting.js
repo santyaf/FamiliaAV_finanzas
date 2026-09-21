@@ -45,6 +45,7 @@ export const DEFAULT_CATEGORY_SPECS = [
   { name: 'Intereses y comisiones', type: 'expense', icon: 'credit-card', group: 'Costos financieros', nature: 'operativo', fixed: false },
   { name: 'Deudas y préstamos', type: 'expense', icon: 'credit-card', group: 'Deudas', nature: 'financiamiento', fixed: true },
   { name: 'Ahorro / Inversión', type: 'expense', icon: 'piggy-bank', group: 'Ahorro e inversión', nature: 'inversion', fixed: false },
+  { name: 'Venta de activos', type: 'income', icon: 'trending-up', group: 'Ahorro e inversión', nature: 'inversion', fixed: false },
   { name: 'Otros gastos', type: 'expense', icon: 'minus', group: 'Otros', nature: 'operativo', fixed: false },
 ];
 
@@ -53,6 +54,9 @@ export const DEFAULT_CATEGORY_SPECS = [
 export const INTEREST_CATEGORY = DEFAULT_CATEGORY_SPECS.find((c) => c.name === 'Intereses y comisiones');
 export const LOAN_INCOME_CATEGORY = DEFAULT_CATEGORY_SPECS.find((c) => c.name === 'Préstamos recibidos');
 export const DEBT_CATEGORY = DEFAULT_CATEGORY_SPECS.find((c) => c.name === 'Deudas y préstamos');
+// Comprar un activo desde una cuenta es una salida de inversión; venderlo, una entrada de inversión.
+export const ASSET_PURCHASE_CATEGORY = DEFAULT_CATEGORY_SPECS.find((c) => c.name === 'Ahorro / Inversión');
+export const ASSET_SALE_CATEGORY = DEFAULT_CATEGORY_SPECS.find((c) => c.name === 'Venta de activos');
 
 // Al pagar una cuota de crédito: el capital baja el pasivo (financiamiento) y
 // solo intereses + seguro son gasto. Devuelve los montos de cada movimiento

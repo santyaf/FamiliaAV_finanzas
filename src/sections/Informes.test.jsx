@@ -69,4 +69,25 @@ describe('Informes (prueba de humo)', () => {
     render(<Informes data={data} actions={actions} />);
     expect(screen.getByText(/Hay categorías sin rubro/)).toBeTruthy();
   });
+
+  it('la situación financiera muestra activos, pasivos y patrimonio (incluye un activo registrado)', () => {
+    const data = base({
+      assets: [{ id: 'as1', ownerMemberId: 'm1', name: 'CDT Bancolombia', kind: 'inversion', acquiredOn: '2020-01-01', acquisitionCost: 2000000, status: 'activo', valuations: [] }],
+      creditsWithPayments: [],
+    });
+    render(<Informes data={data} actions={actions} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Situación financiera' }));
+    expect(screen.getByText('TOTAL ACTIVOS')).toBeTruthy();
+    expect(screen.getByText('TOTAL PASIVOS')).toBeTruthy();
+    expect(screen.getByText('PATRIMONIO (activos − pasivos)')).toBeTruthy();
+    expect(screen.getByText('CDT Bancolombia')).toBeTruthy();
+  });
+
+  it('los cambios en el patrimonio muestran inicio, partes y final', () => {
+    render(<Informes data={base({ assets: [], creditsWithPayments: [] })} actions={actions} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Cambios en el patrimonio' }));
+    expect(screen.getByText('Patrimonio al inicio del período')).toBeTruthy();
+    expect(screen.getByText('Patrimonio al final del período')).toBeTruthy();
+    expect(screen.getByText('Valorización de activos y bienes recibidos')).toBeTruthy();
+  });
 });

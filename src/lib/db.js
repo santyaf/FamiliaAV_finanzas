@@ -1,6 +1,6 @@
 import { supabase } from './supabaseClient';
 import { generateSchedule, recalcAfterExtraPayment, buildRefinance } from './amortization';
-import { DEFAULT_CATEGORY_SPECS, INTEREST_CATEGORY, LOAN_INCOME_CATEGORY, DEBT_CATEGORY } from './accounting';
+import { DEFAULT_CATEGORY_SPECS, INTEREST_CATEGORY, LOAN_INCOME_CATEGORY, DEBT_CATEGORY, ASSET_PURCHASE_CATEGORY, ASSET_SALE_CATEGORY } from './accounting';
 import { creditOutstandingBalance } from './finance';
 import { installmentInCop, dueLibranzaInstallments, nextDateWithDay } from './creditRules';
 import { duePlanInstallments, planOverview, buildRedefer } from './creditCards';
@@ -109,7 +109,7 @@ export async function redeemInvite(token, userId) {
 
 /* ---------------------- CARGA DE DATOS DEL HOGAR ---------------------- */
 export async function loadHouseholdData(householdId) {
-  const [membersRes, catsRes, accsRes, txRes, goalsRes, votesRes, budgetsRes, obligationsRes, plansRes, attRes] = await Promise.all([
+  const [membersRes, catsRes, accsRes, txRes, goalsRes, votesRes, budgetsRes, obligationsRes, plansRes, attRes, assetsRes, valsRes] = await Promise.all([
     supabase.from('household_members').select('user_id, role, color, profiles(full_name)').eq('household_id', householdId),
     supabase.from('categories').select('*').eq('household_id', householdId),
     supabase.from('accounts').select('*').eq('household_id', householdId),
@@ -120,6 +120,8 @@ export async function loadHouseholdData(householdId) {
     supabase.from('obligations').select('*').eq('household_id', householdId),
     supabase.from('card_plans').select('*').eq('household_id', householdId),
     supabase.from('transaction_attachments').select('transaction_id').eq('household_id', householdId),
+    supabase.from('assets').select('*').eq('household_id', householdId),
+    supabase.from('asset_valuations').select('*'),
   ]);
   for (const r of [membersRes, catsRes, accsRes, txRes, goalsRes, votesRes, budgetsRes, obligationsRes]) {
     if (r.error) throw r.error;
@@ -153,7 +155,23 @@ export async function loadHouseholdData(householdId) {
     note: o.note, enabled: o.enabled,
   }));
 
-  return { members, categories, accounts, transactions, goals, budgets, obligations, cardPlans, attachmentCounts };
+  // activos y sus valoraciones (si falla, la app sigue sin ellos)
+  const valsByAsset = {};
+  (valsRes.error ? [] : valsRes.data).forEach((v) => { (valsByAsset[v.asset_id] ||= []).push({ id: v.id, date: v.valued_on, value: Number(v.value), note: v.note, createdAt: v.created_at }); });
+  const assets = assetsRes.error ? [] : assetsRes.data.map((a) => dbAssetToJs(a, valsByAsset[a.id] || []));
+
+  return { members, categories, accounts, transactions, goals, budgets, obligations, cardPlans, attachmentCounts, assets };
+}
+
+function dbAssetToJs(a, valuations) {
+  return {
+    id: a.id, householdId: a.household_id, ownerMemberId: a.owner_member_id, name: a.name, kind: a.kind,
+    acquiredOn: a.acquired_on, acquisitionCost: Number(a.acquisition_cost || 0), creditId: a.credit_id,
+    annualReturnRate: a.annual_return_rate === null || a.annual_return_rate === undefined ? null : Number(a.annual_return_rate),
+    maturityDate: a.maturity_date, institution: a.institution, notes: a.notes, status: a.status,
+    soldOn: a.sold_on, soldAmount: a.sold_amount === null || a.sold_amount === undefined ? null : Number(a.sold_amount),
+    valuations: valuations.sort((x, y) => x.date.localeCompare(y.date)),
+  };
 }
 
 function dbPlanToJs(p) {
@@ -277,6 +295,79 @@ export async function deleteTransaction(id) {
     if (atts?.length) await supabase.storage.from('receipts').remove(atts.map((a) => a.path));
   } catch { /* si falla, queda un archivo huérfano pero el movimiento sí se borra */ }
   const { error } = await supabase.from('transactions').delete().eq('id', id);
+  if (error) throw error;
+}
+
+/* ---------------------- ACTIVOS E INVERSIONES ---------------------- */
+const assetRow = (a) => ({
+  owner_member_id: a.ownerMemberId || null, name: a.name, kind: a.kind, acquired_on: a.acquiredOn || null,
+  acquisition_cost: a.acquisitionCost || 0, credit_id: a.creditId || null,
+  annual_return_rate: a.annualReturnRate === '' || a.annualReturnRate === null || a.annualReturnRate === undefined ? null : Number(a.annualReturnRate),
+  maturity_date: a.maturityDate || null, institution: a.institution || null, notes: a.notes || null,
+});
+
+// Crea el activo con su valoración inicial (el costo) y, si se pagó desde una cuenta de la app, el
+// gasto de inversión correspondiente (no es un gasto operativo: cambia efectivo por un activo).
+export async function createAsset(householdId, userId, a) {
+  const { data: row, error } = await supabase.from('assets').insert({ household_id: householdId, ...assetRow(a) }).select().single();
+  if (error) throw error;
+  const today = new Date().toISOString().slice(0, 10);
+  const vals = [];
+  const startDate = a.acquiredOn || today;
+  const startValue = a.acquisitionCost > 0 ? a.acquisitionCost : (a.currentValue || 0);
+  if (startValue > 0) vals.push({ asset_id: row.id, valued_on: startDate, value: startValue, note: 'Valor inicial' });
+  if (a.currentValue > 0 && a.currentValue !== startValue) vals.push({ asset_id: row.id, valued_on: today, value: a.currentValue, note: 'Valor actual al registrar' });
+  if (vals.length) {
+    const { error: eV } = await supabase.from('asset_valuations').insert(vals);
+    if (eV) throw eV;
+  }
+  if (a.payFromAccountId && a.acquisitionCost > 0) {
+    const categoryId = await ensureCategory(householdId, ASSET_PURCHASE_CATEGORY);
+    const { error: eTx } = await supabase.from('transactions').insert({
+      household_id: householdId, type: 'expense', description: `Compra: ${a.name}`, amount: a.acquisitionCost,
+      category_id: categoryId, account_id: a.payFromAccountId, member_id: a.payMemberId || userId,
+      date: startDate, recurring: false, is_shared: false, nature: 'inversion', created_by: userId,
+    });
+    if (eTx) throw eTx;
+  }
+  return row.id;
+}
+
+export async function updateAsset(id, a) {
+  const { error } = await supabase.from('assets').update(assetRow(a)).eq('id', id);
+  if (error) throw error;
+}
+
+export async function addAssetValuation(assetId, { date, value, note }) {
+  const { error } = await supabase.from('asset_valuations').insert({ asset_id: assetId, valued_on: date, value, note: note || null });
+  if (error) throw error;
+}
+export async function deleteAssetValuation(id) {
+  const { error } = await supabase.from('asset_valuations').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// Vender: el activo queda "vendido" (vale 0 desde esa fecha) y, si el dinero entró a una cuenta de la
+// app, se registra como ingreso de inversión (no es ingreso operativo: la ganancia se ve como valorización).
+export async function sellAsset(householdId, userId, asset, { date, amount, accountId, memberId }) {
+  const { error } = await supabase.from('assets').update({ status: 'vendido', sold_on: date, sold_amount: amount }).eq('id', asset.id);
+  if (error) throw error;
+  if (accountId && amount > 0) {
+    const categoryId = await ensureCategory(householdId, ASSET_SALE_CATEGORY);
+    const { error: eTx } = await supabase.from('transactions').insert({
+      household_id: householdId, type: 'income', description: `Venta: ${asset.name}`, amount,
+      category_id: categoryId, account_id: accountId, member_id: memberId || userId,
+      date, recurring: false, is_shared: false, nature: 'inversion', created_by: userId,
+    });
+    if (eTx) {
+      await supabase.from('assets').update({ status: 'activo', sold_on: null, sold_amount: null }).eq('id', asset.id);
+      throw eTx;
+    }
+  }
+}
+
+export async function deleteAsset(id) {
+  const { error } = await supabase.from('assets').delete().eq('id', id);
   if (error) throw error;
 }
 
