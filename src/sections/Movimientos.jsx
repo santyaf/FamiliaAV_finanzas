@@ -14,6 +14,8 @@ import { DeferralFields, emptyDeferral, deferralToPlan, isCard } from './Tarjeta
 import { ReceiptPicker } from './Recibos';
 import { compressImage } from '../lib/imageCompress';
 import { templateToForm, templateToTransaction, sortTemplates } from '../lib/templates';
+import { parseBankMessage } from '../lib/smsParser';
+import { suggestCategories } from '../lib/statementImport';
 
 export function Movimientos({ data, actions, visibleTransactions, setModal }) {
   const [filter, setFilter] = useState('todos'); // todos | income | expense | recurring | sporadic
@@ -208,8 +210,25 @@ export function TransactionModal({ data, actions, payload, onClose }) {
   const [templateName, setTemplateName] = useState('');
   const [templateWide, setTemplateWide] = useState(false);
   const [manageTemplates, setManageTemplates] = useState(false);
+  const [smsOpen, setSmsOpen] = useState(false);
+  const [smsText, setSmsText] = useState('');
+  const [smsNote, setSmsNote] = useState('');
   const tplCtx = { accounts: data.accounts, categories: data.categories };
   const templates = payload?.source ? [] : sortTemplates(data.templates || [], tplCtx);
+
+  // Pegar el SMS o correo del banco: lee tipo, monto, comercio y fecha, y llena el formulario para revisarlo.
+  function readSms() {
+    const p = parseBankMessage(smsText, { todayISO: todayISO() });
+    if (!p.amount) { setSmsNote('No encontré un monto en el mensaje. Escríbelo a mano o pega el texto completo.'); return; }
+    const kind = p.type || 'expense';
+    setType(kind);
+    setAmount(String(p.amount));
+    if (p.description) setDescription(p.description);
+    if (p.date) setDate(p.date);
+    const cat = suggestCategories([{ type: kind, description: p.description || '' }], data.transactions, data.categories)[0]?.categoryId;
+    if (cat) setCategoryId(cat);
+    setSmsNote(`Leí: ${p.found.join(', ')}. Revisa la cuenta, la categoría y guarda.`);
+  }
   const [deferral, setDeferral] = useState(() => emptyDeferral(data.accounts.find((a) => a.id === (payload?.accountId || data.accounts[0]?.id))));
   const [error, setError] = useState('');
   const chosenAccount = data.accounts.find((a) => a.id === accountId);
@@ -289,6 +308,20 @@ export function TransactionModal({ data, actions, payload, onClose }) {
           <p style={{ fontSize: 12, color: T.ink, fontFamily: FONT_BODY }}>
             Viene del recordatorio de "{payload.description}". Revisa el monto{!payload.amount ? ' (es variable, complétalo)' : ''} y guarda.
           </p>
+        </div>
+      )}
+      {!payload?.source && (
+        <div className="mb-4">
+          <button type="button" onClick={() => setSmsOpen(!smsOpen)} aria-expanded={smsOpen}><span style={{ fontSize: 12.5, color: T.teal, fontFamily: FONT_BODY, fontWeight: 500 }}>{smsOpen ? 'Ocultar' : 'Pegar SMS o correo del banco'}</span></button>
+          {smsOpen && (
+            <div className="mt-2">
+              <textarea style={{ ...inputStyle, minHeight: 80, fontSize: 13 }} value={smsText} onChange={(e) => { setSmsText(e.target.value); setSmsNote(''); }} placeholder="Ej. Compraste $45.000 en EXITO LAURELES con tu T.Deb *1234 el 21/09/2026" aria-label="Mensaje del banco" />
+              <div className="flex items-center gap-3 mt-2">
+                <GhostButton onClick={readSms} style={{ padding: '6px 14px', fontSize: 12.5 }}>Leer mensaje</GhostButton>
+                {smsNote && <p style={{ fontSize: 11.5, color: T.inkSoft, fontFamily: FONT_BODY }}>{smsNote}</p>}
+              </div>
+            </div>
+          )}
         </div>
       )}
       {templates.length > 0 && (

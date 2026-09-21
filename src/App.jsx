@@ -42,6 +42,8 @@ import { Activos, AssetModal, ValuationModal, SellAssetModal } from './sections/
 import { Calendario } from './sections/Calendario';
 import { ReunionMensual } from './sections/ReunionMensual';
 import { PinLockScreen } from './sections/PinLock';
+import { parseBankMessage } from './lib/smsParser';
+import { suggestCategories } from './lib/statementImport';
 import { MfaChallengeScreen } from './sections/Mfa';
 import { usePinLock } from './lib/usePinLock';
 import { NotificationsPanel } from './sections/NotificationsPanel';
@@ -484,6 +486,40 @@ function MainApp({ data, update, actions }) {
           date: todayISO(),
         },
       });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Atajos de la app instalada (mantener pulsado el ícono) y "Compartir" un SMS del banco hacia la app:
+  //   #/movimientos?nuevo=gasto | ingreso   → abre el formulario
+  //   #/?asistente=1                          → abre el chat
+  //   /?text=<mensaje>                        → lee el SMS y abre el formulario con lo que entendió
+  // También sirven como enlace para un atajo de iOS ("Abrir URL"). Se revisa una vez, al montar.
+  const handledLaunchRef = useRef(false);
+  useEffect(() => {
+    if (handledLaunchRef.current) return;
+    const search = new URLSearchParams(window.location.search);
+    const shared = [search.get('title'), search.get('text'), search.get('url')].filter(Boolean).join(' ').trim();
+    const hashQuery = new URLSearchParams(window.location.hash.split('?')[1] || '');
+    const nuevo = hashQuery.get('nuevo');
+    const asistente = hashQuery.get('asistente');
+    if (!shared && !nuevo && !asistente) return;
+    handledLaunchRef.current = true;
+    const hashPath = window.location.hash.split('?')[0];
+    if (shared) window.history.replaceState({}, '', `${window.location.pathname}${hashPath}`);
+    else window.location.hash = hashPath || '/movimientos';
+    if (shared) {
+      const parsed = parseBankMessage(shared, { todayISO: todayISO() });
+      const type = parsed.type || 'expense';
+      const categoryId = parsed.amount ? suggestCategories([{ type, description: parsed.description || '' }], data.transactions, data.categories)[0]?.categoryId : undefined;
+      setModal({
+        type: 'transaction',
+        payload: { source: 'quick', raw: shared.slice(0, 200), type, amount: parsed.amount || undefined, description: parsed.description || (parsed.amount ? '' : shared.slice(0, 80)), date: parsed.date || todayISO(), categoryId: categoryId || undefined },
+      });
+    } else if (nuevo) {
+      setModal({ type: 'transaction', payload: { type: nuevo === 'ingreso' ? 'income' : 'expense' } });
+    } else if (asistente) {
+      setModal({ type: 'assistant' });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
