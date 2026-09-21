@@ -55,15 +55,15 @@ export async function updatePassword(newPassword) {
 }
 
 /* ---------------------- HOGAR / MEMBRESÍA ---------------------- */
-export async function getMyHousehold(userId) {
+// Todos los hogares de la persona, del más antiguo al más nuevo.
+export async function getMyHouseholds(userId) {
   const { data, error } = await supabase
     .from('household_members')
-    .select('household_id, role, color, households(id, name, currency)')
+    .select('household_id, role, color, joined_at, households(id, name, currency)')
     .eq('user_id', userId)
-    .maybeSingle();
+    .order('joined_at');
   if (error) throw error;
-  if (!data) return null;
-  return { householdId: data.household_id, role: data.role, color: data.color, household: data.households };
+  return (data || []).map((m) => ({ householdId: m.household_id, role: m.role, color: m.color, household: m.households }));
 }
 
 export async function createHousehold(userId, name, currency) {

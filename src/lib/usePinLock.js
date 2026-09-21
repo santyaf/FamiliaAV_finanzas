@@ -6,9 +6,10 @@ import {
 
 // Estado del bloqueo con PIN de esta persona en este dispositivo. Arranca bloqueado si hay PIN, y vuelve
 // a bloquear al regresar a la app después del tiempo elegido (visibilitychange).
-export function usePinLock({ userId, onSignOut, storage = getStorage(), hasher = defaultHasher }) {
+// startUnlocked: al cambiar de hogar la app se vuelve a montar; no debe pedir el PIN otra vez en la misma sesión.
+export function usePinLock({ userId, onSignOut, storage = getStorage(), hasher = defaultHasher, startUnlocked = false }) {
   const [record, setRecord] = useState(() => readPin(storage, userId));
-  const [locked, setLocked] = useState(() => !!readPin(storage, userId));
+  const [locked, setLocked] = useState(() => !startUnlocked && !!readPin(storage, userId));
   const recordRef = useRef(record);
   const hiddenAt = useRef(null);
   recordRef.current = record;

@@ -200,7 +200,8 @@ export function AuthScreen() {
   );
 }
 
-export function HouseholdSetup({ userId, onReady, joinError }) {
+// onReady recibe el id del hogar creado o al que se unió. Con onCancel se usa para sumar OTRO hogar sin salir de los actuales.
+export function HouseholdSetup({ userId, onReady, joinError, onCancel }) {
   const [mode, setMode] = useState('create');
   const [name, setName] = useState('');
   const [currency, setCurrency] = useState('COP');
@@ -212,16 +213,14 @@ export function HouseholdSetup({ userId, onReady, joinError }) {
     if (!name.trim()) return;
     setLoading(true); setError('');
     try {
-      await db.createHousehold(userId, name.trim(), currency);
-      onReady(await db.getMyHousehold(userId));
+      onReady(await db.createHousehold(userId, name.trim(), currency));
     } catch (e) { setError(e.message); } finally { setLoading(false); }
   }
   async function join() {
     if (!code.trim()) return;
     setLoading(true); setError('');
     try {
-      await db.redeemInvite(code.trim(), userId);
-      onReady(await db.getMyHousehold(userId));
+      onReady(await db.redeemInvite(code.trim(), userId));
     } catch (e) { setError(e.message); } finally { setLoading(false); }
   }
 
@@ -259,6 +258,7 @@ export function HouseholdSetup({ userId, onReady, joinError }) {
             <PrimaryButton full onClick={join}>{loading ? 'Uniendo…' : 'Unirme al hogar'}</PrimaryButton>
           </>
         )}
+        {onCancel && <GhostButton full onClick={onCancel} style={{ marginTop: 10 }}>Cancelar</GhostButton>}
       </Card>
     </AuthShell>
   );

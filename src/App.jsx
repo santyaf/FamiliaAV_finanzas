@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { ArrowLeftRight, BadgeDollarSign, Bell, CalendarDays, Users2, ChevronLeft, CreditCard, FileText, History, Home, Landmark, LayoutGrid, List, Loader2, LogOut, PiggyBank, Plus, Settings, Sparkles, Target, TrendingUp, Upload, X } from 'lucide-react';
+import { ArrowLeftRight, BadgeDollarSign, Bell, CalendarDays, Users2, ChevronDown, ChevronLeft, CreditCard, FileText, History, Home, Landmark, LayoutGrid, List, Loader2, LogOut, PiggyBank, Plus, Settings, Sparkles, Target, TrendingUp, Upload, X } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import * as db from './lib/db';
 import { formatMoney, formatDate } from './lib/format';
@@ -9,6 +9,7 @@ import { mergeNotificationStates, notificationCounts, statePatchFor } from './li
 import { isAiFeatureEnabled } from './lib/access';
 import { isNetworkError, withTimeout, newId, mergePendingTransactions } from './lib/offlineQueue';
 import { readJSON, writeJSON, removeKey, getStorage } from './lib/safeStorage';
+import { chooseActiveHousehold, normalizeCachedHouseholds, readActiveHouseholdId, saveActiveHouseholdId } from './lib/households';
 import { useOfflineQueue, SEND_TIMEOUT_MS } from './lib/useOfflineQueue';
 import { OfflineBanner } from './components/OfflineBanner';
 import { FONT_BODY, FONT_DISPLAY, FONT_MONO, GOOGLE_FONTS_IMPORT, T, TAP_MIN, inputStyle } from './ui/theme';
@@ -47,6 +48,7 @@ import { suggestCategories } from './lib/statementImport';
 import { MfaChallengeScreen } from './sections/Mfa';
 import { usePinLock } from './lib/usePinLock';
 import { NotificationsPanel } from './sections/NotificationsPanel';
+import { HouseholdSwitcherModal } from './sections/Hogares';
 
 /* ---------------------------------------------------------------------- */
 /* UTILIDADES                                                              */
@@ -61,7 +63,11 @@ import { NotificationsPanel } from './sections/NotificationsPanel';
 /* ---------------------------------------------------------------------- */
 export default function App() {
   const [session, setSession] = useState(undefined); // undefined = cargando, null = sin sesión
-  const [household, setHousehold] = useState(undefined); // undefined = cargando, null = sin hogar
+  const [households, setHouseholds] = useState(undefined); // undefined = cargando, [] = sin hogar
+  const [activeId, setActiveId] = useState(null);
+  const [addingHousehold, setAddingHousehold] = useState(false);
+  const pinUnlocked = useRef(false); // el PIN ya se ingresó en esta sesión: cambiar de hogar no lo pide de nuevo
+  const household = households === undefined ? undefined : chooseActiveHousehold(households, activeId); // null = sin hogar
   const [joinError, setJoinError] = useState('');
   const [recovery, setRecovery] = useState(false);
   const [accountStatus, setAccountStatus] = useState(undefined); // undefined = cargando
@@ -78,55 +84,75 @@ export default function App() {
 
   useEffect(() => {
     if (session === undefined) return;
-    if (!session) { setHousehold(null); setAccountStatus(undefined); setMfaPending(undefined); return; }
+    if (!session) { setHouseholds([]); setAccountStatus(undefined); setMfaPending(undefined); pinUnlocked.current = false; return; }
     db.mfaNeedsChallenge().then((need) => setMfaPending(need === true)).catch(() => setMfaPending(false));
     (async () => {
       // una cuenta desactivada o suspendida no carga datos: ve una pantalla aparte
       try {
         const status = await db.getMyAccountStatus(session.user.id);
         setAccountStatus(status);
-        if (status !== 'active') { setHousehold(null); return; }
+        if (status !== 'active') { setHouseholds([]); return; }
         db.touchLastSeen();
       } catch { setAccountStatus('active'); /* sin señal: no bloquear */ }
       const params = new URLSearchParams(window.location.search);
       const token = params.get('token');
+      let joinedId = null;
       if (token) {
         try {
-          await db.redeemInvite(token, session.user.id);
+          joinedId = await db.redeemInvite(token, session.user.id);
         } catch (e) {
           setJoinError(e.message);
         } finally {
           window.history.replaceState({}, '', window.location.pathname);
         }
       }
-      // Si no hay señal, usa el último hogar conocido en vez de mandar a
-      // "crear hogar" (que sería engañoso: el hogar existe, solo no se ve).
-      const cacheKey = `fam_household_v1:${session.user.id}`;
-      try {
-        const h = await db.getMyHousehold(session.user.id);
-        if (h) writeJSON(getStorage(), cacheKey, h);
-        setHousehold(h);
-      } catch (e) {
-        setHousehold(isNetworkError(e) ? readJSON(getStorage(), cacheKey, null) : null);
-      }
+      await loadHouseholds(session.user.id, joinedId);
     })();
   }, [session]);
 
+  // Carga los hogares de la persona y deja activo el pedido (o el último usado, o el primero).
+  // Si no hay señal, usa los últimos conocidos en vez de mandar a "crear hogar" (sería engañoso:
+  // el hogar existe, solo no se ve).
+  async function loadHouseholds(userId, preferredId) {
+    const cacheKey = `fam_household_v1:${userId}`;
+    let list;
+    try {
+      list = await db.getMyHouseholds(userId);
+      writeJSON(getStorage(), cacheKey, list);
+    } catch (e) {
+      list = isNetworkError(e) ? normalizeCachedHouseholds(readJSON(getStorage(), cacheKey, null)) : [];
+    }
+    const chosen = chooseActiveHousehold(list, preferredId || readActiveHouseholdId(getStorage(), userId));
+    if (chosen) saveActiveHouseholdId(getStorage(), userId, chosen.householdId);
+    setActiveId(chosen ? chosen.householdId : null);
+    setHouseholds(list);
+  }
+  const switchHousehold = (id) => { setActiveId(id); saveActiveHouseholdId(getStorage(), session.user.id, id); };
+  const afterHouseholdChange = async (preferredId) => { setAddingHousehold(false); await loadHouseholds(session.user.id, preferredId); };
+
   if (recovery) return <ResetPasswordScreen onDone={() => setRecovery(false)} />;
-  if (session === undefined || (session && (household === undefined || accountStatus === undefined || mfaPending === undefined))) return <LoadingScreen />;
+  if (session === undefined || (session && (households === undefined || accountStatus === undefined || mfaPending === undefined))) return <LoadingScreen />;
   if (!session) return <AuthScreen />;
   if (mfaPending) return <MfaChallengeScreen onVerify={async (code) => { await db.mfaVerifyLogin(code); setMfaPending(false); window.location.reload(); }} onSignOut={() => db.signOut()} />;
   if (accountStatus && accountStatus !== 'active') {
     return <AccountStatusScreen status={accountStatus} onSignOut={() => db.signOut()} onReactivate={async () => { await db.reactivateMyAccount(); window.location.reload(); }} />;
   }
-  if (!household) return <HouseholdSetup userId={session.user.id} onReady={setHousehold} joinError={joinError} />;
-  return <HouseholdApp session={session} household={household} onLeftHousehold={() => setHousehold(null)} />;
+  if (!household || addingHousehold) {
+    return <HouseholdSetup userId={session.user.id} onReady={afterHouseholdChange} joinError={joinError} onCancel={household ? () => setAddingHousehold(false) : undefined} />;
+  }
+  return (
+    <HouseholdApp
+      key={household.householdId} session={session} household={household} households={households}
+      onSwitchHousehold={switchHousehold} onAddHousehold={() => setAddingHousehold(true)}
+      onLeftHousehold={() => afterHouseholdChange(null)} pinUnlocked={pinUnlocked}
+    />
+  );
 }
 
 /* ---------------------------------------------------------------------- */
 /* CARGA DE DATOS DEL HOGAR Y ACCIONES (puente hacia Supabase)             */
 /* ---------------------------------------------------------------------- */
-function HouseholdApp({ session, household, onLeftHousehold }) {
+function HouseholdApp({ session, household, households, onSwitchHousehold, onAddHousehold, onLeftHousehold, pinUnlocked }) {
   const [raw, setRaw] = useState(null);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState('unified');
@@ -149,10 +175,12 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     removeKey(getStorage(), `${snapKey}:raw`);
     removeKey(getStorage(), `${snapKey}:settings`);
     removeKey(getStorage(), `fam_household_v1:${session.user.id}`);
+    removeKey(getStorage(), `fam_active_household_v1:${session.user.id}`);
     await db.signOut();
   };
   // bloqueo con PIN en este dispositivo (opcional): tapa la app al abrirla y al volver tras un rato
-  const pin = usePinLock({ userId: session.user.id, onSignOut: signOutAndClear });
+  const pin = usePinLock({ userId: session.user.id, onSignOut: signOutAndClear, startUnlocked: pinUnlocked.current });
+  useEffect(() => { pinUnlocked.current = !pin.locked; }, [pin.locked]);
 
   async function refresh() {
     const d = await db.loadHouseholdData(household.householdId);
@@ -239,6 +267,7 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     viewMode, activeMemberId,
     members: raw.members, categories: raw.categories, accounts: raw.accounts,
     transactions: mergePendingTransactions(raw.transactions, queue.items), goals: raw.goals, budgets: raw.budgets, obligations: raw.obligations, cardPlans: raw.cardPlans || [], attachmentCounts: raw.attachmentCounts || {}, assets: raw.assets || [], templates: raw.templates || [],
+    households, activeHouseholdId: household.householdId,
     settings, isPlatformAdmin, notifications: myNotifications, unreadCount, creditsWithPayments: creditsSnapshot,
     offline: { online: queue.online, stale, pending: queue.pending, failed: queue.failed, syncing: queue.syncing },
   };
@@ -337,6 +366,8 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     removeCategory: wrap((id) => db.removeCategory(id)),
     createInvite: () => db.createInvite(household.householdId, session.user.id),
     leaveHousehold: async () => { await db.leaveHousehold(household.householdId, session.user.id); onLeftHousehold(); },
+    switchHousehold: onSwitchHousehold,
+    addHousehold: onAddHousehold,
     signOut: signOutAndClear,
     refreshAll: async () => { await refresh(); await refreshSettings(); await refreshNotifications(); },
     // créditos
@@ -562,9 +593,12 @@ function MainApp({ data, update, actions }) {
       {/* Header */}
       <div className="px-5 pt-6 pb-4 sticky top-0 z-10" style={{ background: T.bg }}>
         <div className="flex items-center justify-between">
-          <div>
-            <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 20, color: T.ink }}>{data.householdName}</p>
-            <p style={{ color: T.inkSoft, fontSize: 12.5 }}>{data.members.length} integrantes · {currency}</p>
+          <div className="min-w-0">
+            <button onClick={() => setModal({ type: 'households' })} aria-label={`Hogar ${data.householdName}: cambiar o agregar hogar`} className="flex items-center gap-1 text-left max-w-full">
+              <span className="truncate" style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 20, color: T.ink }}>{data.householdName}</span>
+              <ChevronDown size={18} color={T.inkSoft} style={{ flexShrink: 0 }} />
+            </button>
+            <p style={{ color: T.inkSoft, fontSize: 12.5 }}>{data.members.length} integrantes · {currency}{data.households?.length > 1 ? ` · ${data.households.length} hogares` : ''}</p>
           </div>
           <div className="flex items-center gap-2">
             <ViewModeToggle data={data} update={update} />
@@ -708,6 +742,7 @@ function MainApp({ data, update, actions }) {
       {modal?.type === 'vote' && <VoteModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
       {modal?.type === 'contribute' && <ContributeModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
       {modal?.type === 'category' && <CategoryModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
+      {modal?.type === 'households' && <HouseholdSwitcherModal data={data} actions={actions} onClose={() => setModal(null)} />}
       {modal?.type === 'notifications' && <NotificationsPanel data={data} actions={actions} onClose={() => setModal(null)} />}
       {modal?.type === 'credit' && <CreditModal data={data} actions={actions} onClose={() => setModal(null)} onCreated={modal.onCreated} />}
       {modal?.type === 'extraPayment' && <ExtraPaymentModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} onDone={modal.onDone} />}
