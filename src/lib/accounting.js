@@ -28,10 +28,10 @@ export function effectiveNature(transaction, category) {
 // los informes), su naturaleza y si es un gasto fijo. Debe coincidir con lo
 // que la migración fase17_naturaleza_contable le puso a los hogares existentes.
 export const DEFAULT_CATEGORY_SPECS = [
-  { name: 'Salario', type: 'income', icon: 'briefcase', group: 'Ingresos laborales', nature: 'operativo', fixed: false },
-  { name: 'Negocio / Freelance', type: 'income', icon: 'receipt', group: 'Ingresos laborales', nature: 'operativo', fixed: false },
-  { name: 'Rentas', type: 'income', icon: 'home', group: 'Ingresos por activos', nature: 'operativo', fixed: false },
-  { name: 'Inversiones', type: 'income', icon: 'trending-up', group: 'Ingresos por activos', nature: 'operativo', fixed: false },
+  { name: 'Salario', type: 'income', icon: 'briefcase', group: 'Ingresos laborales', nature: 'operativo', fixed: false, tax: 'laboral' },
+  { name: 'Negocio / Freelance', type: 'income', icon: 'receipt', group: 'Ingresos laborales', nature: 'operativo', fixed: false, tax: 'laboral' },
+  { name: 'Rentas', type: 'income', icon: 'home', group: 'Ingresos por activos', nature: 'operativo', fixed: false, tax: 'capital' },
+  { name: 'Inversiones', type: 'income', icon: 'trending-up', group: 'Ingresos por activos', nature: 'operativo', fixed: false, tax: 'capital' },
   { name: 'Otros ingresos', type: 'income', icon: 'plus', group: 'Otros ingresos', nature: 'operativo', fixed: false },
   { name: 'Préstamos recibidos', type: 'income', icon: 'plus', group: 'Financiamiento', nature: 'financiamiento', fixed: false },
   { name: 'Vivienda', type: 'expense', icon: 'home', group: 'Vivienda y servicios', nature: 'operativo', fixed: true },

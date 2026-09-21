@@ -23,7 +23,7 @@ export function buildUserExport({ data, userId, exportedAt }) {
   };
 }
 
-const csvCell = (v) => {
+export const csvCell = (v) => {
   if (v === null || v === undefined) return '';
   const s = String(v);
   return /[";\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;

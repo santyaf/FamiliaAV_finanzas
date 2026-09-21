@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { ArrowLeftRight, BadgeDollarSign, Bell, CalendarDays, Users2, ChevronDown, ChevronLeft, CreditCard, FileText, History, Home, Landmark, LayoutGrid, List, Loader2, LogOut, PiggyBank, Plus, Settings, Sparkles, Target, TrendingUp, Upload, X } from 'lucide-react';
+import { ArrowLeftRight, BadgeDollarSign, Receipt, Bell, CalendarDays, Users2, ChevronDown, ChevronLeft, CreditCard, FileText, History, Home, Landmark, LayoutGrid, List, Loader2, LogOut, PiggyBank, Plus, Settings, Sparkles, Target, TrendingUp, Upload, X } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import * as db from './lib/db';
 import { formatMoney, formatDate } from './lib/format';
@@ -41,6 +41,7 @@ import { ReceiptsModal } from './sections/Recibos';
 import { ImportarExtractos } from './sections/ImportarExtractos';
 import { Activos, AssetModal, ValuationModal, SellAssetModal } from './sections/Activos';
 import { Calendario } from './sections/Calendario';
+import { Renta } from './sections/Renta';
 import { ReunionMensual } from './sections/ReunionMensual';
 import { PinLockScreen } from './sections/PinLock';
 import { parseBankMessage } from './lib/smsParser';
@@ -364,6 +365,7 @@ function HouseholdApp({ session, household, households, onSwitchHousehold, onAdd
     addCategory: wrap((c) => db.addCategory(household.householdId, c)),
     updateCategory: wrap((id, c) => db.updateCategory(id, c)),
     removeCategory: wrap((id) => db.removeCategory(id)),
+    setCategoryTaxTag: wrap((id, tag) => db.setCategoryTaxTag(id, tag)),
     createInvite: () => db.createInvite(household.householdId, session.user.id),
     leaveHousehold: async () => { await db.leaveHousehold(household.householdId, session.user.id); onLeftHousehold(); },
     switchHousehold: onSwitchHousehold,
@@ -456,6 +458,7 @@ const GESTION_SECTIONS = [
   { id: 'calendario', label: 'Calendario', icon: CalendarDays, desc: 'Lo que entra y sale cada día: recurrentes, obligaciones, cuotas, tarjetas, metas y vencimientos.' },
   { id: 'activos', label: 'Activos', icon: BadgeDollarSign, desc: 'Propiedades, vehículos, inversiones y cuentas por cobrar, con su valor a hoy y su historial.' },
   { id: 'importar', label: 'Importar extracto', icon: Upload, desc: 'Sube el CSV de tu banco o pega filas desde Excel: revisa, categoriza y evita duplicados.' },
+  { id: 'renta', label: 'Declaración de renta', icon: Receipt, desc: 'Resumen anual para declarar: ingresos, posibles deducciones y si por los topes de la DIAN te toca.' },
   { id: 'informes', label: 'Informes', icon: FileText, desc: 'Estado de resultados y flujo de efectivo por mes, trimestre, semestre o año — personal o del hogar.' },
   { id: 'asistente', label: 'Asistente IA', icon: Sparkles, desc: 'Pregúntale sobre tus finanzas, o regístralas por chat o foto de recibo.', requiresAiChat: true },
   { id: 'conciliacion', label: 'Conciliación', icon: ArrowLeftRight, desc: 'Quién le debe a quién por los gastos compartidos, y cómo saldar.' },
@@ -650,6 +653,7 @@ function MainApp({ data, update, actions }) {
           {tab === 'importar' && <ImportarExtractos data={data} actions={actions} />}
           {tab === 'activos' && <Activos data={data} actions={actions} setModal={setModal} />}
           {tab === 'calendario' && <Calendario data={data} />}
+          {tab === 'renta' && <Renta data={data} actions={actions} />}
           {tab === 'reunion' && <ReunionMensual data={data} actions={actions} />}
           {tab === 'asistente' && aiChatAvailable && <Asistente data={data} actions={actions} visibleTransactions={visibleTransactions} setModal={setModal} />}
           {tab === 'conciliacion' && <Conciliacion data={data} actions={actions} />}

@@ -73,7 +73,7 @@ export function accountsInScope(accounts, scope) {
 
 // Cuánto de un gasto/ingreso cuenta en el Estado de Resultados. En el ámbito
 // personal, un gasto compartido cuenta solo por mi parte.
-function resultAmount(t, scope) {
+export function resultAmount(t, scope) {
   if (scope.kind === 'personal' && t.type === 'expense' && t.isShared && Array.isArray(t.participants) && t.participants.length) {
     return t.participants.find((p) => p.memberId === scope.memberId)?.share || 0;
   }

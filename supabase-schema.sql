@@ -1941,9 +1941,9 @@ create table if not exists card_alert_log (
 );
 alter table card_alert_log enable row level security;
 
--- ============================================================
+-- =========================================================
 -- Fase 30 — Latido del cron
--- ============================================================
+-- =========================================================
 -- Latido del cron de recordatorios: cada ejecución deja su huella para que Administración avise si se detiene.
 create table if not exists public.cron_heartbeat (
   job text primary key,
@@ -1959,6 +1959,18 @@ create policy "admins ven el latido" on public.cron_heartbeat for select using (
 -- solo el service role (el endpoint del cron) escribe: sin políticas de escritura para usuarios
 revoke all on public.cron_heartbeat from anon;
 revoke insert, update, delete on public.cron_heartbeat from authenticated;
+
+-- =========================================================
+-- Fase 31 — Uso tributario de las categorías
+-- =========================================================
+-- Uso tributario de cada categoría (ayuda para la declaración de renta): ingresos laborales o de capital y
+-- gastos que pueden ser deducibles. Es una etiqueta orientativa; no cambia ningún cálculo contable.
+alter table public.categories
+  add column if not exists tax_tag text
+  check (tax_tag is null or tax_tag in ('laboral','capital','vivienda','salud','educacion','afc','donaciones','gmf'));
+
+update public.categories set tax_tag = 'laboral' where tax_tag is null and type = 'income' and name in ('Salario', 'Negocio / Freelance');
+update public.categories set tax_tag = 'capital' where tax_tag is null and type = 'income' and name in ('Rentas', 'Inversiones');
 
 -- Fin del script
 -- =========================================================

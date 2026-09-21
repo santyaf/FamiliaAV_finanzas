@@ -80,7 +80,7 @@ export async function createHousehold(userId, name, currency) {
   await supabase.from('categories').insert(
     DEFAULT_CATEGORY_SPECS.map((c) => ({
       household_id: household.id, name: c.name, type: c.type, icon: c.icon,
-      group_name: c.group, nature: c.nature, is_fixed: c.fixed,
+      group_name: c.group, nature: c.nature, is_fixed: c.fixed, tax_tag: c.tax || null,
     }))
   );
 
@@ -129,7 +129,7 @@ export async function loadHouseholdData(householdId) {
   }
 
   const members = membersRes.data.map((m) => ({ id: m.user_id, name: m.profiles?.full_name || 'Integrante', color: m.color, role: m.role }));
-  const categories = catsRes.data.map((c) => ({ ...c, groupName: c.group_name || null, isFixed: !!c.is_fixed, nature: c.nature || 'operativo' }));
+  const categories = catsRes.data.map((c) => ({ ...c, groupName: c.group_name || null, isFixed: !!c.is_fixed, nature: c.nature || 'operativo', taxTag: c.tax_tag || null }));
   const accounts = accsRes.data.map((a) => ({
     id: a.id, name: a.name, type: a.type, ownerIds: a.owner_ids, paymentKind: a.payment_kind || 'otro',
     creditLimit: a.credit_limit === null || a.credit_limit === undefined ? null : Number(a.credit_limit),
@@ -628,8 +628,12 @@ export async function removeObligation(id) {
 export async function addCategory(householdId, category) {
   const { error } = await supabase.from('categories').insert({
     household_id: householdId, name: category.name, type: category.type, icon: category.icon,
-    group_name: category.groupName || null, nature: category.nature || 'operativo', is_fixed: !!category.isFixed,
+    group_name: category.groupName || null, nature: category.nature || 'operativo', is_fixed: !!category.isFixed, tax_tag: category.taxTag || null,
   });
+  if (error) throw error;
+}
+export async function setCategoryTaxTag(id, taxTag) {
+  const { error } = await supabase.from('categories').update({ tax_tag: taxTag || null }).eq('id', id);
   if (error) throw error;
 }
 export async function updateCategory(id, category) {
@@ -648,7 +652,7 @@ export async function ensureCategory(householdId, spec) {
   if (found?.length) return found[0].id;
   const { data, error: e2 } = await supabase.from('categories').insert({
     household_id: householdId, name: spec.name, type: spec.type, icon: spec.icon,
-    group_name: spec.group, nature: spec.nature, is_fixed: spec.fixed,
+    group_name: spec.group, nature: spec.nature, is_fixed: spec.fixed, tax_tag: spec.tax || null,
   }).select('id').single();
   if (e2) throw e2;
   return data.id;
