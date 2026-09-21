@@ -11,7 +11,7 @@
 do $$
 declare
   h uuid; a uuid; b uuid; c uuid; nonadmin uuid;
-  tx uuid; rid uuid; acct uuid; goal uuid; kid uuid;
+  tx uuid; rid uuid; acct uuid; goal uuid; kid uuid; scat uuid; sacct uuid; t1 uuid; t2 uuid;
   n int; fails int := 0; res text := '';
   okk boolean;
 begin
@@ -188,6 +188,36 @@ begin
     if not okk then fails := fails + 1; end if; res := res || case when okk then 'ok ' else 'FALLA ' end || 'un extraño no agrega metas; ';
     reset role;
   end if;
+
+  -- ================= 10. Movimientos sorpresa: ocultos a los demás hasta su fecha =================
+  select id into sacct from accounts where household_id = h and type = 'shared' limit 1;
+  select id into scat from categories where household_id = h and type = 'expense' limit 1;
+  if sacct is not null and scat is not null then
+    perform set_config('request.jwt.claims', json_build_object('sub', a, 'role', 'authenticated')::text, true);
+    set local role authenticated;
+    insert into transactions (household_id, type, description, amount, category_id, account_id, member_id, date, created_by, private_until)
+      values (h, 'expense', '__sorpresa', 1000, scat, sacct, a, current_date, b, '9999-12-31') returning id into t1;
+    insert into transactions (household_id, type, description, amount, category_id, account_id, member_id, date, created_by, private_until)
+      values (h, 'expense', '__revelada', 1000, scat, sacct, a, current_date, a, (now() at time zone 'America/Bogota')::date - 1) returning id into t2;
+    reset role;
+    select count(*) into n from transactions where id = t1 and created_by = a;
+    okk := n = 1; if not okk then fails := fails + 1; end if; res := res || case when okk then 'ok ' else 'FALLA ' end || 'created_by lo fija la sesión; ';
+    perform set_config('request.jwt.claims', json_build_object('sub', b, 'role', 'authenticated')::text, true);
+    set local role authenticated;
+    select count(*) into n from transactions where id = t1;
+    okk := n = 0; if not okk then fails := fails + 1; end if; res := res || case when okk then 'ok ' else 'FALLA ' end || 'el otro integrante no ve la sorpresa; ';
+    select count(*) into n from transactions where id = t2;
+    okk := n = 1; if not okk then fails := fails + 1; end if; res := res || case when okk then 'ok ' else 'FALLA ' end || 'con la fecha vencida se ve; ';
+    begin update transactions set private_until = null where id = t2; okk := false; exception when others then okk := true; end;
+    if not okk then fails := fails + 1; end if; res := res || case when okk then 'ok ' else 'FALLA ' end || 'otro no cambia la privacidad; ';
+    update transactions set description = 'hack' where id = t1;
+    get diagnostics n = row_count;
+    okk := n = 0; if not okk then fails := fails + 1; end if; res := res || case when okk then 'ok ' else 'FALLA ' end || 'otro no edita la oculta; ';
+    delete from transactions where id = t1;
+    get diagnostics n = row_count;
+    okk := n = 0; if not okk then fails := fails + 1; end if; res := res || case when okk then 'ok ' else 'FALLA ' end || 'otro no borra la oculta; ';
+    reset role;
+  else res := res || 'omitida(sorpresa: sin cuenta compartida); '; end if;
 
   raise exception 'RESULTADO: % | FALLAS=%', res, fails;
 end $$;

@@ -216,7 +216,7 @@ function dbTxToJs(t) {
     id: t.id, type: t.type, description: t.description, amount: Number(t.amount),
     categoryId: t.category_id, accountId: t.account_id, memberId: t.member_id, date: t.date,
     recurring: t.recurring, frequency: t.frequency, isShared: t.is_shared, participants: t.participants,
-    nature: t.nature || null,
+    nature: t.nature || null, privateUntil: t.private_until || null, createdBy: t.created_by,
     version: t.version || 1, editedBy: t.edited_by, editedAt: t.edited_at,
   };
 }
@@ -242,7 +242,7 @@ export async function updateTransactionWithHistory(userId, original, patch) {
     category_id: patch.categoryId, account_id: patch.accountId, member_id: patch.memberId,
     date: patch.date, recurring: patch.recurring, frequency: patch.frequency,
     is_shared: patch.isShared, participants: patch.participants,
-    nature: patch.nature || null,
+    nature: patch.nature || null, private_until: patch.privateUntil || null,
     edited_by: userId, edited_at: new Date().toISOString(),
     version: (original.version || 1) + 1,
   };
@@ -279,7 +279,7 @@ export async function addTransaction(householdId, userId, t) {
     household_id: householdId, type: t.type, description: t.description, amount: t.amount,
     category_id: t.categoryId, account_id: t.accountId, member_id: t.memberId, date: t.date,
     recurring: t.recurring, frequency: t.frequency, is_shared: t.isShared, participants: t.participants,
-    nature: t.nature || null, created_by: userId,
+    nature: t.nature || null, created_by: userId, private_until: t.privateUntil || null,
   };
   const { error } = await supabase.from('transactions').insert(row);
   // con un plan de cuotas, un 23505 (el movimiento ya estaba guardado) no corta: falta crear el plan

@@ -9,6 +9,7 @@ import {
 } from '../ui/primitives';
 import { formatMoney, formatDate } from '../lib/format';
 import { exceedsThreshold, approvedRequestsOf } from '../lib/spendRequests';
+import { FOREVER, canHide, privateUntilValue, validateHideUntil, hiddenLabel, isHiddenNow } from '../lib/surprise';
 import { todayISO, computeIncomeShares, occurrencesInMonth, getNextOccurrence, daysUntil } from '../lib/finance';
 import { NATURES, natureLabel } from '../lib/accounting';
 import { DeferralFields, emptyDeferral, deferralToPlan, isCard } from './Tarjetas';
@@ -130,6 +131,7 @@ export function Movimientos({ data, actions, visibleTransactions, setModal }) {
                       {member && <MemberChip member={member} size={18} />}
                       {t.recurring && <span className="flex items-center gap-1 rounded-full px-2 py-0.5" style={{ background: T.goldSoft }}><Repeat size={10} color={T.gold} /><span style={{ fontSize: 10, color: T.gold }}>{t.frequency}</span></span>}
                       {t.isShared && <span className="rounded-full px-2 py-0.5" style={{ background: T.tealSoft }}><span style={{ fontSize: 10, color: T.teal }}>Compartido</span></span>}
+                      {isHiddenNow(t, todayISO()) && <span className="rounded-full px-2 py-0.5" style={{ background: T.goldSoft }}><span style={{ fontSize: 10, color: T.gold }}>{hiddenLabel(t.privateUntil, formatDate)}</span></span>}
                       {t.pending && (
                         <span className="rounded-full px-2 py-0.5" style={{ background: t.pendingStatus === 'failed' ? T.coralSoft : T.amberSoft }}>
                           <span style={{ fontSize: 10, color: t.pendingStatus === 'failed' ? T.coral : T.amber }}>
@@ -190,6 +192,25 @@ function NatureField({ value, onChange, category }) {
   );
 }
 
+
+// «Sorpresa»: ocultar el movimiento a los demás integrantes hasta una fecha (solo en cuentas compartidas).
+function SurpriseField({ hide, setHide, until, setUntil, today, formatDateFn }) {
+  return (
+    <div className="rounded-xl p-3 mb-4" style={{ background: T.bg }}>
+      <label className="flex items-center gap-2">
+        <input type="checkbox" checked={hide} onChange={(e) => setHide(e.target.checked)} />
+        <span style={{ fontSize: 14, color: T.ink, fontFamily: FONT_BODY }}>Sorpresa: ocultarlo a los demás integrantes</span>
+      </label>
+      {hide && (
+        <div className="mt-2">
+          <Field label="Mostrarlo el día (vacío = nunca)"><input style={inputStyle} type="date" value={until === FOREVER ? '' : until} min={today} onChange={(e) => setUntil(e.target.value)} aria-label="Mostrarlo el día" /></Field>
+          <p style={{ fontSize: 11.5, color: T.inkSoft, fontFamily: FONT_BODY }}>Solo tú lo ves. Mientras esté oculto, el saldo y los totales de la cuenta compartida que ven los demás no lo incluyen{until && until !== FOREVER ? `; el ${formatDateFn(until)} aparece solo` : ''}.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function TransactionModal({ data, actions, payload, onClose }) {
   const [type, setType] = useState(payload?.type || 'expense');
   const [description, setDescription] = useState(payload?.description || '');
@@ -213,6 +234,8 @@ export function TransactionModal({ data, actions, payload, onClose }) {
   const [manageTemplates, setManageTemplates] = useState(false);
   const [smsOpen, setSmsOpen] = useState(false);
   const [linkedRequest, setLinkedRequest] = useState('');
+  const [hide, setHide] = useState(false);
+  const [hideUntil, setHideUntil] = useState('');
   const [smsText, setSmsText] = useState('');
   const [smsNote, setSmsNote] = useState('');
   const tplCtx = { accounts: data.accounts, categories: data.categories };
@@ -262,7 +285,12 @@ export function TransactionModal({ data, actions, payload, onClose }) {
       recurring, frequency: recurring ? frequency : null,
       isShared: type === 'expense' ? isShared : false,
       participants: participantsData, nature: nature || null,
+      privateUntil: canHide({ type, account: chosenAccount, membersCount: data.members.length }) ? privateUntilValue(hide, hideUntil) : null,
     };
+    if (t.privateUntil) {
+      const problem = validateHideUntil(hideUntil, todayISO());
+      if (problem) { setError(problem); return; }
+    }
     if (canDefer) {
       const { plan, error: planError } = deferralToPlan(deferral, date, chosenAccount);
       if (planError) { setError(planError); return; }
@@ -405,6 +433,7 @@ export function TransactionModal({ data, actions, payload, onClose }) {
           {data.accounts.map((a) => <option key={a.id} value={a.id}>{a.name} — {PAYMENT_KIND_LABEL[a.paymentKind || 'otro']}</option>)}
         </select>
       </Field>
+      {canHide({ type, account: chosenAccount, membersCount: data.members.length }) && <SurpriseField hide={hide} setHide={setHide} until={hideUntil} setUntil={setHideUntil} today={todayISO()} formatDateFn={formatDate} />}
       {payload?.receiptFile ? (
         <p style={{ fontSize: 11.5, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-4">La foto del recibo se guardará con el movimiento.{' '}
           {receipt ? <button type="button" onClick={() => setReceipt(null)} style={{ color: T.teal, fontWeight: 500 }}>No guardarla</button> : <button type="button" onClick={() => setReceipt(payload.receiptFile)} style={{ color: T.teal, fontWeight: 500 }}>Guardarla</button>}</p>
@@ -525,7 +554,7 @@ export function TransactionModal({ data, actions, payload, onClose }) {
 const FIELD_LABELS = {
   type: 'Tipo', description: 'Descripción', amount: 'Monto', categoryId: 'Categoría',
   accountId: 'Cuenta', memberId: 'Integrante', date: 'Fecha', recurring: 'Recurrente',
-  frequency: 'Frecuencia', isShared: 'Compartido', nature: 'Naturaleza contable',
+  frequency: 'Frecuencia', isShared: 'Compartido', nature: 'Naturaleza contable', privateUntil: 'Oculto a los demás hasta',
 };
 
 export function describeValue(field, value, data) {
@@ -537,12 +566,13 @@ export function describeValue(field, value, data) {
   if (field === 'memberId') return data.members.find((m) => m.id === value)?.name || value;
   if (field === 'nature') return natureLabel(value);
   if (field === 'date') return formatDate(value);
+  if (field === 'privateUntil') return value === FOREVER ? 'Siempre' : formatDate(value);
   if (field === 'recurring' || field === 'isShared') return value ? 'Sí' : 'No';
   return String(value);
 }
 
 export function diffTransactions(original, edited, data) {
-  const fields = ['type', 'description', 'amount', 'categoryId', 'accountId', 'memberId', 'date', 'recurring', 'frequency', 'isShared', 'nature'];
+  const fields = ['type', 'description', 'amount', 'categoryId', 'accountId', 'memberId', 'date', 'recurring', 'frequency', 'isShared', 'nature', 'privateUntil'];
   return fields
     .filter((f) => String(original[f] ?? '') !== String(edited[f] ?? ''))
     .map((f) => ({ field: f, label: FIELD_LABELS[f], before: describeValue(f, original[f], data), after: describeValue(f, edited[f], data) }));
@@ -562,6 +592,10 @@ export function EditTransactionModal({ data, actions, payload: original, onClose
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [nature, setNature] = useState(original.nature || '');
+  const [hide, setHide] = useState(!!original.privateUntil);
+  const [hideUntil, setHideUntil] = useState(original.privateUntil && original.privateUntil !== FOREVER ? original.privateUntil : '');
+  const editAccount = data.accounts.find((a) => a.id === accountId);
+  const mayHide = original.createdBy === actions.userId && canHide({ type, account: editAccount, membersCount: data.members.length });
 
   const cats = data.categories.filter((c) => c.type === type);
 
@@ -569,11 +603,16 @@ export function EditTransactionModal({ data, actions, payload: original, onClose
     type, description, amount: parseFloat(amount) || 0, categoryId, accountId, memberId, date,
     recurring, frequency: recurring ? frequency : null,
     isShared: original.isShared, participants: original.participants, nature: nature || null,
+    privateUntil: mayHide ? privateUntilValue(hide, hideUntil) : (original.privateUntil || null),
   };
   const changes = diffTransactions(original, edited, data);
 
   function goToConfirm() {
     if (!edited.amount || edited.amount <= 0 || !categoryId || !accountId || !memberId) return;
+    if (mayHide && hide && hideUntil !== (original.privateUntil === FOREVER ? '' : original.privateUntil || '')) {
+      const problem = validateHideUntil(hideUntil, todayISO());
+      if (problem) { setError(problem); return; }
+    }
     if (changes.length === 0) { onClose(); return; }
     setStep('confirm');
   }
@@ -642,6 +681,7 @@ export function EditTransactionModal({ data, actions, payload: original, onClose
           {data.accounts.map((a) => <option key={a.id} value={a.id}>{a.name} — {PAYMENT_KIND_LABEL[a.paymentKind || 'otro']}</option>)}
         </select>
       </Field>
+      {mayHide && <SurpriseField hide={hide} setHide={setHide} until={hideUntil} setUntil={setHideUntil} today={todayISO()} formatDateFn={formatDate} />}
       <NatureField value={nature} onChange={setNature} category={data.categories.find((c) => c.id === categoryId)} />
       <Field label={type === 'income' ? 'Recibido por' : 'Pagado por'}>
         <select style={inputStyle} value={memberId} onChange={(e) => setMemberId(e.target.value)}>
