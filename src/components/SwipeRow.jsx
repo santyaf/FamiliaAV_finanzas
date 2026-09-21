@@ -44,7 +44,8 @@ export function SwipeRow({ actions, children }) {
   }
   function onKeyDown(e) {
     if (e.key === 'ArrowLeft') { e.preventDefault(); setOffset(-max); }
-    else if (e.key === 'ArrowRight' || e.key === 'Escape') { setOffset(0); }
+    else if (e.key === 'ArrowRight') { setOffset(0); }
+    else if (e.key === 'Escape' && open) { e.stopPropagation(); setOffset(0); } // cierra la fila, no el pop-up
   }
 
   return (

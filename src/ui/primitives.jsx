@@ -1,12 +1,13 @@
 // Componentes de UI genéricos reutilizados en toda la app.
 
-import React from 'react';
+import React, { useId, useRef } from 'react';
 import {
   X, Briefcase, Receipt, Home, TrendingUp, Plus, Utensils, Car, HeartPulse,
   GraduationCap, Film, Shirt, Lightbulb, CreditCard, PiggyBank, Minus, Tag,
   Banknote, Landmark,
 } from 'lucide-react';
 import { T, FONT_DISPLAY, FONT_BODY, TAP_MIN } from './theme';
+import { useDialogA11y } from '../lib/useFocusTrap';
 
 // Íconos SVG (Lucide) por categoría — reemplazan a los emoji que se veían
 // distinto según el sistema operativo. Si el valor guardado no coincide con una
@@ -54,16 +55,20 @@ async function safeClick(onClick, e) {
 }
 
 export function Modal({ title, onClose, children, wide }) {
+  const dialogRef = useRef(null);
+  const titleId = useId();
+  useDialogA11y(dialogRef, onClose); // foco atrapado, Escape cierra, devuelve el foco y bloquea el scroll del fondo
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
       style={{ background: 'rgba(27,43,58,0.45)' }} onClick={onClose}>
       <div
+        ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}
         className={`w-full ${wide ? 'sm:max-w-lg' : 'sm:max-w-md'} bg-white rounded-t-2xl sm:rounded-2xl max-h-[90vh] overflow-y-auto`}
-        style={{ background: T.surface }}
+        style={{ background: T.surface, outline: 'none' }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: T.border }}>
-          <h3 style={{ fontFamily: FONT_DISPLAY, color: T.ink }} className="text-lg font-semibold">{title}</h3>
+          <h3 id={titleId} style={{ fontFamily: FONT_DISPLAY, color: T.ink }} className="text-lg font-semibold">{title}</h3>
           <IconButton icon={X} onClick={onClose} label="Cerrar" />
         </div>
         <div className="p-5">{children}</div>

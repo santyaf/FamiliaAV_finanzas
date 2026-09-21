@@ -39,6 +39,14 @@ describe('NotificationsPanel (prueba de humo)', () => {
     expect(screen.getByText('2 sin leer')).toBeTruthy();
   });
 
+  it('Escape cierra el pop-up y el foco queda dentro al abrirlo', () => {
+    const onClose = vi.fn();
+    render(<NotificationsPanel data={{ notifications }} actions={{}} onClose={onClose} />);
+    expect(screen.getByRole('dialog').contains(document.activeElement)).toBe(true);
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('sin notificaciones sin leer dice que estás al día', () => {
     render(<NotificationsPanel data={{ notifications: [n('r1', 'Ya leída', { read: true })] }} actions={{}} onClose={() => {}} />);
     expect(screen.getByText('Estás al día')).toBeTruthy();

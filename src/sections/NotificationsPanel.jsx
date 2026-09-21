@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   Bell, AlertTriangle, Target, TrendingUp, Calendar, Sparkles, Info, Trash2, Lightbulb, X, Check, Archive, ArchiveRestore, ChevronLeft, ChevronRight,
 } from 'lucide-react';
@@ -8,6 +8,7 @@ import { SwipeRow } from '../components/SwipeRow';
 import { formatDate } from '../lib/format';
 import { daysUntil } from '../lib/finance';
 import { notificationsInView, notificationCounts } from '../lib/notificationStates';
+import { useDialogA11y } from '../lib/useFocusTrap';
 
 const NOTIFICATION_ICONS = {
   budget_projection: { icon: AlertTriangle, color: T.gold, bg: T.goldSoft },
@@ -52,6 +53,8 @@ function NotificationCard({ n }) {
 // sin leer; las leídas y archivadas viven en otra vista dentro del mismo pop-up. Cada
 // notificación se desliza a la izquierda para mostrar sus acciones.
 export function NotificationsPanel({ data, actions, onClose }) {
+  const ref = useRef(null);
+  useDialogA11y(ref, onClose, { lockScroll: false });
   const [screen, setScreen] = useState('inbox'); // inbox | history
   const [tab, setTab] = useState('read'); // read | archived (dentro de history)
   const all = data.notifications || [];
@@ -79,7 +82,7 @@ export function NotificationsPanel({ data, actions, onClose }) {
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} />
       <div
-        role="dialog" aria-label="Notificaciones"
+        ref={ref} role="dialog" aria-label="Notificaciones" tabIndex={-1}
         className="fixed z-50 rounded-2xl shadow-lg flex flex-col overflow-hidden"
         style={{ top: 72, right: 12, width: 'min(94vw, 380px)', maxHeight: 'min(72vh, 580px)', background: T.surface, border: `1px solid ${T.border}` }}
         onClick={(e) => e.stopPropagation()}
