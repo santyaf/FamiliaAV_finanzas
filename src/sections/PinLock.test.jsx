@@ -125,3 +125,67 @@ describe('PinSettingsCard', () => {
     expect(setTimeoutMin).toHaveBeenCalledWith(15);
   });
 });
+
+describe('Huella o Face ID', () => {
+  const stubCredentials = (impl) => Object.defineProperty(navigator, 'credentials', { value: impl, configurable: true });
+  const withPlatform = (available = true) => { window.PublicKeyCredential = { isUserVerifyingPlatformAuthenticatorAvailable: async () => available }; };
+  afterEach(() => { delete window.PublicKeyCredential; stubCredentials(undefined); });
+
+  it('la pantalla de bloqueo ofrece la huella solo si está activada', () => {
+    const { unmount } = render(<PinLockScreen onSubmit={vi.fn()} onSignOut={() => {}} />);
+    expect(screen.queryByRole('button', { name: /huella o Face ID/ })).toBeNull();
+    unmount();
+    const onBiometric = vi.fn().mockResolvedValue({ status: 'ok' });
+    render(<PinLockScreen onSubmit={vi.fn()} onSignOut={() => {}} onBiometric={onBiometric} />);
+    fireEvent.click(screen.getByRole('button', { name: /huella o Face ID/ }));
+    expect(onBiometric).toHaveBeenCalled();
+  });
+  it('si la huella falla lo dice y deja usar el PIN', async () => {
+    const onBiometric = vi.fn().mockResolvedValue({ status: 'error', message: 'Sensor no disponible' });
+    render(<PinLockScreen onSubmit={vi.fn()} onSignOut={() => {}} onBiometric={onBiometric} />);
+    fireEvent.click(screen.getByRole('button', { name: /huella o Face ID/ }));
+    expect((await screen.findByRole('alert')).textContent).toBe('Sensor no disponible');
+    expect(screen.getByLabelText('PIN')).toBeTruthy();
+  });
+  it('activar la huella desde Ajustes exige tener PIN; desbloquear con ella abre la app', async () => {
+    withPlatform(true);
+    const create = vi.fn().mockResolvedValue({ rawId: new Uint8Array([1, 2, 3]).buffer });
+    const get = vi.fn().mockResolvedValue({ id: 'ok' });
+    stubCredentials({ create, get });
+    const storage = memoryStorage();
+    const seed = renderHook(() => usePinLock({ userId: 'u1', storage, hasher: fastHasher }));
+    expect(seed.result.current.biometric).toBe(false);
+    await act(async () => { await seed.result.current.enable('1234', 1); });
+    await act(async () => { await seed.result.current.enableBiometric('Ana'); });
+    expect(seed.result.current.biometric).toBe(true);
+
+    const reopened = renderHook(() => usePinLock({ userId: 'u1', storage, hasher: fastHasher }));
+    expect(reopened.result.current.locked).toBe(true);
+    expect(reopened.result.current.biometric).toBe(true);
+    await act(async () => { await reopened.result.current.unlockBiometric(); });
+    expect(reopened.result.current.locked).toBe(false);
+  });
+  it('quitar el PIN también quita la huella', async () => {
+    stubCredentials({ create: vi.fn().mockResolvedValue({ rawId: new Uint8Array([9]).buffer }), get: vi.fn() });
+    const storage = memoryStorage();
+    const { result } = renderHook(() => usePinLock({ userId: 'u1', storage, hasher: fastHasher }));
+    await act(async () => { await result.current.enable('1234', 1); });
+    await act(async () => { await result.current.enableBiometric(); });
+    expect(result.current.biometric).toBe(true);
+    await act(async () => { await result.current.disable('1234'); });
+    expect(result.current.biometric).toBe(false);
+    expect(storage.getItem('fam_biometric_v1:u1')).toBeNull();
+  });
+  it('la tarjeta de Ajustes muestra la opción solo si el dispositivo la soporta', async () => {
+    const pin = { enabled: true, biometric: false, timeoutMin: 1, setTimeoutMin: () => {}, lockNow: () => {}, disable: vi.fn(), enable: vi.fn(), enableBiometric: vi.fn().mockResolvedValue({ status: 'ok' }), disableBiometric: vi.fn() };
+    render(<PinSettingsCard pin={pin} />);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByLabelText(/huella o Face ID/)).toBeNull();
+    cleanup();
+    withPlatform(true); stubCredentials({ create: () => {} });
+    render(<PinSettingsCard pin={pin} />);
+    const box = await screen.findByLabelText(/Desbloquear también con huella o Face ID/);
+    fireEvent.click(box);
+    await waitFor(() => expect(pin.enableBiometric).toHaveBeenCalled());
+  });
+});

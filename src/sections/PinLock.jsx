@@ -1,17 +1,25 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Lock, ShieldCheck } from 'lucide-react';
+import { Lock, ShieldCheck, Fingerprint } from 'lucide-react';
 import { T, FONT_DISPLAY, FONT_BODY, inputStyle } from '../ui/theme';
 import { Card, PrimaryButton, GhostButton } from '../ui/primitives';
 import { AuthShell } from './auth';
 import { TIMEOUT_OPTIONS, isValidPin, PIN_MIN, PIN_MAX } from '../lib/pinLock';
+import { biometricSupported } from '../lib/biometric';
 
 // Pantalla que tapa la app mientras está bloqueada.
-export function PinLockScreen({ onSubmit, onSignOut }) {
+export function PinLockScreen({ onSubmit, onSignOut, onBiometric }) {
   const [pin, setPin] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const inputRef = useRef(null);
   useEffect(() => { inputRef.current?.focus(); }, []);
+
+  // el sistema exige un toque de la persona para pedir la huella: por eso es un botón y no automático
+  async function useBiometric() {
+    setMessage('');
+    const r = await onBiometric();
+    if (r.status === 'error') setMessage(r.message || 'No se pudo verificar. Usa tu PIN.');
+  }
 
   async function submit(e) {
     e?.preventDefault();
@@ -41,6 +49,9 @@ export function PinLockScreen({ onSubmit, onSignOut }) {
           {message && <p style={{ color: T.danger, fontSize: 12.5 }} className="mt-2" role="alert">{message}</p>}
           <div className="mt-4"><PrimaryButton full type="submit" onClick={submit}>{busy ? 'Verificando…' : 'Desbloquear'}</PrimaryButton></div>
         </form>
+        {onBiometric && (
+          <GhostButton full onClick={useBiometric} style={{ marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}><Fingerprint size={16} /> Usar huella o Face ID</GhostButton>
+        )}
         <GhostButton full onClick={onSignOut} style={{ marginTop: 10, fontSize: 13 }}>¿Olvidaste el PIN? Cerrar sesión</GhostButton>
       </Card>
     </AuthShell>
@@ -55,7 +66,17 @@ export function PinSettingsCard({ pin }) {
   const [timeout, setTimeoutValue] = useState(1);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [bioAvailable, setBioAvailable] = useState(false);
+  const [bioMessage, setBioMessage] = useState('');
+  useEffect(() => { biometricSupported().then(setBioAvailable); }, []);
   const reset = () => { setMode(null); setA(''); setB(''); setError(''); };
+  async function toggleBiometric() {
+    setBioMessage('');
+    if (pin.biometric) { pin.disableBiometric(); return; }
+    const r = await pin.enableBiometric();
+    if (r.status === 'error') setBioMessage(r.message || 'No se pudo activar.');
+    else if (r.status === 'cancelled') setBioMessage('No se activó: cancelaste la verificación.');
+  }
 
   async function enable() {
     if (!isValidPin(a)) { setError(`El PIN debe tener de ${PIN_MIN} a ${PIN_MAX} números.`); return; }
@@ -96,6 +117,13 @@ export function PinSettingsCard({ pin }) {
           <select style={inputStyle} value={pin.timeoutMin} onChange={(e) => pin.setTimeoutMin(Number(e.target.value))} aria-label="Cuándo bloquear">
             {TIMEOUT_OPTIONS.map((o) => <option key={o.min} value={o.min}>{o.label}</option>)}
           </select>
+          {bioAvailable && (
+            <label className="flex items-center gap-2 mt-3">
+              <input type="checkbox" checked={!!pin.biometric} onChange={toggleBiometric} />
+              <span style={{ fontSize: 13, color: T.ink, fontFamily: FONT_BODY }}>Desbloquear también con huella o Face ID</span>
+            </label>
+          )}
+          {bioMessage && <p style={{ color: T.danger, fontSize: 12 }} className="mt-1" role="alert">{bioMessage}</p>}
           <div className="flex gap-2 mt-3">
             <GhostButton onClick={pin.lockNow} style={{ flex: 1, fontSize: 13 }}>Bloquear ahora</GhostButton>
             <GhostButton onClick={() => setMode('remove')} style={{ flex: 1, fontSize: 13 }}>Quitar el PIN</GhostButton>

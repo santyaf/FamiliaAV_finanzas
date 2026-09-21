@@ -284,7 +284,7 @@ function HouseholdApp({ session, household, households, onSwitchHousehold, onAdd
     },
   });
 
-  if (pin.locked) return <PinLockScreen onSubmit={pin.unlock} onSignOut={signOutAndClear} />;
+  if (pin.locked) return <PinLockScreen onSubmit={pin.unlock} onSignOut={signOutAndClear} onBiometric={pin.biometric ? pin.unlockBiometric : undefined} />;
   if (loading || !raw || !settings) return <LoadingScreen />;
 
   const myNotifications = mergeNotificationStates(notifications.filter((n) => !n.userId || n.userId === session.user.id), notificationStates);
