@@ -250,6 +250,26 @@ export async function addTransaction(householdId, userId, t) {
   if (error && !(t.cardPlan && error.code === '23505')) throw error;
   if (t.cardPlan) await createCardPlan(householdId, userId, t, row.id);
 }
+// Importación de un extracto: inserta en tandas de 100. Si una tanda falla, avisa cuántos ya quedaron
+// guardados (importar de nuevo los marcaría como duplicados, así que reintentar es seguro).
+export async function importTransactions(householdId, userId, { accountId, memberId, rows }) {
+  let inserted = 0;
+  for (let i = 0; i < rows.length; i += 100) {
+    const chunk = rows.slice(i, i + 100).map((r) => ({
+      household_id: householdId, type: r.type, description: r.description || 'Movimiento importado', amount: r.amount,
+      category_id: r.categoryId, account_id: accountId, member_id: memberId || userId, date: r.date,
+      recurring: false, is_shared: false, created_by: userId,
+    }));
+    const { error } = await supabase.from('transactions').insert(chunk);
+    if (error) {
+      throw new Error(inserted > 0
+        ? `Se importaron ${inserted} de ${rows.length} movimientos antes del error (${error.message}). Vuelve a importar el mismo extracto: los ya guardados se marcarán como duplicados.`
+        : error.message);
+    }
+    inserted += chunk.length;
+  }
+  return inserted;
+}
 export async function deleteTransaction(id) {
   // los archivos de los recibos no se borran solos con el movimiento: se quitan antes (mejor esfuerzo)
   try {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { ArrowLeftRight, Bell, ChevronLeft, CreditCard, FileText, History, Home, Landmark, LayoutGrid, List, Loader2, LogOut, PiggyBank, Plus, Settings, Sparkles, Target, TrendingUp, X } from 'lucide-react';
+import { ArrowLeftRight, Bell, ChevronLeft, CreditCard, FileText, History, Home, Landmark, LayoutGrid, List, Loader2, LogOut, PiggyBank, Plus, Settings, Sparkles, Target, TrendingUp, Upload, X } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import * as db from './lib/db';
 import { formatMoney, formatDate } from './lib/format';
@@ -37,6 +37,7 @@ import { ResetPasswordScreen, LoadingScreen, AuthScreen, HouseholdSetup } from '
 import { AdminPanel } from './sections/AdminPanel';
 import { AccountStatusScreen } from './sections/Usuarios';
 import { ReceiptsModal } from './sections/Recibos';
+import { ImportarExtractos } from './sections/ImportarExtractos';
 import { NotificationsPanel } from './sections/NotificationsPanel';
 
 /* ---------------------------------------------------------------------- */
@@ -262,6 +263,9 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
       try { await refresh(); } catch (e) { if (!isNetworkError(e)) throw e; }
       return { id, queued: false }; // queued: true = aún no está en el servidor (no se le puede adjuntar un recibo)
     },
+    importTransactions: async (o) => {
+      try { return await db.importTransactions(household.householdId, session.user.id, o); } finally { await refresh(); }
+    },
     loadAttachments: (transactionId) => db.loadAttachments(transactionId),
     uploadAttachment: async (transactionId, file) => { await db.uploadAttachment(household.householdId, transactionId, file); await refresh(); },
     getAttachmentUrl: (path) => db.getAttachmentUrl(path),
@@ -390,6 +394,7 @@ const GESTION_SECTIONS = [
   { id: 'presupuestos', label: 'Presupuestos', icon: PiggyBank, desc: 'Límites de gasto por categoría, para todo el hogar o por integrante.' },
   { id: 'obligaciones', label: 'Obligaciones', icon: Bell, desc: 'Recordatorios de pagos por vencer — arriendo, servicios, suscripciones.' },
   { id: 'tendencias', label: 'Tendencias', icon: TrendingUp, desc: 'Flujo de caja y gasto por categoría de los últimos meses.' },
+  { id: 'importar', label: 'Importar extracto', icon: Upload, desc: 'Sube el CSV de tu banco o pega filas desde Excel: revisa, categoriza y evita duplicados.' },
   { id: 'informes', label: 'Informes', icon: FileText, desc: 'Estado de resultados y flujo de efectivo por mes, trimestre, semestre o año — personal o del hogar.' },
   { id: 'asistente', label: 'Asistente IA', icon: Sparkles, desc: 'Pregúntale sobre tus finanzas, o regístralas por chat o foto de recibo.', requiresAiChat: true },
   { id: 'conciliacion', label: 'Conciliación', icon: ArrowLeftRight, desc: 'Quién le debe a quién por los gastos compartidos, y cómo saldar.' },
@@ -544,6 +549,7 @@ function MainApp({ data, update, actions }) {
           {tab === 'obligaciones' && <Obligaciones data={data} actions={actions} setModal={setModal} />}
           {tab === 'tendencias' && <Tendencias data={data} />}
           {tab === 'informes' && <Informes data={data} actions={actions} />}
+          {tab === 'importar' && <ImportarExtractos data={data} actions={actions} />}
           {tab === 'asistente' && aiChatAvailable && <Asistente data={data} actions={actions} visibleTransactions={visibleTransactions} setModal={setModal} />}
           {tab === 'conciliacion' && <Conciliacion data={data} actions={actions} />}
           {tab === 'cuentas' && <Cuentas data={data} actions={actions} setModal={setModal} />}
