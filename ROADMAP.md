@@ -103,11 +103,11 @@ El mayor predictor de que una app de finanzas sobreviva es qué tan fácil es me
 
 ## Fase 16 — Alcance y pulido
 
-- **Onboarding guiado** — crear hogar → agregar cuentas → primer presupuesto → invitar a la familia, con progreso.
+- ~~**Onboarding guiado**~~ ✅ — tarjeta **Primeros pasos** al inicio del Dashboard (`lib/onboarding.js`, `PrimerosPasos.jsx`): crear cuenta → primer movimiento → presupuesto → meta de ahorro → invitar a la familia. Cada paso se marca solo cuando los datos lo cumplen, cada uno tiene su botón (abre el formulario o la sección), se puede ocultar (por hogar) y desaparece al completarlos. Pendiente: tour guiado con resaltado de la interfaz y plantilla de categorías por tipo de hogar.
 - **i18n + multi-país** — hoy es 100% es-CO. Scaffold es/en, otras monedas y reglas (UVR es solo Colombia).
 - **Modo oscuro**.
 - **App en las tiendas** — envolver la PWA en TWA (Play Store) y Capacitor (App Store). Desbloquea push real en iOS, biométrico, widgets nativos.
-- **Digest mensual** por push/correo — reusa la infra de `send-reminders`.
+- ~~**Digest mensual** por push/correo~~ ✅ (migración `fase29_avisos_resumen_mensual_y_tarjetas`) — el cron de `send-reminders` avisa una vez por persona y mes, en los primeros 5 días desde las 9:00 de su zona horaria: *"Cerró septiembre — revisa el resumen y las decisiones en la reunión mensual"* (push que abre `#/reunion` + notificación en la campana). Aviso **sin cifras** a propósito (no filtra datos privados). Se comprueba con `POST /api/send-reminders?dry=1` (la respuesta trae `extras`). Pendiente: versión por correo y resumen con cifras del hogar compartido.
 - **Referidos / compartir**.
 
 ---
@@ -151,7 +151,7 @@ Objetivo: poder generar informes **mensuales, trimestrales, semestrales y anuale
 - **Rediferir / abonar** un diferido (nuevo plazo y/o tasa, abono a capital) con vista antes/después e historial (`card_plan_events`). **Pagar tarjeta** = transferencia desde otra cuenta (no es gasto) con sugerencias "sin intereses" / "total". Próximo pago de tarjeta en *Próximos pagos* del Dashboard y en el resumen del Asistente.
 - Privacidad: una transferencia hacia/desde una cuenta compartida ahora la ve todo el hogar (antes solo las dos personas), para que el saldo de una tarjeta compartida sea igual para todos.
 - **Simplificaciones conocidas:** el interés de la 1.ª cuota es de un mes completo aunque la compra sea a mitad de ciclo; el "pago sin intereses" es aproximado (incluye compras de un pago hechas después del último corte); no hay cuota de manejo ni pago mínimo (se registran como gasto normal); en el Flujo de efectivo la tarjeta cuenta como una cuenta con saldo negativo (la compra sale al comprar). Los pagos de tarjeta registrados como **gasto** antes de esta fase (p. ej. "Pago TC") duplican el gasto: reclasificarlos como transferencia.
-- Pendiente: tarjetas: avances en efectivo, tarjeta adicional/compartida por integrante, alertas de corte/pago por notificación push.
+- ✅ **Alertas de pago por push** (Fase 29): desde 2 días antes de la fecha límite de pago, una sola vez por fecha, a los dueños de la tarjeta (a todos los integrantes si es compartida) — `lib/pushSchedule.js` con pruebas. Pendiente: avances en efectivo, tarjeta adicional por integrante, aviso del corte.
 
 
 ## Fase 20 — Notificaciones y gestión de usuarios (pedido del usuario, 2026-09-18)

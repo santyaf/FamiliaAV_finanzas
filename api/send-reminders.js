@@ -17,6 +17,7 @@
 import { createClient } from '@supabase/supabase-js';
 import webpush from 'web-push';
 import { advanceByFrequency } from '../src/lib/finance.js';
+import { localParts, previousMonthOf, shouldSendDigest, cardPaymentAlert, cardAlertText, DEFAULT_TIMEZONE } from '../src/lib/pushSchedule.js';
 
 const CHECK_WINDOW_MINUTES = 6; // un poco más que los ~5 min entre corridas, por margen
 
@@ -238,8 +239,71 @@ export default async function handler(req, res) {
       obligationsEvaluated.push(info);
     }
 
+    // ---- Resumen mensual y vencimiento de tarjetas (Fase 29). Un fallo aquí no afecta a lo anterior. ----
+    const extras = { digest: { checked: 0, sent: 0, skipped: 0 }, cards: { checked: 0, sent: 0, skipped: 0 }, error: null };
+    try {
+      const tzByUser = {};
+      [...(schedules || []), ...(obligations || [])].forEach((x) => { const uid = x.user_id || x.owner_member_id; if (uid && x.timezone && !tzByUser[uid]) tzByUser[uid] = x.timezone; });
+      const tzOf = (uid) => tzByUser[uid] || DEFAULT_TIMEZONE;
+
+      // resumen del mes anterior: un aviso general (sin cifras) por persona y mes
+      const { data: subRows } = await supabase.from('push_subscriptions').select('user_id');
+      const subscribed = [...new Set((subRows || []).map((r) => r.user_id))];
+      for (const userId of subscribed) {
+        extras.digest.checked++;
+        const local = localParts(now, tzOf(userId));
+        const { data: sentRow } = await supabase.from('digest_sent_log').select('user_id').eq('user_id', userId).eq('month_key', local.monthKey).maybeSingle();
+        if (!force && !shouldSendDigest(local, !!sentRow)) { extras.digest.skipped++; continue; }
+        const prev = previousMonthOf(local.monthKey);
+        const title = `Cerró ${prev.label}`;
+        const body = 'Revisa el resumen del mes y las decisiones para el siguiente en la reunión mensual.';
+        if (!dry) {
+          const { sent: n } = await sendToUser(supabase, userId, JSON.stringify({ title, body, url: '/#/reunion' }), pushErrors, `digest:${userId}`);
+          extras.digest.sent += n;
+          if (!force) {
+            await supabase.from('digest_sent_log').insert({ user_id: userId, month_key: local.monthKey });
+            const { data: hh } = await supabase.from('household_members').select('household_id').eq('user_id', userId);
+            for (const h of hh || []) {
+              await supabase.from('notifications').upsert(
+                { household_id: h.household_id, user_id: userId, type: 'monthly_review', title, body, dedupe_key: `digest:${local.monthKey}:${userId}` },
+                { onConflict: 'household_id,dedupe_key', ignoreDuplicates: true },
+              );
+            }
+          }
+        }
+      }
+
+      // vencimiento de pago de las tarjetas: desde 2 días antes, una sola vez por fecha
+      const { data: cardAccounts } = await supabase.from('accounts').select('id, name, type, owner_ids, household_id, payment_day')
+        .eq('payment_kind', 'tarjeta_credito').not('payment_day', 'is', null);
+      for (const a of cardAccounts || []) {
+        extras.cards.checked++;
+        const recipients = a.type === 'shared'
+          ? ((await supabase.from('household_members').select('user_id').eq('household_id', a.household_id)).data || []).map((m) => m.user_id)
+          : (a.owner_ids || []);
+        if (!recipients.length) continue;
+        const alert = cardPaymentAlert({ paymentDay: a.payment_day }, localParts(now, tzOf(recipients[0])));
+        if (!alert && !force) { extras.cards.skipped++; continue; }
+        const effective = alert || { dueDate: null, daysLeft: 0 };
+        if (!force) {
+          const { data: done } = await supabase.from('card_alert_log').select('account_id').eq('account_id', a.id).eq('due_date', effective.dueDate).maybeSingle();
+          if (done) { extras.cards.skipped++; continue; }
+        }
+        if (!dry) {
+          const text = cardAlertText(a.name, effective);
+          for (const uid of recipients) {
+            const { sent: n } = await sendToUser(supabase, uid, JSON.stringify({ ...text, url: '/#/cuentas' }), pushErrors, `card:${a.id}`);
+            extras.cards.sent += n;
+          }
+          if (!force) await supabase.from('card_alert_log').insert({ account_id: a.id, due_date: effective.dueDate });
+        }
+      }
+    } catch (err) {
+      extras.error = err.message;
+    }
+
     res.status(200).json({
-      ok: true, dry, force,
+      ok: true, dry, force, extras,
       serverTimeUTC: now.toISOString(),
       checked: schedules.length, due, sent, skipped,
       obligations: {

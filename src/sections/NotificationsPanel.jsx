@@ -17,6 +17,7 @@ const NOTIFICATION_ICONS = {
   surplus_opportunity: { icon: Sparkles, color: T.gold, bg: T.goldSoft },
   suggestion: { icon: Lightbulb, color: T.gold, bg: T.goldSoft },
   suggestion_update: { icon: Lightbulb, color: T.teal, bg: T.tealSoft },
+  monthly_review: { icon: Calendar, color: T.teal, bg: T.tealSoft },
 };
 
 export function relativeDay(iso) {
