@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback, Suspense } from 'react';
 import { ArrowLeftRight, BadgeCheck, BadgeDollarSign, Receipt, Bell, CalendarDays, Users2, ChevronDown, ChevronLeft, CreditCard, FileText, History, Home, Landmark, LayoutGrid, List, Loader2, LogOut, PiggyBank, Plus, Settings, Sparkles, Target, TrendingUp, Upload, X } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import * as db from './lib/db';
@@ -14,37 +14,14 @@ import { useOfflineQueue, SEND_TIMEOUT_MS } from './lib/useOfflineQueue';
 import { OfflineBanner } from './components/OfflineBanner';
 import { FONT_BODY, FONT_DISPLAY, FONT_MONO, GOOGLE_FONTS_IMPORT, T, TAP_MIN, inputStyle } from './ui/theme';
 import { Card, EmptyState, Field, GhostButton, IconButton, Modal, PrimaryButton } from './ui/primitives';
-import Conciliacion from './sections/Conciliacion';
 import { Cuentas, AccountModal } from './sections/Cuentas';
-import { CardPayModal, CardPlansModal, RedeferModal } from './sections/Tarjetas';
-import { Presupuestos, BudgetModal } from './sections/Presupuestos';
-import {
-  Objetivos, GoalModal, VoteModal, ContributeModal, WithdrawGoalModal, EditGoalModal,
-} from './sections/Objetivos';
-import {
-  Creditos, CreditModal, PayInstallmentModal, ExtraPaymentModal, EditCreditModal,
-  CreditInsuranceModal, MemberTransferModal, RefinanceModal,
-} from './sections/Creditos';
 import {
   Movimientos, TransactionModal, EditTransactionModal, HistoryModal,
 } from './sections/Movimientos';
 import { Dashboard } from './sections/Dashboard';
-import { Ajustes, InviteModal, CategoryModal, ReminderModal } from './sections/Ajustes';
-import { Obligaciones, ObligationModal } from './sections/Obligaciones';
-import { Tendencias } from './sections/Tendencias';
-import { Informes } from './sections/Informes';
-import { Asistente } from './sections/Asistente';
 import { ResetPasswordScreen, LoadingScreen, AuthScreen, HouseholdSetup } from './sections/auth';
-import { AdminPanel } from './sections/AdminPanel';
 import { AccountStatusScreen } from './sections/Usuarios';
-import { ReceiptsModal } from './sections/Recibos';
-import { ImportarExtractos } from './sections/ImportarExtractos';
-import { Activos, AssetModal, ValuationModal, SellAssetModal } from './sections/Activos';
-import { Calendario } from './sections/Calendario';
-import { Renta } from './sections/Renta';
-import { Aprobaciones, SpendRequestModal } from './sections/Aprobaciones';
 import { pendingForMe } from './lib/spendRequests';
-import { ReunionMensual } from './sections/ReunionMensual';
 import { PinLockScreen } from './sections/PinLock';
 import { parseBankMessage } from './lib/smsParser';
 import { suggestCategories } from './lib/statementImport';
@@ -52,6 +29,54 @@ import { MfaChallengeScreen } from './sections/Mfa';
 import { usePinLock } from './lib/usePinLock';
 import { NotificationsPanel } from './sections/NotificationsPanel';
 import { HouseholdSwitcherModal } from './sections/Hogares';
+import { LazyBoundary, lazyNamed } from './components/LazyBoundary';
+
+// Las pantallas menos usadas y sus formularios se cargan bajo demanda: la app abre más rápido.
+const LOAD = {
+  Activos: () => import('./sections/Activos'),
+  AdminPanel: () => import('./sections/AdminPanel'),
+  Ajustes: () => import('./sections/Ajustes'),
+  Aprobaciones: () => import('./sections/Aprobaciones'),
+  Asistente: () => import('./sections/Asistente'),
+  Calendario: () => import('./sections/Calendario'),
+  Conciliacion: () => import('./sections/Conciliacion'),
+  Creditos: () => import('./sections/Creditos'),
+  ImportarExtractos: () => import('./sections/ImportarExtractos'),
+  Informes: () => import('./sections/Informes'),
+  Objetivos: () => import('./sections/Objetivos'),
+  Obligaciones: () => import('./sections/Obligaciones'),
+  Presupuestos: () => import('./sections/Presupuestos'),
+  Recibos: () => import('./sections/Recibos'),
+  Renta: () => import('./sections/Renta'),
+  ReunionMensual: () => import('./sections/ReunionMensual'),
+  Tarjetas: () => import('./sections/Tarjetas'),
+  Tendencias: () => import('./sections/Tendencias'),
+};
+// Con la app ya abierta y sin prisa, se descargan las demás pantallas para que también funcionen sin señal
+// (el service worker guarda cada archivo la primera vez que se pide).
+function preloadSections() {
+  const run = () => Object.values(LOAD).reduce((p, load) => p.then(() => load().catch(() => {})), Promise.resolve());
+  if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(run, { timeout: 8000 });
+  else setTimeout(run, 3000);
+}
+const Conciliacion = React.lazy(LOAD.Conciliacion);
+const [CardPayModal, CardPlansModal, RedeferModal] = ['CardPayModal', 'CardPlansModal', 'RedeferModal'].map((n) => lazyNamed(LOAD.Tarjetas, n));
+const [Presupuestos, BudgetModal] = ['Presupuestos', 'BudgetModal'].map((n) => lazyNamed(LOAD.Presupuestos, n));
+const [Objetivos, GoalModal, VoteModal, ContributeModal, WithdrawGoalModal, EditGoalModal] = ['Objetivos', 'GoalModal', 'VoteModal', 'ContributeModal', 'WithdrawGoalModal', 'EditGoalModal'].map((n) => lazyNamed(LOAD.Objetivos, n));
+const [Creditos, CreditModal, PayInstallmentModal, ExtraPaymentModal, EditCreditModal, CreditInsuranceModal, MemberTransferModal, RefinanceModal] = ['Creditos', 'CreditModal', 'PayInstallmentModal', 'ExtraPaymentModal', 'EditCreditModal', 'CreditInsuranceModal', 'MemberTransferModal', 'RefinanceModal'].map((n) => lazyNamed(LOAD.Creditos, n));
+const [Ajustes, InviteModal, CategoryModal, ReminderModal] = ['Ajustes', 'InviteModal', 'CategoryModal', 'ReminderModal'].map((n) => lazyNamed(LOAD.Ajustes, n));
+const [Obligaciones, ObligationModal] = ['Obligaciones', 'ObligationModal'].map((n) => lazyNamed(LOAD.Obligaciones, n));
+const Tendencias = lazyNamed(LOAD.Tendencias, 'Tendencias');
+const Informes = lazyNamed(LOAD.Informes, 'Informes');
+const Asistente = lazyNamed(LOAD.Asistente, 'Asistente');
+const AdminPanel = lazyNamed(LOAD.AdminPanel, 'AdminPanel');
+const ReceiptsModal = lazyNamed(LOAD.Recibos, 'ReceiptsModal');
+const ImportarExtractos = lazyNamed(LOAD.ImportarExtractos, 'ImportarExtractos');
+const [Activos, AssetModal, ValuationModal, SellAssetModal] = ['Activos', 'AssetModal', 'ValuationModal', 'SellAssetModal'].map((n) => lazyNamed(LOAD.Activos, n));
+const Calendario = lazyNamed(LOAD.Calendario, 'Calendario');
+const Renta = lazyNamed(LOAD.Renta, 'Renta');
+const [Aprobaciones, SpendRequestModal] = ['Aprobaciones', 'SpendRequestModal'].map((n) => lazyNamed(LOAD.Aprobaciones, n));
+const ReunionMensual = lazyNamed(LOAD.ReunionMensual, 'ReunionMensual');
 
 /* ---------------------------------------------------------------------- */
 /* UTILIDADES                                                              */
@@ -221,6 +246,7 @@ function HouseholdApp({ session, household, households, onSwitchHousehold, onAdd
         return;
       }
       setLoading(false);
+      preloadSections();
       // compras diferidas con tarjeta: factura (interés como gasto) las cuotas cuyo corte ya llegó
       try {
         if (await db.applyDueCardBilling(household.householdId, session.user.id)) d = await refresh();
@@ -651,6 +677,7 @@ function MainApp({ data, update, actions }) {
           </button>
         )}
         <PullToRefresh onRefresh={actions.refreshAll}>
+          <LazyBoundary><Suspense fallback={<SectionLoading />}>
           {tab === 'dashboard' && <Dashboard data={data} update={update} actions={actions} visibleTransactions={visibleTransactions} visibleMemberId={visibleMemberId} setModal={setModal} setTab={setTab} />}
           {tab === 'movimientos' && <Movimientos data={data} actions={actions} visibleTransactions={visibleTransactions} setModal={setModal} />}
           {tab === 'gestion' && <Gestion setTab={setTab} sections={visibleGestionSections} />}
@@ -671,6 +698,7 @@ function MainApp({ data, update, actions }) {
           {tab === 'cuentas' && <Cuentas data={data} actions={actions} setModal={setModal} />}
           {tab === 'ajustes' && <Ajustes data={data} update={update} actions={actions} setModal={setModal} setTab={setTab} pin={pin} />}
           {tab === 'admin' && data.isPlatformAdmin && <AdminPanel data={data} actions={actions} />}
+          </Suspense></LazyBoundary>
         </PullToRefresh>
       </div>
 
@@ -734,12 +762,13 @@ function MainApp({ data, update, actions }) {
               <IconButton icon={X} onClick={() => setModal(null)} label="Cerrar" />
             </div>
             <div className="px-4 py-3 flex-1 min-h-0 flex flex-col">
-              <Asistente data={data} actions={actions} visibleTransactions={visibleTransactions} setModal={setModal} variant="popup" />
+              <LazyBoundary><Suspense fallback={<SectionLoading />}><Asistente data={data} actions={actions} visibleTransactions={visibleTransactions} setModal={setModal} variant="popup" /></Suspense></LazyBoundary>
             </div>
           </div>
         </>
       )}
 
+      <LazyBoundary><Suspense fallback={null}>
       {modal?.type === 'transaction' && <TransactionModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
       {modal?.type === 'editTransaction' && <EditTransactionModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
       {modal?.type === 'asset' && <AssetModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
@@ -771,6 +800,7 @@ function MainApp({ data, update, actions }) {
       {modal?.type === 'redeferPlan' && <RedeferModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(modal.payload.account ? { type: 'cardPlans', payload: { account: modal.payload.account } } : null)} />}
       {modal?.type === 'memberTransfer' && <MemberTransferModal data={data} actions={actions} onClose={() => setModal(null)} />}
       {modal?.type === 'reminder' && <ReminderModal actions={actions} onClose={() => setModal(null)} onDone={modal.onDone} />}
+      </Suspense></LazyBoundary>
     </div>
   );
 }
@@ -819,6 +849,14 @@ function PullToRefresh({ onRefresh, children }) {
 
 // "Gestión" — grid de tarjetas que agrupa las secciones de administración a
 // fondo del hogar (Créditos, Objetivos, Presupuestos, Conciliación, Cuentas).
+function SectionLoading() {
+  return (
+    <div className="flex items-center justify-center py-16" role="status" aria-label="Cargando">
+      <Loader2 size={22} color={T.inkSoft} className="animate-spin" />
+    </div>
+  );
+}
+
 function Gestion({ setTab, sections }) {
   return (
     <div className="pb-4 pt-2">
