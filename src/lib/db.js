@@ -5,6 +5,7 @@ import { creditOutstandingBalance } from './finance';
 import { installmentInCop, dueLibranzaInstallments, nextDateWithDay } from './creditRules';
 import { duePlanInstallments, planOverview, buildRedefer } from './creditCards';
 import { attachmentPath, countByTransaction } from './attachments';
+import { dueAllowanceDates, nextAllowanceDate, KID_CATEGORY } from './kids';
 
 /* ------------------------- AUTH ------------------------- */
 export async function signUp(email, password, fullName) {
@@ -680,6 +681,148 @@ export async function updateHousehold(householdId, patch) {
   if (patch.approvalThreshold !== undefined) dbPatch.spend_approval_threshold = patch.approvalThreshold > 0 ? patch.approvalThreshold : null;
   const { error } = await supabase.from('households').update(dbPatch).eq('id', householdId);
   if (error) throw error;
+}
+
+/* ---------------------- HIJOS Y MESADA ---------------------- */
+const dbKidToJs = (k) => ({
+  id: k.id, name: k.name, birthDate: k.birth_date, color: k.color, archived: k.archived,
+  allowanceAmount: k.allowance_amount === null || k.allowance_amount === undefined ? null : Number(k.allowance_amount),
+  allowanceFrequency: k.allowance_frequency, allowanceNextDate: k.allowance_next_date,
+  allowanceAccountId: k.allowance_account_id, allowancePayerId: k.allowance_payer_id,
+});
+
+export async function loadKids(householdId) {
+  const [kidsRes, ledgerRes, tasksRes, goalsRes] = await Promise.all([
+    supabase.from('kids').select('*').eq('household_id', householdId).order('created_at'),
+    supabase.from('kid_ledger').select('*').eq('household_id', householdId),
+    supabase.from('kid_tasks').select('*').eq('household_id', householdId).order('created_at'),
+    supabase.from('kid_goals').select('*').eq('household_id', householdId).order('created_at'),
+  ]);
+  for (const r of [kidsRes, ledgerRes, tasksRes, goalsRes]) if (r.error) throw r.error;
+  return {
+    kids: kidsRes.data.map(dbKidToJs),
+    ledger: ledgerRes.data.map((e) => ({ id: e.id, kidId: e.kid_id, date: e.entry_date, amount: Number(e.amount), kind: e.kind, note: e.note, transactionId: e.transaction_id, createdAt: e.created_at })),
+    tasks: tasksRes.data.map((t) => ({ id: t.id, kidId: t.kid_id, title: t.title, reward: Number(t.reward) })),
+    goals: goalsRes.data.map((g) => ({ id: g.id, kidId: g.kid_id, name: g.name, targetAmount: Number(g.target_amount), achievedAt: g.achieved_at })),
+  };
+}
+
+export async function saveKid(householdId, kid) {
+  const on = kid.allowanceAmount > 0;
+  const row = {
+    name: kid.name.trim(), birth_date: kid.birthDate || null, color: kid.color || '#5B7FA6',
+    allowance_amount: on ? kid.allowanceAmount : null,
+    allowance_frequency: on ? kid.allowanceFrequency || 'semanal' : null,
+    allowance_next_date: on ? kid.allowanceNextDate || null : null,
+    allowance_account_id: on ? kid.allowanceAccountId || null : null,
+    allowance_payer_id: on ? kid.allowancePayerId || null : null,
+  };
+  const { error } = kid.id
+    ? await supabase.from('kids').update(row).eq('id', kid.id)
+    : await supabase.from('kids').insert({ ...row, household_id: householdId });
+  if (error) throw error;
+}
+export async function setKidArchived(id, archived) {
+  const { error } = await supabase.from('kids').update({ archived }).eq('id', id);
+  if (error) throw error;
+}
+export async function deleteKid(id) {
+  const { error } = await supabase.from('kids').delete().eq('id', id);
+  if (error) throw error;
+}
+
+async function insertKidLedger(householdId, userId, entry) {
+  const { data, error } = await supabase.from('kid_ledger').insert({
+    household_id: householdId, kid_id: entry.kidId, entry_date: entry.date, amount: entry.amount, kind: entry.kind,
+    note: entry.note || null, transaction_id: entry.transactionId || null, created_by: userId,
+  }).select('id').single();
+  if (error) throw error;
+  return data.id;
+}
+// Movimiento manual de la alcancía (regalo, gasto del niño, ajuste…). `amount` ya lleva su signo.
+export async function addKidEntry(householdId, userId, entry) { await insertKidLedger(householdId, userId, entry); }
+export async function deleteKidEntry(id) {
+  const { error } = await supabase.from('kid_ledger').delete().eq('id', id);
+  if (error) throw error;
+}
+
+export async function addKidTask(householdId, kidId, { title, reward }) {
+  const { error } = await supabase.from('kid_tasks').insert({ household_id: householdId, kid_id: kidId, title: title.trim(), reward });
+  if (error) throw error;
+}
+export async function removeKidTask(id) {
+  const { error } = await supabase.from('kid_tasks').delete().eq('id', id);
+  if (error) throw error;
+}
+export async function addKidGoal(householdId, kidId, { name, targetAmount }) {
+  const { error } = await supabase.from('kid_goals').insert({ household_id: householdId, kid_id: kidId, name: name.trim(), target_amount: targetAmount });
+  if (error) throw error;
+}
+export async function removeKidGoal(id) {
+  const { error } = await supabase.from('kid_goals').delete().eq('id', id);
+  if (error) throw error;
+}
+// El niño ya compró lo que quería: sale de la alcancía el valor de la meta y esta queda como lograda.
+export async function completeKidGoal(householdId, userId, goal, date) {
+  await insertKidLedger(householdId, userId, { kidId: goal.kidId, date, amount: -goal.targetAmount, kind: 'compra_meta', note: goal.name });
+  const { error } = await supabase.from('kid_goals').update({ achieved_at: new Date().toISOString() }).eq('id', goal.id);
+  if (error) throw error;
+}
+
+// Paga con dinero del hogar (gasto en la cuenta del adulto) y lo suma a la alcancía. Sin cuenta configurada,
+// solo se anota en la alcancía (por ejemplo, si la mesada sale del efectivo de la casa).
+async function payIntoKid(householdId, userId, kid, { amount, kind, note, description, date }) {
+  let transactionId = null;
+  if (kid.allowanceAccountId) {
+    const categoryId = await ensureCategory(householdId, KID_CATEGORY);
+    transactionId = globalThis.crypto.randomUUID();
+    await addTransaction(householdId, userId, {
+      id: transactionId, type: 'expense', description, amount, categoryId, accountId: kid.allowanceAccountId,
+      memberId: kid.allowancePayerId || userId, date, recurring: false, isShared: false, nature: 'operativo',
+    });
+  }
+  await insertKidLedger(householdId, userId, { kidId: kid.id, date, amount, kind, note, transactionId });
+}
+export async function payKidReward(householdId, userId, kid, task, date) {
+  await payIntoKid(householdId, userId, kid, { amount: task.reward, kind: 'recompensa', note: task.title, description: `Recompensa — ${kid.name}: ${task.title}`, date });
+}
+export async function payKidAllowanceNow(householdId, userId, kid, date) {
+  await payIntoKid(householdId, userId, kid, { amount: kid.allowanceAmount, kind: 'mesada', note: 'Mesada', description: `Mesada — ${kid.name}`, date });
+}
+
+// Mesadas vencidas de todos los niños del hogar: al abrir la app se pagan solas. La mesada de un día se
+// "reclama" insertándola en el libro (índice único), así que dos dispositivos a la vez no la duplican.
+export async function applyDueAllowances(householdId, userId, todayISO) {
+  const { data: rows, error } = await supabase.from('kids').select('*')
+    .eq('household_id', householdId).eq('archived', false).not('allowance_next_date', 'is', null).lte('allowance_next_date', todayISO);
+  if (error) throw error;
+  let paid = 0;
+  for (const row of rows) {
+    const kid = dbKidToJs(row);
+    const dates = dueAllowanceDates(kid, todayISO);
+    if (!dates.length) continue;
+    for (const date of dates) {
+      const { data: entry, error: e } = await supabase.from('kid_ledger').insert({
+        household_id: householdId, kid_id: kid.id, entry_date: date, amount: kid.allowanceAmount, kind: 'mesada', note: 'Mesada', created_by: userId,
+      }).select('id').single();
+      if (e) { if (e.code === '23505') continue; throw e; } // 23505: otro dispositivo ya la pagó
+      paid++;
+      if (kid.allowanceAccountId) {
+        try {
+          const categoryId = await ensureCategory(householdId, KID_CATEGORY);
+          const transactionId = globalThis.crypto.randomUUID();
+          await addTransaction(householdId, userId, {
+            id: transactionId, type: 'expense', description: `Mesada — ${kid.name}`, amount: kid.allowanceAmount, categoryId, accountId: kid.allowanceAccountId,
+            memberId: kid.allowancePayerId || userId, date, recurring: false, isShared: false, nature: 'operativo',
+          });
+          await supabase.from('kid_ledger').update({ transaction_id: transactionId }).eq('id', entry.id);
+        } catch { /* la mesada ya está en la alcancía; el gasto del hogar se puede registrar a mano */ }
+      }
+    }
+    await supabase.from('kids').update({ allowance_next_date: nextAllowanceDate(dates[dates.length - 1], kid.allowanceFrequency) })
+      .eq('id', kid.id).eq('allowance_next_date', kid.allowanceNextDate);
+  }
+  return paid;
 }
 
 /* ---------------------- SOLICITUDES DE GASTO ---------------------- */

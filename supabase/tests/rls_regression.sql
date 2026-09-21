@@ -11,7 +11,7 @@
 do $$
 declare
   h uuid; a uuid; b uuid; c uuid; nonadmin uuid;
-  tx uuid; rid uuid; acct uuid; goal uuid;
+  tx uuid; rid uuid; acct uuid; goal uuid; kid uuid;
   n int; fails int := 0; res text := '';
   okk boolean;
 begin
@@ -154,6 +154,40 @@ begin
   okk := n = 1; if not okk then fails := fails + 1; end if; res := res || case when okk then 'ok ' else 'FALLA ' end || 'el voto del otro integrante la aprueba; ';
   select count(*) into n from notifications where dedupe_key = 'spend-decision:' || rid;
   okk := n = 1; if not okk then fails := fails + 1; end if; res := res || case when okk then 'ok ' else 'FALLA ' end || 'avisa la decisión; ';
+
+  -- ================= 9. Hijos y mesada: solo el hogar, una mesada por día, sin cruzar hogares =================
+  perform set_config('request.jwt.claims', json_build_object('sub', a, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  insert into kids (household_id, name) values (h, '__nino') returning id into kid;
+  insert into kid_ledger (household_id, kid_id, amount, kind, entry_date) values (h, kid, 100, 'mesada', current_date);
+  begin
+    insert into kid_ledger (household_id, kid_id, amount, kind, entry_date) values (h, kid, 100, 'mesada', current_date);
+    okk := false;
+  exception when unique_violation then okk := true; when others then okk := false; end;
+  if not okk then fails := fails + 1; end if; res := res || case when okk then 'ok ' else 'FALLA ' end || 'la mesada de un día no se duplica; ';
+  begin
+    insert into kid_ledger (household_id, kid_id, amount, kind) values (gen_random_uuid(), kid, 5, 'regalo');
+    okk := false;
+  exception when others then okk := true; end;
+  if not okk then fails := fails + 1; end if; res := res || case when okk then 'ok ' else 'FALLA ' end || 'no se anota en la alcancía con otro hogar; ';
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', b, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  select count(*) into n from kids where id = kid;
+  okk := n = 1; if not okk then fails := fails + 1; end if; res := res || case when okk then 'ok ' else 'FALLA ' end || 'el otro adulto del hogar ve al niño; ';
+  reset role;
+  if c is not null then
+    perform set_config('request.jwt.claims', json_build_object('sub', c, 'role', 'authenticated')::text, true);
+    set local role authenticated;
+    select count(*) into n from kids where id = kid;
+    okk := n = 0; if not okk then fails := fails + 1; end if; res := res || case when okk then 'ok ' else 'FALLA ' end || 'un extraño no ve al niño; ';
+    begin
+      insert into kid_goals (household_id, kid_id, name, target_amount) values (h, kid, '__meta', 10);
+      okk := false;
+    exception when others then okk := true; end;
+    if not okk then fails := fails + 1; end if; res := res || case when okk then 'ok ' else 'FALLA ' end || 'un extraño no agrega metas; ';
+    reset role;
+  end if;
 
   raise exception 'RESULTADO: % | FALLAS=%', res, fails;
 end $$;

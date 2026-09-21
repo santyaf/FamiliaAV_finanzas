@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback, Suspense } from 'react';
-import { ArrowLeftRight, BadgeCheck, BadgeDollarSign, Receipt, Bell, CalendarDays, Users2, ChevronDown, ChevronLeft, CreditCard, FileText, History, Home, Landmark, LayoutGrid, List, Loader2, LogOut, PiggyBank, Plus, Settings, Sparkles, Target, TrendingUp, Upload, X } from 'lucide-react';
+import { ArrowLeftRight, Baby, BadgeCheck, BadgeDollarSign, Receipt, Bell, CalendarDays, Users2, ChevronDown, ChevronLeft, CreditCard, FileText, History, Home, Landmark, LayoutGrid, List, Loader2, LogOut, PiggyBank, Plus, Settings, Sparkles, Target, TrendingUp, Upload, X } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import * as db from './lib/db';
 import { formatMoney, formatDate } from './lib/format';
@@ -42,6 +42,7 @@ const LOAD = {
   Conciliacion: () => import('./sections/Conciliacion'),
   Creditos: () => import('./sections/Creditos'),
   ImportarExtractos: () => import('./sections/ImportarExtractos'),
+  Hijos: () => import('./sections/Hijos'),
   Informes: () => import('./sections/Informes'),
   Objetivos: () => import('./sections/Objetivos'),
   Obligaciones: () => import('./sections/Obligaciones'),
@@ -77,6 +78,7 @@ const Calendario = lazyNamed(LOAD.Calendario, 'Calendario');
 const Renta = lazyNamed(LOAD.Renta, 'Renta');
 const [Aprobaciones, SpendRequestModal] = ['Aprobaciones', 'SpendRequestModal'].map((n) => lazyNamed(LOAD.Aprobaciones, n));
 const ReunionMensual = lazyNamed(LOAD.ReunionMensual, 'ReunionMensual');
+const Hijos = lazyNamed(LOAD.Hijos, 'Hijos');
 
 /* ---------------------------------------------------------------------- */
 /* UTILIDADES                                                              */
@@ -255,6 +257,10 @@ function HouseholdApp({ session, household, households, onSwitchHousehold, onAdd
       try {
         if (await db.applyDuePayrollDeductions(household.householdId, session.user.id)) d = await refresh();
       } catch { /* si falla, se puede registrar a mano desde Créditos */ }
+      // mesadas de los hijos que ya tocan: se pagan solas (gasto en la cuenta elegida + alcancía del niño)
+      try {
+        if (await db.applyDueAllowances(household.householdId, session.user.id, todayISO())) d = await refresh();
+      } catch { /* se reintenta la próxima vez que se abra la app */ }
       // motor de detección: corre una vez por sesión, en silencio, cuando se abre la app
       try {
         const credits = await db.loadCredits(household.householdId);
@@ -396,6 +402,20 @@ function HouseholdApp({ session, household, households, onSwitchHousehold, onAdd
     removeCategory: wrap((id) => db.removeCategory(id)),
     setCategoryTaxTag: wrap((id, tag) => db.setCategoryTaxTag(id, tag)),
     setApprovalThreshold: async (value) => { await db.updateHousehold(household.householdId, { approvalThreshold: value || 0 }); setHouseholdMeta((m) => ({ ...m, spend_approval_threshold: value > 0 ? value : null })); },
+    loadKids: () => db.loadKids(household.householdId),
+    saveKid: (kid) => db.saveKid(household.householdId, kid),
+    setKidArchived: (id, archived) => db.setKidArchived(id, archived),
+    deleteKid: (id) => db.deleteKid(id),
+    addKidEntry: (entry) => db.addKidEntry(household.householdId, session.user.id, entry),
+    deleteKidEntry: (id) => db.deleteKidEntry(id),
+    addKidTask: (kidId, task) => db.addKidTask(household.householdId, kidId, task),
+    removeKidTask: (id) => db.removeKidTask(id),
+    addKidGoal: (kidId, goal) => db.addKidGoal(household.householdId, kidId, goal),
+    removeKidGoal: (id) => db.removeKidGoal(id),
+    completeKidGoal: (goal) => db.completeKidGoal(household.householdId, session.user.id, goal, todayISO()),
+    // estos crean un gasto en la cuenta del adulto: se refrescan los movimientos
+    payKidReward: wrap((kid, task) => db.payKidReward(household.householdId, session.user.id, kid, task, todayISO())),
+    payKidAllowanceNow: wrap((kid) => db.payKidAllowanceNow(household.householdId, session.user.id, kid, todayISO())),
     createSpendRequest: wrap((r) => db.createSpendRequest(household.householdId, session.user.id, r)),
     cancelSpendRequest: wrap((id) => db.setSpendRequestStatus(id, 'cancelled')),
     markSpendRequestDone: wrap((id, transactionId) => db.setSpendRequestStatus(id, 'done', transactionId)),
@@ -493,6 +513,7 @@ const GESTION_SECTIONS = [
   { id: 'activos', label: 'Activos', icon: BadgeDollarSign, desc: 'Propiedades, vehículos, inversiones y cuentas por cobrar, con su valor a hoy y su historial.' },
   { id: 'importar', label: 'Importar extracto', icon: Upload, desc: 'Sube el CSV de tu banco o pega filas desde Excel: revisa, categoriza y evita duplicados.' },
   { id: 'aprobaciones', label: 'Aprobaciones', icon: BadgeCheck, desc: 'Pidan el visto bueno del hogar antes de un gasto grande; aprueba la mayoría.' },
+  { id: 'hijos', label: 'Hijos y mesada', icon: Baby, desc: 'Alcancía de cada niño, mesada automática, tareas con recompensa y metas de ahorro.' },
   { id: 'renta', label: 'Declaración de renta', icon: Receipt, desc: 'Resumen anual para declarar: ingresos, posibles deducciones y si por los topes de la DIAN te toca.' },
   { id: 'informes', label: 'Informes', icon: FileText, desc: 'Estado de resultados y flujo de efectivo por mes, trimestre, semestre o año — personal o del hogar.' },
   { id: 'asistente', label: 'Asistente IA', icon: Sparkles, desc: 'Pregúntale sobre tus finanzas, o regístralas por chat o foto de recibo.', requiresAiChat: true },
@@ -691,6 +712,7 @@ function MainApp({ data, update, actions }) {
           {tab === 'activos' && <Activos data={data} actions={actions} setModal={setModal} />}
           {tab === 'calendario' && <Calendario data={data} />}
           {tab === 'renta' && <Renta data={data} actions={actions} />}
+          {tab === 'hijos' && <Hijos data={data} actions={actions} />}
           {tab === 'aprobaciones' && <Aprobaciones data={data} actions={actions} setModal={setModal} />}
           {tab === 'reunion' && <ReunionMensual data={data} actions={actions} />}
           {tab === 'asistente' && aiChatAvailable && <Asistente data={data} actions={actions} visibleTransactions={visibleTransactions} setModal={setModal} />}

@@ -86,21 +86,21 @@ export function Field({ label, children }) {
   );
 }
 
-export function PrimaryButton({ children, onClick, style, type = 'button', full }) {
+export function PrimaryButton({ children, onClick, style, type = 'button', full, ...rest }) {
   return (
-    <button type={type} onClick={(e) => safeClick(onClick, e)}
+    <button type={type} onClick={(e) => safeClick(onClick, e)} {...rest}
       className={`${full ? 'w-full' : ''} rounded-xl font-medium transition-transform active:scale-[0.98]`}
-      style={{ background: T.teal, color: '#fff', padding: '11px 18px', fontFamily: FONT_BODY, fontSize: 15, ...style }}>
+      style={{ background: T.teal, color: '#fff', padding: '11px 18px', fontFamily: FONT_BODY, fontSize: 15, opacity: rest.disabled ? 0.55 : 1, ...style }}>
       {children}
     </button>
   );
 }
 
-export function GhostButton({ children, onClick, style, full }) {
+export function GhostButton({ children, onClick, style, full, ...rest }) {
   return (
-    <button onClick={(e) => safeClick(onClick, e)}
+    <button onClick={(e) => safeClick(onClick, e)} {...rest}
       className={`${full ? 'w-full' : ''} rounded-xl font-medium`}
-      style={{ background: 'transparent', color: T.ink, border: `1px solid ${T.border}`, padding: '10px 18px', fontFamily: FONT_BODY, fontSize: 15, ...style }}>
+      style={{ background: 'transparent', color: T.ink, border: `1px solid ${T.border}`, padding: '10px 18px', fontFamily: FONT_BODY, fontSize: 15, opacity: rest.disabled ? 0.55 : 1, ...style }}>
       {children}
     </button>
   );
