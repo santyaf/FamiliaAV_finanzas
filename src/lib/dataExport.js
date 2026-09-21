@@ -20,6 +20,9 @@ export function buildUserExport({ data, userId, exportedAt }) {
     obligaciones: data.obligations || [],
     creditos: (data.creditsWithPayments || []).map(({ credit, payments }) => ({ ...credit, cuotas: payments })),
     compras_diferidas_tarjeta: data.cardPlans || [],
+    activos: data.assets || [],
+    plantillas: data.templates || [],
+    solicitudes_de_gasto: (data.spendRequests || []).map((r) => ({ ...r, votos: (data.spendVotes || []).filter((v) => v.requestId === r.id) })),
   };
 }
 

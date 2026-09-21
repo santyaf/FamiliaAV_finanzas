@@ -257,7 +257,7 @@ export default async function handler(req, res) {
     }
 
     // ---- Resumen mensual y vencimiento de tarjetas (Fase 29). Un fallo aquí no afecta a lo anterior. ----
-    const extras = { digest: { checked: 0, sent: 0, skipped: 0 }, cards: { checked: 0, sent: 0, skipped: 0 }, error: null };
+    const extras = { digest: { checked: 0, sent: 0, skipped: 0 }, cards: { checked: 0, sent: 0, skipped: 0 }, approvals: { checked: 0, sent: 0 }, error: null };
     try {
       const tzByUser = {};
       [...(schedules || []), ...(obligations || [])].forEach((x) => { const uid = x.user_id || x.owner_member_id; if (uid && x.timezone && !tzByUser[uid]) tzByUser[uid] = x.timezone; });
@@ -315,6 +315,19 @@ export default async function handler(req, res) {
           if (!force) await supabase.from('card_alert_log').insert({ account_id: a.id, due_date: effective.dueDate });
         }
       }
+
+      // solicitudes de gasto y su decisión: la campana ya las tiene; aquí además llegan al celular (una sola vez)
+      const { data: pending } = await supabase.from('notifications').select('id, user_id, type, title, body')
+        .in('type', ['spend_request', 'spend_decision']).is('pushed_at', null);
+      for (const n of pending || []) {
+        extras.approvals.checked++;
+        if (!n.user_id) continue;
+        if (!dry) {
+          const { sent: k } = await send(n.user_id, JSON.stringify({ title: n.title, body: n.body, url: '/#/aprobaciones' }), pushErrors, `approval:${n.id}`);
+          extras.approvals.sent += k;
+          if (!force) await supabase.from('notifications').update({ pushed_at: new Date().toISOString() }).eq('id', n.id);
+        }
+      }
     } catch (err) {
       extras.error = err.message;
     }
@@ -322,7 +335,7 @@ export default async function handler(req, res) {
     if (!dry && !force) {
       await heartbeat(supabase, {
         ok: !extras.error, startedAt, detail: extras.error || null,
-        sent: sent + obSent + (extras.digest?.sent || 0) + (extras.cards?.sent || 0),
+        sent: sent + obSent + (extras.digest?.sent || 0) + (extras.cards?.sent || 0) + (extras.approvals?.sent || 0),
       });
     }
 

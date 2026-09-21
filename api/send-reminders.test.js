@@ -20,6 +20,8 @@ function makeDb(tables, errors = {}) {
         not: () => b,
         eq: (k, v) => { rows = rows.filter((r) => r[k] === v); return b; },
         neq: (k, v) => { rows = rows.filter((r) => r[k] !== v); return b; },
+        in: (k, list) => { rows = rows.filter((r) => list.includes(r[k])); return b; },
+        is: (k, v) => { rows = rows.filter((r) => (r[k] ?? null) === v); return b; },
         insert: (p) => { record('insert', p); return b; },
         upsert: (p) => { record('upsert', p); return b; },
         update: (p) => { record('update', p); return b; },
@@ -115,5 +117,32 @@ describe('send-reminders', () => {
     expect(res.statusCode).toBe(200);
     expect(fakeDb.writes.some((w) => w.table === 'push_subscriptions' && w.op === 'delete')).toBe(true);
     expect(res.body.pushErrors[0].statusCode).toBe(410);
+  });
+
+  it('reenvía por push las solicitudes de gasto una sola vez y solo a cuentas activas', async () => {
+    const tables = baseTables();
+    tables.notifications = [
+      { id: 'n1', user_id: 'A', type: 'spend_request', title: 'Solicitud de gasto: Nevera', body: 'Beto pide tu visto bueno', pushed_at: null },
+      { id: 'n2', user_id: 'B', type: 'spend_decision', title: 'Solicitud aprobada', body: 'x', pushed_at: null }, // B está desactivada
+      { id: 'n3', user_id: 'A', type: 'budget_projection', title: 'Otro tipo', body: 'x', pushed_at: null }, // no es de aprobaciones
+      { id: 'n4', user_id: 'A', type: 'spend_request', title: 'Ya enviada', body: 'x', pushed_at: '2026-09-20T00:00:00Z' },
+    ];
+    fakeDb = makeDb(tables);
+    const res = makeRes();
+    await handler(req(), res);
+    const bodies = sendNotification.mock.calls.map((c) => JSON.parse(c[1]));
+    expect(bodies.filter((b) => b.url === '/#/aprobaciones').map((b) => b.title)).toEqual(['Solicitud de gasto: Nevera']);
+    expect(res.body.extras.approvals).toEqual({ checked: 2, sent: 1 });
+    const marks = fakeDb.writes.filter((w) => w.table === 'notifications' && w.op === 'update');
+    expect(marks).toHaveLength(2); // n1 y n2 quedan marcadas (n2 no se envía pero tampoco se reintenta cada 5 min)
+  });
+
+  it('en simulación no envía ni marca los avisos', async () => {
+    const tables = baseTables();
+    tables.notifications = [{ id: 'n1', user_id: 'A', type: 'spend_request', title: 't', body: 'b', pushed_at: null }];
+    fakeDb = makeDb(tables);
+    await handler(req({ dry: '1' }), makeRes());
+    expect(sendNotification).not.toHaveBeenCalled();
+    expect(fakeDb.writes.some((w) => w.table === 'notifications')).toBe(false);
   });
 });

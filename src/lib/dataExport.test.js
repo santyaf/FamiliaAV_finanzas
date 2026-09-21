@@ -29,6 +29,16 @@ describe('buildUserExport', () => {
     expect(out.creditos[0]).toMatchObject({ name: 'Libranza', cuotas: [{ installmentNumber: 1 }] });
     expect(out.compras_diferidas_tarjeta).toHaveLength(1);
   });
+  it('incluye activos, plantillas y solicitudes de gasto con sus votos', () => {
+    const o = buildUserExport({ data: {
+      ...data, assets: [{ id: 'as1', name: 'Apartamento' }], templates: [{ id: 'tp1', name: 'Mercado' }],
+      spendRequests: [{ id: 'r1', title: 'Nevera' }, { id: 'r2', title: 'Viaje' }], spendVotes: [{ requestId: 'r1', memberId: 'm2', vote: 'approve' }],
+    }, userId: 'm1', exportedAt: 'x' });
+    expect(o.activos).toHaveLength(1);
+    expect(o.plantillas).toHaveLength(1);
+    expect(o.solicitudes_de_gasto[0].votos).toEqual([{ requestId: 'r1', memberId: 'm2', vote: 'approve' }]);
+    expect(o.solicitudes_de_gasto[1].votos).toEqual([]);
+  });
   it('es serializable a JSON', () => {
     expect(() => JSON.parse(JSON.stringify(out))).not.toThrow();
   });
