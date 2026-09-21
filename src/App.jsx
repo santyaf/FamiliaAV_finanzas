@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { ArrowLeftRight, BadgeDollarSign, Bell, ChevronLeft, CreditCard, FileText, History, Home, Landmark, LayoutGrid, List, Loader2, LogOut, PiggyBank, Plus, Settings, Sparkles, Target, TrendingUp, Upload, X } from 'lucide-react';
+import { ArrowLeftRight, BadgeDollarSign, Bell, CalendarDays, Users2, ChevronLeft, CreditCard, FileText, History, Home, Landmark, LayoutGrid, List, Loader2, LogOut, PiggyBank, Plus, Settings, Sparkles, Target, TrendingUp, Upload, X } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import * as db from './lib/db';
 import { formatMoney, formatDate } from './lib/format';
@@ -39,6 +39,8 @@ import { AccountStatusScreen } from './sections/Usuarios';
 import { ReceiptsModal } from './sections/Recibos';
 import { ImportarExtractos } from './sections/ImportarExtractos';
 import { Activos, AssetModal, ValuationModal, SellAssetModal } from './sections/Activos';
+import { Calendario } from './sections/Calendario';
+import { ReunionMensual } from './sections/ReunionMensual';
 import { NotificationsPanel } from './sections/NotificationsPanel';
 
 /* ---------------------------------------------------------------------- */
@@ -267,6 +269,8 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     importTransactions: async (o) => {
       try { return await db.importTransactions(household.householdId, session.user.id, o); } finally { await refresh(); }
     },
+    loadMonthlyReview: (monthKey) => db.loadMonthlyReview(household.householdId, monthKey),
+    saveMonthlyDecisions: (monthKey, list) => db.saveMonthlyDecisions(household.householdId, session.user.id, monthKey, list),
     addTemplate: wrap((t) => db.addTemplate(household.householdId, session.user.id, t)),
     deleteTemplate: wrap((id) => db.deleteTemplate(id)),
     createAsset: wrap((a) => db.createAsset(household.householdId, session.user.id, a)),
@@ -403,6 +407,8 @@ const GESTION_SECTIONS = [
   { id: 'presupuestos', label: 'Presupuestos', icon: PiggyBank, desc: 'Límites de gasto por categoría, para todo el hogar o por integrante.' },
   { id: 'obligaciones', label: 'Obligaciones', icon: Bell, desc: 'Recordatorios de pagos por vencer — arriendo, servicios, suscripciones.' },
   { id: 'tendencias', label: 'Tendencias', icon: TrendingUp, desc: 'Flujo de caja y gasto por categoría de los últimos meses.' },
+  { id: 'reunion', label: 'Reunión mensual', icon: Users2, desc: 'Revisen el mes juntos, paso a paso, y dejen decisiones para el siguiente.' },
+  { id: 'calendario', label: 'Calendario', icon: CalendarDays, desc: 'Lo que entra y sale cada día: recurrentes, obligaciones, cuotas, tarjetas, metas y vencimientos.' },
   { id: 'activos', label: 'Activos', icon: BadgeDollarSign, desc: 'Propiedades, vehículos, inversiones y cuentas por cobrar, con su valor a hoy y su historial.' },
   { id: 'importar', label: 'Importar extracto', icon: Upload, desc: 'Sube el CSV de tu banco o pega filas desde Excel: revisa, categoriza y evita duplicados.' },
   { id: 'informes', label: 'Informes', icon: FileText, desc: 'Estado de resultados y flujo de efectivo por mes, trimestre, semestre o año — personal o del hogar.' },
@@ -561,6 +567,8 @@ function MainApp({ data, update, actions }) {
           {tab === 'informes' && <Informes data={data} actions={actions} />}
           {tab === 'importar' && <ImportarExtractos data={data} actions={actions} />}
           {tab === 'activos' && <Activos data={data} actions={actions} setModal={setModal} />}
+          {tab === 'calendario' && <Calendario data={data} />}
+          {tab === 'reunion' && <ReunionMensual data={data} actions={actions} />}
           {tab === 'asistente' && aiChatAvailable && <Asistente data={data} actions={actions} visibleTransactions={visibleTransactions} setModal={setModal} />}
           {tab === 'conciliacion' && <Conciliacion data={data} actions={actions} />}
           {tab === 'cuentas' && <Cuentas data={data} actions={actions} setModal={setModal} />}

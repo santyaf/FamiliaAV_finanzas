@@ -304,6 +304,21 @@ export async function deleteTransaction(id) {
   if (error) throw error;
 }
 
+/* ---------------------- REUNIÓN MENSUAL ---------------------- */
+export async function loadMonthlyReview(householdId, monthKey) {
+  const { data, error } = await supabase.from('monthly_reviews').select('decisions')
+    .eq('household_id', householdId).eq('month_key', monthKey).maybeSingle();
+  if (error) throw error;
+  return Array.isArray(data?.decisions) ? data.decisions : [];
+}
+export async function saveMonthlyDecisions(householdId, userId, monthKey, decisions) {
+  const { error } = await supabase.from('monthly_reviews').upsert(
+    { household_id: householdId, month_key: monthKey, decisions, updated_by: userId, updated_at: new Date().toISOString() },
+    { onConflict: 'household_id,month_key' },
+  );
+  if (error) throw error;
+}
+
 /* ---------------------- PLANTILLAS DE MOVIMIENTOS ---------------------- */
 export async function addTemplate(householdId, userId, t) {
   const { error } = await supabase.from('transaction_templates').insert({

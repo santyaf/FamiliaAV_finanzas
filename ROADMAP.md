@@ -83,8 +83,8 @@ El mayor predictor de que una app de finanzas sobreviva es qué tan fácil es me
 - **Cuentas de menores + mesada** — perfil "hijo/a" con visibilidad limitada, mesada automática programada, tareas → recompensa, metas de ahorro infantiles con celebración.
 - **Aprobaciones generalizadas** — hoy solo los objetivos familiares requieren aprobación unánime. Extenderlo a gastos grandes ("cualquier gasto > $X necesita OK de otro integrante").
 - **Privacidad por movimiento/categoría** — marcar algo como "solo yo lo veo" incluso dentro del hogar.
-- **Calendario financiero del hogar** — quincena, arriendo, matrícula, cuota del crédito, en una sola vista compartida.
-- **Modo "reunión mensual"** — una pantalla para revisar el mes juntos: qué se cumplió, qué se pasó, decisiones para el próximo mes.
+- ~~**Calendario financiero del hogar**~~ ✅ — Gestión → **Calendario** (`lib/calendar.js`, 14 pruebas): cuadrícula del mes con puntos por día y lista del día elegido; junta ingresos y gastos recurrentes (mensual, quincenal cada 14 días, semanal, anual), obligaciones, cuotas de crédito (con su estado pagada/pendiente), corte y pago de cada tarjeta, fecha de metas y vencimiento de inversiones; totales "entra / sale" del mes sin lo ya pagado ni las cuotas en UVR. Respeta la privacidad (solo lo que ya ves). Pendiente: crear un movimiento desde un día, sincronizar con Google Calendar, incluir facturación de compras diferidas.
+- ~~**Modo "reunión mensual"**~~ ✅ (migración `fase25_reunion_mensual`) — Gestión → **Reunión mensual**: recorrido de 5 pasos por un mes (`lib/monthlyReview.js`, 12 pruebas): resumen contra el mes anterior, en qué se fue (categorías con su variación y mayores gastos), presupuestos y metas, logros y alertas en lenguaje claro, y **decisiones** para el próximo mes que ven y editan todos los integrantes; al abrir la siguiente reunión se revisa si se cumplieron. Vista "Lo compartido" o "Todo lo que veo". Pendiente: notificar a todos cuando toca la reunión (día fijo), historial de reuniones.
 - **Múltiples hogares** — apoyar a los papás, un fondo con amigos, etc.
 
 ---
