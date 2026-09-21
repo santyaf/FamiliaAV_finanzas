@@ -8,6 +8,7 @@ import { AnomaliasCard } from './AnomaliasCard';
 import { cardUsage, cardCycle, payToAvoidInterest } from '../lib/creditCards';
 import { projectMonth, budgetAllowances } from '../lib/projection';
 import { assetValueAt } from '../lib/assets';
+import { SaludFinanciera } from './SaludFinanciera';
 import { formatMoney, formatDate } from '../lib/format';
 import {
   thisMonthKey, daysUntil, occurrencesInMonth, getNextOccurrence, goalPriorityScore, todayISO,
@@ -300,6 +301,8 @@ export function Dashboard({ data, update, actions, visibleTransactions, visibleM
           )}
         </Card>
       )}
+
+      <SaludFinanciera data={data} transactions={visibleTransactions} />
 
       {budgetAlerts.length > 0 && (
         <Card style={{ marginBottom: 16, background: T.goldSoft, border: 'none' }}>

@@ -109,7 +109,7 @@ export async function redeemInvite(token, userId) {
 
 /* ---------------------- CARGA DE DATOS DEL HOGAR ---------------------- */
 export async function loadHouseholdData(householdId) {
-  const [membersRes, catsRes, accsRes, txRes, goalsRes, votesRes, budgetsRes, obligationsRes, plansRes, attRes, assetsRes, valsRes] = await Promise.all([
+  const [membersRes, catsRes, accsRes, txRes, goalsRes, votesRes, budgetsRes, obligationsRes, plansRes, attRes, assetsRes, valsRes, tplRes] = await Promise.all([
     supabase.from('household_members').select('user_id, role, color, profiles(full_name)').eq('household_id', householdId),
     supabase.from('categories').select('*').eq('household_id', householdId),
     supabase.from('accounts').select('*').eq('household_id', householdId),
@@ -122,6 +122,7 @@ export async function loadHouseholdData(householdId) {
     supabase.from('transaction_attachments').select('transaction_id').eq('household_id', householdId),
     supabase.from('assets').select('*').eq('household_id', householdId),
     supabase.from('asset_valuations').select('*'),
+    supabase.from('transaction_templates').select('*').eq('household_id', householdId),
   ]);
   for (const r of [membersRes, catsRes, accsRes, txRes, goalsRes, votesRes, budgetsRes, obligationsRes]) {
     if (r.error) throw r.error;
@@ -160,7 +161,12 @@ export async function loadHouseholdData(householdId) {
   (valsRes.error ? [] : valsRes.data).forEach((v) => { (valsByAsset[v.asset_id] ||= []).push({ id: v.id, date: v.valued_on, value: Number(v.value), note: v.note, createdAt: v.created_at }); });
   const assets = assetsRes.error ? [] : assetsRes.data.map((a) => dbAssetToJs(a, valsByAsset[a.id] || []));
 
-  return { members, categories, accounts, transactions, goals, budgets, obligations, cardPlans, attachmentCounts, assets };
+  const templates = tplRes.error ? [] : tplRes.data.map((t) => ({
+    id: t.id, name: t.name, type: t.type, description: t.description, amount: t.amount === null ? null : Number(t.amount),
+    categoryId: t.category_id, accountId: t.account_id, householdWide: t.household_wide, createdBy: t.created_by,
+  }));
+
+  return { members, categories, accounts, transactions, goals, budgets, obligations, cardPlans, attachmentCounts, assets, templates };
 }
 
 function dbAssetToJs(a, valuations) {
@@ -295,6 +301,20 @@ export async function deleteTransaction(id) {
     if (atts?.length) await supabase.storage.from('receipts').remove(atts.map((a) => a.path));
   } catch { /* si falla, queda un archivo huérfano pero el movimiento sí se borra */ }
   const { error } = await supabase.from('transactions').delete().eq('id', id);
+  if (error) throw error;
+}
+
+/* ---------------------- PLANTILLAS DE MOVIMIENTOS ---------------------- */
+export async function addTemplate(householdId, userId, t) {
+  const { error } = await supabase.from('transaction_templates').insert({
+    household_id: householdId, created_by: userId, household_wide: !!t.householdWide, name: t.name, type: t.type,
+    description: t.description || null, amount: t.amount > 0 ? t.amount : null,
+    category_id: t.categoryId || null, account_id: t.accountId || null,
+  });
+  if (error) throw error;
+}
+export async function deleteTemplate(id) {
+  const { error } = await supabase.from('transaction_templates').delete().eq('id', id);
   if (error) throw error;
 }
 

@@ -10,6 +10,7 @@ import { suggestionFromAi } from '../lib/suggestions';
 import { cardUsage, cardCycle, planOverview } from '../lib/creditCards';
 import { projectMonth } from '../lib/projection';
 import { assetValueAt, assetKindLabel } from '../lib/assets';
+import { computeHealth } from '../lib/health';
 import { formatMoney, formatDate } from '../lib/format';
 import {
   todayISO, thisMonthKey, lastMonthKeys, monthCashFlow, occurrencesInMonth,
@@ -208,6 +209,10 @@ function buildDigest(data, visibleTransactions) {
     cuentas,
     creditos,
     tarjetas_credito,
+    salud_financiera: (() => {
+      const h = computeHealth({ transactions: visibleTransactions, categories: data.categories, accounts: data.accounts, budgets: data.budgets, creditsWithPayments: data.creditsWithPayments || [], todayISO: todayISO() });
+      return h.score === null ? { puntaje: null, nota: h.reason } : { puntaje_0_a_100: h.score, nivel: h.level, indicadores: h.components.map((k) => ({ nombre: k.label, valor: k.value, unidad: k.unit, puntaje: Math.round(k.score) })), consejo: h.tip };
+    })(),
     proyeccion_fin_de_mes: (() => {
       const p = projectMonth({ transactions: visibleTransactions, categories: data.categories, todayISO: todayISO() });
       return { gasto_proyectado: p.projectedExpense, ingresos_registrados: p.incomeSoFar, saldo_proyectado: p.projectedBalance, promedio_diario_variable: p.dailyAverage, gastos_fijos_y_recurrentes: p.fixed, nota: 'Estimación a este ritmo; solo ingresos y gastos operativos.' };

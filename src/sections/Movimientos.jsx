@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Repeat, Pencil, History, Trash2, ArrowRight, ArrowLeftRight, ChevronRight, Calendar,
-  Info, List, PiggyBank, Paperclip,
+  Info, List, PiggyBank, Paperclip, Zap,
 } from 'lucide-react';
 import { T, FONT_DISPLAY, FONT_BODY, FONT_MONO, inputStyle } from '../ui/theme';
 import {
@@ -13,6 +13,7 @@ import { NATURES, natureLabel } from '../lib/accounting';
 import { DeferralFields, emptyDeferral, deferralToPlan, isCard } from './Tarjetas';
 import { ReceiptPicker } from './Recibos';
 import { compressImage } from '../lib/imageCompress';
+import { templateToForm, templateToTransaction, sortTemplates } from '../lib/templates';
 
 export function Movimientos({ data, actions, visibleTransactions, setModal }) {
   const [filter, setFilter] = useState('todos'); // todos | income | expense | recurring | sporadic
@@ -203,6 +204,12 @@ export function TransactionModal({ data, actions, payload, onClose }) {
   const [customPercents, setCustomPercents] = useState({});
   const [nature, setNature] = useState(payload?.nature || ''); // '' = la de su categoría
   const [receipt, setReceipt] = useState(payload?.receiptFile || null);
+  const [saveTemplate, setSaveTemplate] = useState(false);
+  const [templateName, setTemplateName] = useState('');
+  const [templateWide, setTemplateWide] = useState(false);
+  const [manageTemplates, setManageTemplates] = useState(false);
+  const tplCtx = { accounts: data.accounts, categories: data.categories };
+  const templates = payload?.source ? [] : sortTemplates(data.templates || [], tplCtx);
   const [deferral, setDeferral] = useState(() => emptyDeferral(data.accounts.find((a) => a.id === (payload?.accountId || data.accounts[0]?.id))));
   const [error, setError] = useState('');
   const chosenAccount = data.accounts.find((a) => a.id === accountId);
@@ -243,6 +250,10 @@ export function TransactionModal({ data, actions, payload, onClose }) {
     setSaving(true); setError('');
     try {
       const saved = await actions.addTransaction(t);
+      if (saveTemplate && templateName.trim()) {
+        try { await actions.addTemplate({ name: templateName.trim(), type, description: description.trim(), amount: amt, categoryId, accountId, householdWide: templateWide }); }
+        catch { alert('El movimiento se guardó, pero no se pudo crear la plantilla.'); }
+      }
       if (receipt) {
         if (saved?.queued) alert('El movimiento quedó guardado en tu dispositivo (sin conexión). Cuando se sincronice, adjunta el recibo desde el clip del movimiento.');
         else {
@@ -278,6 +289,36 @@ export function TransactionModal({ data, actions, payload, onClose }) {
           <p style={{ fontSize: 12, color: T.ink, fontFamily: FONT_BODY }}>
             Viene del recordatorio de "{payload.description}". Revisa el monto{!payload.amount ? ' (es variable, complétalo)' : ''} y guarda.
           </p>
+        </div>
+      )}
+      {templates.length > 0 && (
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-1.5">
+            <span style={{ fontSize: 12, color: T.inkSoft, fontFamily: FONT_BODY }}>Plantillas</span>
+            <button type="button" onClick={() => setManageTemplates(!manageTemplates)}><span style={{ fontSize: 11.5, color: T.teal, fontFamily: FONT_BODY, fontWeight: 500 }}>{manageTemplates ? 'Listo' : 'Editar'}</span></button>
+          </div>
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {templates.map((tp) => {
+              const quick = templateToTransaction(tp, { ...tplCtx, memberId, date });
+              return (
+                <div key={tp.id} className="flex-shrink-0 flex items-center rounded-full" style={{ background: T.bg, border: `1px solid ${T.border}` }}>
+                  <button type="button" className="pl-3 pr-2 py-1.5" title="Llenar el formulario" onClick={() => {
+                    const f = templateToForm(tp, tplCtx);
+                    setType(f.type); setDescription(f.description); setAmount(f.amount);
+                    if (f.categoryId) setCategoryId(f.categoryId);
+                    if (f.accountId) setAccountId(f.accountId);
+                  }}>
+                    <span style={{ fontSize: 12.5, color: T.ink, fontFamily: FONT_BODY }}>{tp.name}{tp.amount ? ` · ${formatMoney(tp.amount, data.currency)}` : ''}</span>
+                  </button>
+                  {manageTemplates ? (
+                    <button type="button" className="pr-2.5 py-1.5" aria-label={`Borrar plantilla ${tp.name}`} onClick={() => actions.deleteTemplate(tp.id)}><Trash2 size={13} color={T.danger} /></button>
+                  ) : quick ? (
+                    <button type="button" className="pr-2.5 py-1.5" aria-label={`Registrar ${tp.name} ahora`} title="Registrar ahora, con la fecha de hoy" onClick={async () => { setSaving(true); try { await actions.addTransaction(quick); onClose(); } finally { setSaving(false); } }}><Zap size={13} color={T.gold} /></button>
+                  ) : <span className="pr-2" />}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
       <div className="flex rounded-xl p-1 mb-4" style={{ background: T.bg }}>
@@ -396,6 +437,23 @@ export function TransactionModal({ data, actions, payload, onClose }) {
         </>
       )}
 
+      {!payload?.source && (
+        <div className="mb-3">
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={saveTemplate} onChange={(e) => setSaveTemplate(e.target.checked)} />
+            <span style={{ fontSize: 12.5, color: T.ink, fontFamily: FONT_BODY }}>Guardar como plantilla</span>
+          </label>
+          {saveTemplate && (
+            <div className="mt-2">
+              <input style={inputStyle} value={templateName} onChange={(e) => setTemplateName(e.target.value)} placeholder="Nombre, ej. Mercado D1" aria-label="Nombre de la plantilla" />
+              <label className="flex items-center gap-2 mt-2">
+                <input type="checkbox" checked={templateWide} onChange={(e) => setTemplateWide(e.target.checked)} />
+                <span style={{ fontSize: 12, color: T.inkSoft, fontFamily: FONT_BODY }}>Compartirla con todo el hogar</span>
+              </label>
+            </div>
+          )}
+        </div>
+      )}
       {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mt-2">{error}</p>}
       <PrimaryButton full onClick={save} style={{ marginTop: 8 }}>{saving ? 'Guardando…' : 'Guardar movimiento'}</PrimaryButton>
     </Modal>

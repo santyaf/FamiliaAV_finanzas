@@ -218,7 +218,7 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     currency: householdMeta?.currency || 'COP',
     viewMode, activeMemberId,
     members: raw.members, categories: raw.categories, accounts: raw.accounts,
-    transactions: mergePendingTransactions(raw.transactions, queue.items), goals: raw.goals, budgets: raw.budgets, obligations: raw.obligations, cardPlans: raw.cardPlans || [], attachmentCounts: raw.attachmentCounts || {}, assets: raw.assets || [],
+    transactions: mergePendingTransactions(raw.transactions, queue.items), goals: raw.goals, budgets: raw.budgets, obligations: raw.obligations, cardPlans: raw.cardPlans || [], attachmentCounts: raw.attachmentCounts || {}, assets: raw.assets || [], templates: raw.templates || [],
     settings, isPlatformAdmin, notifications: myNotifications, unreadCount, creditsWithPayments: creditsSnapshot,
     offline: { online: queue.online, stale, pending: queue.pending, failed: queue.failed, syncing: queue.syncing },
   };
@@ -267,6 +267,8 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     importTransactions: async (o) => {
       try { return await db.importTransactions(household.householdId, session.user.id, o); } finally { await refresh(); }
     },
+    addTemplate: wrap((t) => db.addTemplate(household.householdId, session.user.id, t)),
+    deleteTemplate: wrap((id) => db.deleteTemplate(id)),
     createAsset: wrap((a) => db.createAsset(household.householdId, session.user.id, a)),
     updateAsset: wrap((id, a) => db.updateAsset(id, a)),
     addAssetValuation: wrap((assetId, v) => db.addAssetValuation(assetId, v)),

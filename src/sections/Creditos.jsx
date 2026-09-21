@@ -10,6 +10,7 @@ import {
   annualToMonthlyRate, RATE_TYPES, toEffectiveAnnual, fromEffectiveAnnual, buildRefinance, summarizeSchedule,
 } from '../lib/amortization';
 import { libranzaDeductionsForMonth, CREDIT_EVENT_LABELS, installmentInCop } from '../lib/creditRules';
+import { EstrategiaDeuda } from './EstrategiaDeuda';
 
 function addOneYear(dateStr) {
   const d = new Date(dateStr + 'T00:00:00');
@@ -129,6 +130,7 @@ export function Creditos({ data, actions, setModal }) {
           <p style={{ fontSize: 12, fontFamily: FONT_MONO, fontWeight: 700, color: T.ink }} className="mt-1">Total: {formatMoney(payrollRows.reduce((s2, r) => s2 + r.total, 0), data.currency)}</p>
         </Card>
       )}
+      <EstrategiaDeuda data={data} />
       {credits === null && <p style={{ fontSize: 13, color: T.inkSoft }} className="text-center py-6">Cargando…</p>}
       {credits?.length === 0 && <EmptyState icon={<CreditCard size={36} color={T.teal} />} title="Sin créditos registrados" subtitle="Agrega tu primer crédito para llevar el control de cuotas, intereses y seguros." />}
 
