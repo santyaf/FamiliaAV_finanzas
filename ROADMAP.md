@@ -173,7 +173,7 @@ Objetivo: poder generar informes **mensuales, trimestrales, semestrales y anuale
 
 ## Transversal (en paralelo a todas las fases)
 
-- **Accesibilidad** — labels en todos los campos, foco atrapado en los modales, contraste, lectores de pantalla.
+- **Accesibilidad** — ✅ hecho: diálogos con `role="dialog"`, `aria-modal`, foco atrapado, Escape cierra, foco de regreso y scroll del fondo bloqueado (`useDialogA11y`, también en el pop-up de notificaciones); contraste verificado por test en ambos temas. Pendiente: barrido de lectores de pantalla en gráficos y listas, y anuncios `aria-live` de errores.
 - **Rendimiento** — virtualizar la lista de movimientos cuando crezca; memoizar `computeBalances`/`simplifyDebts` (hoy corren en cada render).
-- **Observabilidad del cron** — alerta si los recordatorios dejan de enviarse (GitHub desactiva workflows tras 60 días sin commits).
+- **Observabilidad del cron** — ✅ hecho: cada ejecución real de `send-reminders` deja su latido en `cron_heartbeat` (migración fase30, solo lectura para administradores) y Admin → «Recordatorios automáticos» muestra la última ejecución y marca **Detenido** pasados 30 min o **Con errores**. Pendiente: aviso push al administrador cuando se detenga.
 - **Documentación** — mantener el README y este archivo al día por fase.

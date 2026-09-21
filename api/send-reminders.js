@@ -41,7 +41,18 @@ async function sendToUser(supabase, userId, payload, pushErrors, context) {
   return { sent, subsCount: subs?.length || 0 };
 }
 
+// Latido: deja constancia de cada ejecución real para que Administración avise si el cron se detiene.
+async function heartbeat(supabase, { ok, sent = 0, detail = null, startedAt }) {
+  try {
+    await supabase.from('cron_heartbeat').upsert({
+      job: 'send-reminders', last_run_at: new Date().toISOString(), last_ok: ok, sent, detail: detail ? String(detail).slice(0, 300) : null,
+      duration_ms: Date.now() - startedAt,
+    });
+  } catch { /* el latido nunca debe romper el envío */ }
+}
+
 export default async function handler(req, res) {
+  const startedAt = Date.now();
   const authHeader = req.headers.authorization || '';
   const secret = process.env.REMINDER_CRON_SECRET;
   if (!secret || authHeader !== `Bearer ${secret}`) {
@@ -302,6 +313,13 @@ export default async function handler(req, res) {
       extras.error = err.message;
     }
 
+    if (!dry && !force) {
+      await heartbeat(supabase, {
+        ok: !extras.error, startedAt, detail: extras.error || null,
+        sent: sent + obSent + (extras.digest?.sent || 0) + (extras.cards?.sent || 0),
+      });
+    }
+
     res.status(200).json({
       ok: true, dry, force, extras,
       serverTimeUTC: now.toISOString(),
@@ -313,6 +331,7 @@ export default async function handler(req, res) {
       pushErrors, evaluated, env,
     });
   } catch (err) {
+    if (!dry && !force) await heartbeat(supabase, { ok: false, detail: err.message, startedAt });
     res.status(500).json({ error: err.message, env });
   }
 }

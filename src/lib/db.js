@@ -1360,6 +1360,12 @@ export async function adminSetUserStatus(userId, status, reason) {
   if (error) throw new Error(error.message.replace(/^.*: /, ''));
 }
 
+export async function loadCronHeartbeat() {
+  const { data, error } = await supabase.from('cron_heartbeat').select('*').eq('job', 'send-reminders').maybeSingle();
+  if (error) throw error;
+  return data ? { lastRunAt: data.last_run_at, lastOk: data.last_ok, sent: data.sent, detail: data.detail, durationMs: data.duration_ms } : null;
+}
+
 export async function listPlatformAdmins() {
   const { data, error } = await supabase.from('platform_admins')
     .select('user_id, created_at, profiles(full_name)')

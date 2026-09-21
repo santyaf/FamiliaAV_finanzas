@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Bot, Plus, ShieldAlert, Trash2, ToggleLeft, ToggleRight, Sparkles } from 'lucide-react';
+import { Bot, Plus, ShieldAlert, Trash2, ToggleLeft, ToggleRight, Sparkles, Activity, RefreshCw } from 'lucide-react';
 import { T, FONT_DISPLAY, FONT_BODY, FONT_MONO, TAP_MIN, inputStyle } from '../ui/theme';
 import { Card, IconButton, PrimaryButton, GhostButton, Field } from '../ui/primitives';
 import { formatDate } from '../lib/format';
 import { DEFAULT_AI_ACCESS } from '../lib/access';
+import { cronStatus } from '../lib/cronHealth';
 import { SugerenciasAdmin } from './Sugerencias';
 import { UsuariosAdmin } from './Usuarios';
 
@@ -59,6 +60,32 @@ function AiAccessControl({ title, icon: Icon, access, onChange, allUsers }) {
             </label>
           ))}
         </div>
+      )}
+    </Card>
+  );
+}
+
+// Salud del cron de recordatorios: muestra la última ejecución y avisa si se detuvo.
+export function CronEstadoCard({ actions, now }) {
+  const [row, setRow] = useState(undefined);
+  const [error, setError] = useState('');
+  const load = () => actions.loadCronHeartbeat().then((r) => { setRow(r); setError(''); }).catch((e) => setError(e.message || 'No se pudo leer el estado.'));
+  useEffect(() => { load(); }, []);
+  if (row === undefined && !error) return null;
+  const st = row !== undefined ? cronStatus(row, now) : null;
+  const tones = { good: { fg: T.teal, bg: T.tealSoft }, warn: { fg: T.gold, bg: T.goldSoft }, bad: { fg: T.danger, bg: T.dangerSoft } };
+  const tone = tones[st?.tone] || tones.warn;
+  return (
+    <Card style={{ marginBottom: 14, background: st ? tone.bg : T.surface }}>
+      <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center gap-2"><Activity size={15} color={st ? tone.fg : T.ink} /><p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: T.ink }}>Recordatorios automáticos</p></div>
+        <button onClick={load} aria-label="Actualizar estado" className="p-1"><RefreshCw size={14} color={T.inkSoft} /></button>
+      </div>
+      {error ? <p style={{ fontSize: 12, color: T.danger, fontFamily: FONT_BODY }}>{error}</p> : (
+        <>
+          <p style={{ fontSize: 13, color: tone.fg, fontFamily: FONT_BODY, fontWeight: 700 }}>{st.label}</p>
+          <p style={{ fontSize: 11.5, color: T.inkSoft, fontFamily: FONT_BODY }} className="mt-0.5">{st.detail}</p>
+        </>
       )}
     </Card>
   );
@@ -120,6 +147,8 @@ export function AdminPanel({ data, actions }) {
       <p style={{ fontSize: 12.5, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-4">
         Panel de superusuario — estos cambios afectan a toda la plataforma, no solo a tu hogar.
       </p>
+
+      <CronEstadoCard actions={actions} />
 
       <SugerenciasAdmin actions={actions} />
 

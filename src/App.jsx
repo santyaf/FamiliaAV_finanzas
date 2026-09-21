@@ -363,6 +363,7 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     updateSetting: async (key, value) => { await db.updateSetting(key, value, session.user.id); await refreshSettings(); },
     listAllHouseholdsAdmin: () => db.listAllHouseholdsAdmin(),
     listPlatformAdmins: () => db.listPlatformAdmins(),
+    loadCronHeartbeat: () => db.loadCronHeartbeat(),
     deactivateMyAccount: () => db.deactivateMyAccount(),
     mfa: { listFactors: db.mfaListFactors, enroll: db.mfaEnroll, verifyEnroll: db.mfaVerifyEnroll, unenroll: db.mfaUnenroll },
     adminListUsers: () => db.adminListUsers(),
