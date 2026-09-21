@@ -1,3 +1,46 @@
+# Finanzas del Hogar
+
+App web (PWA instalable) para llevar juntos las finanzas de una familia: cuentas, movimientos, presupuestos, objetivos, créditos y tarjetas, informes contables y herramientas para decidir en pareja. **React 18 + Vite 5** en el navegador, **Supabase** (Postgres, Auth, RLS, Storage) como base y **Vercel** para el sitio y las funciones `api/*`.
+
+- Producción: https://finanzasav.vercel.app
+- Lo que viene y lo que ya se hizo, fase por fase: [`ROADMAP.md`](ROADMAP.md)
+
+## Qué incluye hoy
+
+**Día a día**
+- Movimientos (ingresos, gastos, transferencias, recurrentes, gastos compartidos con reparto), con **plantillas**, pegar el **SMS del banco**, adjuntar el **recibo** (foto o PDF), **importar extractos** CSV/Excel y funcionamiento **sin señal** (cola offline).
+- Cuentas individuales y compartidas, medio de pago, **tarjetas de crédito** (corte, pago, compras diferidas a cuotas) y conciliación de deudas entre integrantes.
+- Presupuestos con **proyección de fin de mes**, obligaciones recurrentes con recordatorio, objetivos con aprobación familiar, calendario financiero y **reunión mensual** con decisiones.
+- Notificaciones en un pop-up (deslizar para leer, archivar o eliminar), **push** al celular y resumen mensual.
+
+**Patrimonio y deuda**
+- Créditos en COP y UVR (amortización, libranza, abonos, retanqueo), **estrategias para pagar deudas**, activos e inversiones con valorización, **salud financiera** y los estados **de resultados, flujo de efectivo, situación financiera y cambios en el patrimonio**.
+- **Declaración de renta** orientativa (ingresos, posibles deducciones y semáforo de obligación de declarar).
+
+**Familia**
+- Varios **hogares** por persona, **aprobaciones** de gastos grandes por mayoría, **hijos y mesada** (alcancía, tareas con recompensa, metas), privacidad de lo individual a nivel de base de datos.
+
+**Seguridad y cuenta**
+- Verificación en dos pasos (TOTP, exigida en la base), bloqueo con **PIN y huella/Face ID**, límite de uso de la API, desactivar mi cuenta y **exportar mis datos**, administración de usuarios y de la IA por parte del superusuario.
+- Modo claro/oscuro, accesibilidad de diálogos y pantallas cargadas bajo demanda.
+
+## Cómo se trabaja
+
+| Qué | Cómo |
+|---|---|
+| Pruebas | `npm test` (Vitest: lógica pura, pantallas con jsdom y las funciones de `api/`). El CI de GitHub corre pruebas + `npm run build` en cada push. |
+| Sin Node local | `docker run --rm -v "$PWD":/app -w /app node:20 sh -c "npm ci && npx vitest run && npm run build"` |
+| Cambios de base de datos | Un archivo nuevo en `supabase/migrations/` por cambio, aplicado en Supabase y anexado a `supabase-schema.sql` (el snapshot completo e idempotente). |
+| Pruebas de la base | `supabase/tests/rls_regression.sql`: pegar en el editor SQL tras cada migración; no deja rastro y debe terminar en `FALLAS=0`. |
+| Despliegue | Cada merge a `main` despliega solo en Vercel. Los recordatorios los dispara un cron externo (cron-job.org) contra `/api/send-reminders`. |
+| Estado del cron | Administración → *Recordatorios automáticos* muestra la última ejecución y avisa si se detuvo. |
+
+Las instrucciones de instalación y las notas históricas de cada fase siguen abajo.
+
+---
+
+## Historial de fases y guía de instalación
+
 # Finanzas del Hogar — v2 (Fase 1: Auth + Supabase + Invitación por QR)
 
 ## Qué cambió respecto a v1

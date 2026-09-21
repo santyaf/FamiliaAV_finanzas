@@ -10,6 +10,7 @@ import { MiCuentaCard } from './Usuarios';
 import { PinSettingsCard } from './PinLock';
 import { MfaCard } from './Mfa';
 import { AparienciaCard } from './Apariencia';
+import { CompartirAppCard } from './CompartirApp';
 import {
   Card, CategoryIcon, CATEGORY_ICON_OPTIONS, Field, GhostButton, IconButton, MemberChip, Modal, PrimaryButton,
 } from '../ui/primitives';
@@ -296,6 +297,7 @@ export function Ajustes({ data, update, actions, setModal, setTab, pin }) {
       <AparienciaCard />
       <RemindersCard actions={actions} setModal={setModal} />
       <MisSugerenciasCard actions={actions} />
+      <CompartirAppCard />
       <MiCuentaCard data={data} actions={actions} />
       {pin && <PinSettingsCard pin={pin} />}
       {actions.mfa && <MfaCard api={actions.mfa} />}
