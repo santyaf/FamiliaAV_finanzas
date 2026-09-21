@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { ArrowLeftRight, BadgeDollarSign, Receipt, Bell, CalendarDays, Users2, ChevronDown, ChevronLeft, CreditCard, FileText, History, Home, Landmark, LayoutGrid, List, Loader2, LogOut, PiggyBank, Plus, Settings, Sparkles, Target, TrendingUp, Upload, X } from 'lucide-react';
+import { ArrowLeftRight, BadgeCheck, BadgeDollarSign, Receipt, Bell, CalendarDays, Users2, ChevronDown, ChevronLeft, CreditCard, FileText, History, Home, Landmark, LayoutGrid, List, Loader2, LogOut, PiggyBank, Plus, Settings, Sparkles, Target, TrendingUp, Upload, X } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import * as db from './lib/db';
 import { formatMoney, formatDate } from './lib/format';
@@ -42,6 +42,8 @@ import { ImportarExtractos } from './sections/ImportarExtractos';
 import { Activos, AssetModal, ValuationModal, SellAssetModal } from './sections/Activos';
 import { Calendario } from './sections/Calendario';
 import { Renta } from './sections/Renta';
+import { Aprobaciones, SpendRequestModal } from './sections/Aprobaciones';
+import { pendingForMe } from './lib/spendRequests';
 import { ReunionMensual } from './sections/ReunionMensual';
 import { PinLockScreen } from './sections/PinLock';
 import { parseBankMessage } from './lib/smsParser';
@@ -265,9 +267,10 @@ function HouseholdApp({ session, household, households, onSwitchHousehold, onAdd
   const data = {
     householdName: householdMeta?.name || '',
     currency: householdMeta?.currency || 'COP',
+    approvalThreshold: Number(householdMeta?.spend_approval_threshold) > 0 ? Number(householdMeta.spend_approval_threshold) : null,
     viewMode, activeMemberId,
     members: raw.members, categories: raw.categories, accounts: raw.accounts,
-    transactions: mergePendingTransactions(raw.transactions, queue.items), goals: raw.goals, budgets: raw.budgets, obligations: raw.obligations, cardPlans: raw.cardPlans || [], attachmentCounts: raw.attachmentCounts || {}, assets: raw.assets || [], templates: raw.templates || [],
+    transactions: mergePendingTransactions(raw.transactions, queue.items), goals: raw.goals, budgets: raw.budgets, obligations: raw.obligations, cardPlans: raw.cardPlans || [], attachmentCounts: raw.attachmentCounts || {}, assets: raw.assets || [], templates: raw.templates || [], spendRequests: raw.spendRequests || [], spendVotes: raw.spendVotes || [],
     households, activeHouseholdId: household.householdId,
     settings, isPlatformAdmin, notifications: myNotifications, unreadCount, creditsWithPayments: creditsSnapshot,
     offline: { online: queue.online, stale, pending: queue.pending, failed: queue.failed, syncing: queue.syncing },
@@ -276,8 +279,8 @@ function HouseholdApp({ session, household, households, onSwitchHousehold, onAdd
   function update(patch) {
     if ('viewMode' in patch) setViewMode(patch.viewMode);
     if ('activeMemberId' in patch) setActiveMemberId(patch.activeMemberId);
-    if ('householdName' in patch || 'currency' in patch) {
-      const next = { ...householdMeta, ...('householdName' in patch ? { name: patch.householdName } : {}), ...('currency' in patch ? { currency: patch.currency } : {}) };
+    if ('householdName' in patch || 'currency' in patch || 'approvalThreshold' in patch) {
+      const next = { ...householdMeta, ...('householdName' in patch ? { name: patch.householdName } : {}), ...('currency' in patch ? { currency: patch.currency } : {}), ...('approvalThreshold' in patch ? { spend_approval_threshold: patch.approvalThreshold > 0 ? patch.approvalThreshold : null } : {}) };
       setHouseholdMeta(next);
       db.updateHousehold(household.householdId, patch).catch(() => {});
     }
@@ -366,6 +369,11 @@ function HouseholdApp({ session, household, households, onSwitchHousehold, onAdd
     updateCategory: wrap((id, c) => db.updateCategory(id, c)),
     removeCategory: wrap((id) => db.removeCategory(id)),
     setCategoryTaxTag: wrap((id, tag) => db.setCategoryTaxTag(id, tag)),
+    setApprovalThreshold: async (value) => { await db.updateHousehold(household.householdId, { approvalThreshold: value || 0 }); setHouseholdMeta((m) => ({ ...m, spend_approval_threshold: value > 0 ? value : null })); },
+    createSpendRequest: wrap((r) => db.createSpendRequest(household.householdId, session.user.id, r)),
+    cancelSpendRequest: wrap((id) => db.setSpendRequestStatus(id, 'cancelled')),
+    markSpendRequestDone: wrap((id, transactionId) => db.setSpendRequestStatus(id, 'done', transactionId)),
+    voteSpendRequest: wrap((id, vote, comment) => db.voteSpendRequest(id, session.user.id, vote, comment)),
     createInvite: () => db.createInvite(household.householdId, session.user.id),
     leaveHousehold: async () => { await db.leaveHousehold(household.householdId, session.user.id); onLeftHousehold(); },
     switchHousehold: onSwitchHousehold,
@@ -458,6 +466,7 @@ const GESTION_SECTIONS = [
   { id: 'calendario', label: 'Calendario', icon: CalendarDays, desc: 'Lo que entra y sale cada día: recurrentes, obligaciones, cuotas, tarjetas, metas y vencimientos.' },
   { id: 'activos', label: 'Activos', icon: BadgeDollarSign, desc: 'Propiedades, vehículos, inversiones y cuentas por cobrar, con su valor a hoy y su historial.' },
   { id: 'importar', label: 'Importar extracto', icon: Upload, desc: 'Sube el CSV de tu banco o pega filas desde Excel: revisa, categoriza y evita duplicados.' },
+  { id: 'aprobaciones', label: 'Aprobaciones', icon: BadgeCheck, desc: 'Pidan el visto bueno del hogar antes de un gasto grande; aprueba la mayoría.' },
   { id: 'renta', label: 'Declaración de renta', icon: Receipt, desc: 'Resumen anual para declarar: ingresos, posibles deducciones y si por los topes de la DIAN te toca.' },
   { id: 'informes', label: 'Informes', icon: FileText, desc: 'Estado de resultados y flujo de efectivo por mes, trimestre, semestre o año — personal o del hogar.' },
   { id: 'asistente', label: 'Asistente IA', icon: Sparkles, desc: 'Pregúntale sobre tus finanzas, o regístralas por chat o foto de recibo.', requiresAiChat: true },
@@ -571,7 +580,8 @@ function MainApp({ data, update, actions }) {
   const assistantEnabled = aiProviderConfigured && isAiFeatureEnabled(data.settings?.assistant_access, actions.userId);
   const aiChatAvailable = quickCaptureEnabled || assistantEnabled;
   const navTabs = TABS;
-  const visibleGestionSections = GESTION_SECTIONS.filter((s) => !(s.requiresAiChat && !aiChatAvailable));
+  const waitingForMe = pendingForMe(data.spendRequests, data.spendVotes, actions.userId);
+  const visibleGestionSections = GESTION_SECTIONS.filter((s) => !(s.requiresAiChat && !aiChatAvailable)).map((s) => (s.id === 'aprobaciones' ? { ...s, badge: waitingForMe } : s));
   // "Gestión" queda resaltado en la barra mientras estés en cualquiera de sus secciones.
   const inGestion = tab === 'gestion' || GESTION_IDS.includes(tab);
   const backTo = GESTION_IDS.includes(tab) ? { id: 'gestion', label: 'Gestión' }
@@ -654,6 +664,7 @@ function MainApp({ data, update, actions }) {
           {tab === 'activos' && <Activos data={data} actions={actions} setModal={setModal} />}
           {tab === 'calendario' && <Calendario data={data} />}
           {tab === 'renta' && <Renta data={data} actions={actions} />}
+          {tab === 'aprobaciones' && <Aprobaciones data={data} actions={actions} setModal={setModal} />}
           {tab === 'reunion' && <ReunionMensual data={data} actions={actions} />}
           {tab === 'asistente' && aiChatAvailable && <Asistente data={data} actions={actions} visibleTransactions={visibleTransactions} setModal={setModal} />}
           {tab === 'conciliacion' && <Conciliacion data={data} actions={actions} />}
@@ -746,6 +757,7 @@ function MainApp({ data, update, actions }) {
       {modal?.type === 'vote' && <VoteModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
       {modal?.type === 'contribute' && <ContributeModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
       {modal?.type === 'category' && <CategoryModal data={data} actions={actions} payload={modal.payload} onClose={() => setModal(null)} />}
+      {modal?.type === 'spendRequest' && <SpendRequestModal data={data} actions={actions} onClose={() => setModal(null)} />}
       {modal?.type === 'households' && <HouseholdSwitcherModal data={data} actions={actions} onClose={() => setModal(null)} />}
       {modal?.type === 'notifications' && <NotificationsPanel data={data} actions={actions} onClose={() => setModal(null)} />}
       {modal?.type === 'credit' && <CreditModal data={data} actions={actions} onClose={() => setModal(null)} onCreated={modal.onCreated} />}
@@ -821,8 +833,9 @@ function Gestion({ setTab, sections }) {
             <button key={s.id} onClick={() => setTab(s.id)}
               className="text-left rounded-2xl p-4 flex flex-col gap-2 active:scale-[0.98] transition-transform"
               style={{ background: T.surface, border: `1px solid ${T.border}`, minHeight: 148 }}>
-              <div className="rounded-xl flex items-center justify-center" style={{ width: 38, height: 38, background: T.tealSoft }}>
+              <div className="rounded-xl flex items-center justify-center relative" style={{ width: 38, height: 38, background: T.tealSoft }}>
                 <Icon size={19} color={T.teal} />
+                {s.badge > 0 && <span className="absolute flex items-center justify-center" aria-label={`${s.badge} pendientes`} style={{ top: -5, right: -5, minWidth: 17, height: 17, borderRadius: 9, background: T.coral, padding: '0 4px' }}><span style={{ fontSize: 10, color: '#fff', fontFamily: FONT_BODY, fontWeight: 700 }}>{s.badge}</span></span>}
               </div>
               <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 14, color: T.ink }}>{s.label}</span>
               <span style={{ fontSize: 11, color: T.inkSoft, fontFamily: FONT_BODY, lineHeight: 1.45 }}>{s.desc}</span>

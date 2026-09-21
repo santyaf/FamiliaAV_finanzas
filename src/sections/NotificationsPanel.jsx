@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import {
-  Bell, AlertTriangle, Target, TrendingUp, Calendar, Sparkles, Info, Trash2, Lightbulb, X, Check, Archive, ArchiveRestore, ChevronLeft, ChevronRight,
+  Bell, BadgeCheck, AlertTriangle, Target, TrendingUp, Calendar, Sparkles, Info, Trash2, Lightbulb, X, Check, Archive, ArchiveRestore, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { T, FONT_DISPLAY, FONT_BODY } from '../ui/theme';
 import { EmptyState, IconButton } from '../ui/primitives';
@@ -19,6 +19,8 @@ const NOTIFICATION_ICONS = {
   suggestion: { icon: Lightbulb, color: T.gold, bg: T.goldSoft },
   suggestion_update: { icon: Lightbulb, color: T.teal, bg: T.tealSoft },
   monthly_review: { icon: Calendar, color: T.teal, bg: T.tealSoft },
+  spend_request: { icon: BadgeCheck, color: T.gold, bg: T.goldSoft },
+  spend_decision: { icon: BadgeCheck, color: T.teal, bg: T.tealSoft },
 };
 
 export function relativeDay(iso) {

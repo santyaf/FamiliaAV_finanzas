@@ -8,6 +8,7 @@ import {
   Card, PrimaryButton, GhostButton, IconButton, Modal, Field, MemberChip, EmptyState, CategoryIcon, PAYMENT_KIND_LABEL,
 } from '../ui/primitives';
 import { formatMoney, formatDate } from '../lib/format';
+import { exceedsThreshold, approvedRequestsOf } from '../lib/spendRequests';
 import { todayISO, computeIncomeShares, occurrencesInMonth, getNextOccurrence, daysUntil } from '../lib/finance';
 import { NATURES, natureLabel } from '../lib/accounting';
 import { DeferralFields, emptyDeferral, deferralToPlan, isCard } from './Tarjetas';
@@ -211,6 +212,7 @@ export function TransactionModal({ data, actions, payload, onClose }) {
   const [templateWide, setTemplateWide] = useState(false);
   const [manageTemplates, setManageTemplates] = useState(false);
   const [smsOpen, setSmsOpen] = useState(false);
+  const [linkedRequest, setLinkedRequest] = useState('');
   const [smsText, setSmsText] = useState('');
   const [smsNote, setSmsNote] = useState('');
   const tplCtx = { accounts: data.accounts, categories: data.categories };
@@ -273,6 +275,10 @@ export function TransactionModal({ data, actions, payload, onClose }) {
         try { await actions.addTemplate({ name: templateName.trim(), type, description: description.trim(), amount: amt, categoryId, accountId, householdWide: templateWide }); }
         catch { alert('El movimiento se guardó, pero no se pudo crear la plantilla.'); }
       }
+      const requestId = payload?.requestId || linkedRequest;
+      if (requestId && !saved?.queued) {
+        try { await actions.markSpendRequestDone(requestId, saved.id); } catch { /* el gasto ya quedó registrado; la solicitud se puede cerrar luego */ }
+      }
       if (receipt) {
         if (saved?.queued) alert('El movimiento quedó guardado en tu dispositivo (sin conexión). Cuando se sincronice, adjunta el recibo desde el clip del movimiento.');
         else {
@@ -293,7 +299,7 @@ export function TransactionModal({ data, actions, payload, onClose }) {
   }
 
   return (
-    <Modal title={payload?.source === 'quick' ? 'Revisa lo detectado' : payload?.source === 'obligation' ? 'Registrar obligación' : 'Nuevo movimiento'} onClose={onClose}>
+    <Modal title={payload?.source === 'quick' ? 'Revisa lo detectado' : payload?.source === 'obligation' ? 'Registrar obligación' : payload?.source === 'request' ? 'Registrar gasto aprobado' : 'Nuevo movimiento'} onClose={onClose}>
       {payload?.source === 'quick' && (
         <div className="flex items-start gap-2 rounded-xl p-3 mb-4" style={{ background: T.goldSoft }}>
           <Info size={15} color={T.gold} style={{ marginTop: 2, flexShrink: 0 }} />
@@ -308,6 +314,26 @@ export function TransactionModal({ data, actions, payload, onClose }) {
           <p style={{ fontSize: 12, color: T.ink, fontFamily: FONT_BODY }}>
             Viene del recordatorio de "{payload.description}". Revisa el monto{!payload.amount ? ' (es variable, complétalo)' : ''} y guarda.
           </p>
+        </div>
+      )}
+      {payload?.source === 'request' && (
+        <div className="flex items-start gap-2 rounded-xl p-3 mb-4" style={{ background: T.tealSoft }}>
+          <Info size={15} color={T.teal} style={{ marginTop: 2, flexShrink: 0 }} />
+          <p style={{ fontSize: 12, color: T.ink, fontFamily: FONT_BODY }}>El hogar aprobó "{payload.description}". Revisa los datos y guarda: la solicitud se marca como registrada.</p>
+        </div>
+      )}
+      {type === 'expense' && !payload?.requestId && exceedsThreshold(parseFloat(amount), data.approvalThreshold) && (
+        <div className="rounded-xl p-3 mb-4" style={{ background: T.goldSoft }}>
+          <div className="flex items-start gap-2">
+            <Info size={15} color={T.gold} style={{ marginTop: 2, flexShrink: 0 }} />
+            <p style={{ fontSize: 12, color: T.ink, fontFamily: FONT_BODY }}>Este gasto llega al umbral de {formatMoney(data.approvalThreshold, data.currency)} desde el que el hogar acordó consultar antes. Puedes guardarlo igual{approvedRequestsOf(data.spendRequests, actions.userId).length ? ' o vincularlo a una solicitud ya aprobada:' : '; para la próxima, pide el visto bueno en Gestión → Aprobaciones.'}</p>
+          </div>
+          {approvedRequestsOf(data.spendRequests, actions.userId).length > 0 && (
+            <select aria-label="Vincular a una solicitud aprobada" style={{ ...inputStyle, marginTop: 8 }} value={linkedRequest} onChange={(e) => setLinkedRequest(e.target.value)}>
+              <option value="">Sin vincular</option>
+              {approvedRequestsOf(data.spendRequests, actions.userId).map((r) => <option key={r.id} value={r.id}>{r.title} — {formatMoney(r.amount, data.currency)}</option>)}
+            </select>
+          )}
         </div>
       )}
       {!payload?.source && (

@@ -59,7 +59,7 @@ export async function updatePassword(newPassword) {
 export async function getMyHouseholds(userId) {
   const { data, error } = await supabase
     .from('household_members')
-    .select('household_id, role, color, joined_at, households(id, name, currency)')
+    .select('household_id, role, color, joined_at, households(id, name, currency, spend_approval_threshold)')
     .eq('user_id', userId)
     .order('joined_at');
   if (error) throw error;
@@ -109,7 +109,7 @@ export async function redeemInvite(token, userId) {
 
 /* ---------------------- CARGA DE DATOS DEL HOGAR ---------------------- */
 export async function loadHouseholdData(householdId) {
-  const [membersRes, catsRes, accsRes, txRes, goalsRes, votesRes, budgetsRes, obligationsRes, plansRes, attRes, assetsRes, valsRes, tplRes] = await Promise.all([
+  const [membersRes, catsRes, accsRes, txRes, goalsRes, votesRes, budgetsRes, obligationsRes, plansRes, attRes, assetsRes, valsRes, tplRes, reqRes, reqVotesRes] = await Promise.all([
     supabase.from('household_members').select('user_id, role, color, profiles(full_name)').eq('household_id', householdId),
     supabase.from('categories').select('*').eq('household_id', householdId),
     supabase.from('accounts').select('*').eq('household_id', householdId),
@@ -123,6 +123,8 @@ export async function loadHouseholdData(householdId) {
     supabase.from('assets').select('*').eq('household_id', householdId),
     supabase.from('asset_valuations').select('*'),
     supabase.from('transaction_templates').select('*').eq('household_id', householdId),
+    supabase.from('spend_requests').select('*').eq('household_id', householdId),
+    supabase.from('spend_request_votes').select('*'),
   ]);
   for (const r of [membersRes, catsRes, accsRes, txRes, goalsRes, votesRes, budgetsRes, obligationsRes]) {
     if (r.error) throw r.error;
@@ -166,7 +168,16 @@ export async function loadHouseholdData(householdId) {
     categoryId: t.category_id, accountId: t.account_id, householdWide: t.household_wide, createdBy: t.created_by,
   }));
 
-  return { members, categories, accounts, transactions, goals, budgets, obligations, cardPlans, attachmentCounts, assets, templates };
+  // solicitudes de gasto (si fallan, la app sigue sin ellas)
+  const spendRequests = reqRes.error ? [] : reqRes.data.map((r) => ({
+    id: r.id, requestedBy: r.requested_by, title: r.title, amount: Number(r.amount), categoryId: r.category_id, accountId: r.account_id,
+    note: r.note, status: r.status, transactionId: r.transaction_id, decidedAt: r.decided_at, createdAt: r.created_at,
+  }));
+  const requestIds = new Set(spendRequests.map((r) => r.id));
+  const spendVotes = reqVotesRes.error ? [] : reqVotesRes.data.filter((v) => requestIds.has(v.request_id))
+    .map((v) => ({ requestId: v.request_id, memberId: v.member_id, vote: v.vote, comment: v.comment, createdAt: v.created_at }));
+
+  return { members, categories, accounts, transactions, goals, budgets, obligations, cardPlans, attachmentCounts, assets, templates, spendRequests, spendVotes };
 }
 
 function dbAssetToJs(a, valuations) {
@@ -666,7 +677,31 @@ export async function updateHousehold(householdId, patch) {
   const dbPatch = {};
   if (patch.householdName !== undefined) dbPatch.name = patch.householdName;
   if (patch.currency !== undefined) dbPatch.currency = patch.currency;
+  if (patch.approvalThreshold !== undefined) dbPatch.spend_approval_threshold = patch.approvalThreshold > 0 ? patch.approvalThreshold : null;
   const { error } = await supabase.from('households').update(dbPatch).eq('id', householdId);
+  if (error) throw error;
+}
+
+/* ---------------------- SOLICITUDES DE GASTO ---------------------- */
+export async function createSpendRequest(householdId, userId, r) {
+  const { data, error } = await supabase.from('spend_requests').insert({
+    household_id: householdId, requested_by: userId, title: r.title.trim(), amount: r.amount,
+    category_id: r.categoryId || null, account_id: r.accountId || null, note: r.note?.trim() || null,
+  }).select('id').single();
+  if (error) throw error;
+  return data.id;
+}
+export async function setSpendRequestStatus(id, status, transactionId = null) {
+  const patch = { status };
+  if (transactionId) patch.transaction_id = transactionId;
+  const { error } = await supabase.from('spend_requests').update(patch).eq('id', id);
+  if (error) throw error;
+}
+export async function voteSpendRequest(requestId, memberId, vote, comment) {
+  const { error } = await supabase.from('spend_request_votes').upsert(
+    { request_id: requestId, member_id: memberId, vote, comment: comment?.trim() || null },
+    { onConflict: 'request_id,member_id' },
+  );
   if (error) throw error;
 }
 
