@@ -87,7 +87,8 @@ export default async function handler(req, res) {
     res.status(405).json({ error: 'Método no permitido' });
     return;
   }
-  if (await requireAuth(req, res)) return;
+  // límite por persona: protege la cuota de IA de un abuso o un ciclo descontrolado (Fase 26)
+  if (await requireAuth(req, res, { limit: { endpoint: 'ai-parse', hourly: 90, daily: 400 } })) return;
 
   const { provider, model, system, content } = req.body || {};
   const chosen = PROVIDERS[provider] || PROVIDERS.claude;

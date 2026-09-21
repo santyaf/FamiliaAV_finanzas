@@ -57,7 +57,7 @@ async function fetchFlow(flowId, params = '') {
 }
 
 export default async function handler(req, res) {
-  if (await requireAuth(req, res)) return;
+  if (await requireAuth(req, res, { limit: { endpoint: 'uvr', hourly: 60, daily: 200 } })) return;
 
   try {
     let obs = [];

@@ -7,6 +7,8 @@ import { T, FONT_DISPLAY, FONT_BODY, FONT_MONO, TAP_MIN, inputStyle, DAY_LABELS,
 import { NATURES, natureLabel, DEFAULT_CATEGORY_SPECS } from '../lib/accounting';
 import { MisSugerenciasCard } from './Sugerencias';
 import { MiCuentaCard } from './Usuarios';
+import { PinSettingsCard } from './PinLock';
+import { MfaCard } from './Mfa';
 import {
   Card, CategoryIcon, CATEGORY_ICON_OPTIONS, Field, GhostButton, IconButton, MemberChip, Modal, PrimaryButton,
 } from '../ui/primitives';
@@ -281,7 +283,7 @@ function CategoryRow({ c, onEdit, onRemove }) {
   );
 }
 
-export function Ajustes({ data, update, actions, setModal, setTab }) {
+export function Ajustes({ data, update, actions, setModal, setTab, pin }) {
   function removeCategory(id) {
     actions.removeCategory(id);
   }
@@ -293,6 +295,8 @@ export function Ajustes({ data, update, actions, setModal, setTab }) {
       <RemindersCard actions={actions} setModal={setModal} />
       <MisSugerenciasCard actions={actions} />
       <MiCuentaCard data={data} actions={actions} />
+      {pin && <PinSettingsCard pin={pin} />}
+      {actions.mfa && <MfaCard api={actions.mfa} />}
 
       <Card style={{ marginBottom: 14 }}>
         <Field label="Nombre del hogar">

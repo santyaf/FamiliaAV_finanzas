@@ -41,6 +41,9 @@ import { ImportarExtractos } from './sections/ImportarExtractos';
 import { Activos, AssetModal, ValuationModal, SellAssetModal } from './sections/Activos';
 import { Calendario } from './sections/Calendario';
 import { ReunionMensual } from './sections/ReunionMensual';
+import { PinLockScreen } from './sections/PinLock';
+import { MfaChallengeScreen } from './sections/Mfa';
+import { usePinLock } from './lib/usePinLock';
 import { NotificationsPanel } from './sections/NotificationsPanel';
 
 /* ---------------------------------------------------------------------- */
@@ -60,6 +63,7 @@ export default function App() {
   const [joinError, setJoinError] = useState('');
   const [recovery, setRecovery] = useState(false);
   const [accountStatus, setAccountStatus] = useState(undefined); // undefined = cargando
+  const [mfaPending, setMfaPending] = useState(undefined); // undefined = comprobando; true = falta el código de 2 pasos
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session ?? null));
@@ -72,7 +76,8 @@ export default function App() {
 
   useEffect(() => {
     if (session === undefined) return;
-    if (!session) { setHousehold(null); setAccountStatus(undefined); return; }
+    if (!session) { setHousehold(null); setAccountStatus(undefined); setMfaPending(undefined); return; }
+    db.mfaNeedsChallenge().then((need) => setMfaPending(need === true)).catch(() => setMfaPending(false));
     (async () => {
       // una cuenta desactivada o suspendida no carga datos: ve una pantalla aparte
       try {
@@ -106,8 +111,9 @@ export default function App() {
   }, [session]);
 
   if (recovery) return <ResetPasswordScreen onDone={() => setRecovery(false)} />;
-  if (session === undefined || (session && (household === undefined || accountStatus === undefined))) return <LoadingScreen />;
+  if (session === undefined || (session && (household === undefined || accountStatus === undefined || mfaPending === undefined))) return <LoadingScreen />;
   if (!session) return <AuthScreen />;
+  if (mfaPending) return <MfaChallengeScreen onVerify={async (code) => { await db.mfaVerifyLogin(code); setMfaPending(false); window.location.reload(); }} onSignOut={() => db.signOut()} />;
   if (accountStatus && accountStatus !== 'active') {
     return <AccountStatusScreen status={accountStatus} onSignOut={() => db.signOut()} onReactivate={async () => { await db.reactivateMyAccount(); window.location.reload(); }} />;
   }
@@ -136,6 +142,15 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
   // este dispositivo hasta que vuelva la conexión (ver cola offline abajo).
   const [stale, setStale] = useState(false);
   const snapKey = `fam_snapshot_v1:${household.householdId}:${session.user.id}`;
+  // el dispositivo puede ser compartido: al cerrar sesión no se dejan los datos del hogar guardados
+  const signOutAndClear = async () => {
+    removeKey(getStorage(), `${snapKey}:raw`);
+    removeKey(getStorage(), `${snapKey}:settings`);
+    removeKey(getStorage(), `fam_household_v1:${session.user.id}`);
+    await db.signOut();
+  };
+  // bloqueo con PIN en este dispositivo (opcional): tapa la app al abrirla y al volver tras un rato
+  const pin = usePinLock({ userId: session.user.id, onSignOut: signOutAndClear });
 
   async function refresh() {
     const d = await db.loadHouseholdData(household.householdId);
@@ -210,6 +225,7 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     },
   });
 
+  if (pin.locked) return <PinLockScreen onSubmit={pin.unlock} onSignOut={signOutAndClear} />;
   if (loading || !raw || !settings) return <LoadingScreen />;
 
   const myNotifications = mergeNotificationStates(notifications.filter((n) => !n.userId || n.userId === session.user.id), notificationStates);
@@ -319,13 +335,7 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     removeCategory: wrap((id) => db.removeCategory(id)),
     createInvite: () => db.createInvite(household.householdId, session.user.id),
     leaveHousehold: async () => { await db.leaveHousehold(household.householdId, session.user.id); onLeftHousehold(); },
-    signOut: async () => {
-      // el dispositivo puede ser compartido: no dejar los datos del hogar guardados
-      removeKey(getStorage(), `${snapKey}:raw`);
-      removeKey(getStorage(), `${snapKey}:settings`);
-      removeKey(getStorage(), `fam_household_v1:${session.user.id}`);
-      await db.signOut();
-    },
+    signOut: signOutAndClear,
     refreshAll: async () => { await refresh(); await refreshSettings(); await refreshNotifications(); },
     // créditos
     loadCredits: () => db.loadCredits(household.householdId),
@@ -352,6 +362,7 @@ function HouseholdApp({ session, household, onLeftHousehold }) {
     listAllHouseholdsAdmin: () => db.listAllHouseholdsAdmin(),
     listPlatformAdmins: () => db.listPlatformAdmins(),
     deactivateMyAccount: () => db.deactivateMyAccount(),
+    mfa: { listFactors: db.mfaListFactors, enroll: db.mfaEnroll, verifyEnroll: db.mfaVerifyEnroll, unenroll: db.mfaUnenroll },
     adminListUsers: () => db.adminListUsers(),
     adminSetUserStatus: (userId, status, reason) => db.adminSetUserStatus(userId, status, reason),
     promoteToAdmin: (email) => db.promoteToAdmin(email),
@@ -572,7 +583,7 @@ function MainApp({ data, update, actions }) {
           {tab === 'asistente' && aiChatAvailable && <Asistente data={data} actions={actions} visibleTransactions={visibleTransactions} setModal={setModal} />}
           {tab === 'conciliacion' && <Conciliacion data={data} actions={actions} />}
           {tab === 'cuentas' && <Cuentas data={data} actions={actions} setModal={setModal} />}
-          {tab === 'ajustes' && <Ajustes data={data} update={update} actions={actions} setModal={setModal} setTab={setTab} />}
+          {tab === 'ajustes' && <Ajustes data={data} update={update} actions={actions} setModal={setModal} setTab={setTab} pin={pin} />}
           {tab === 'admin' && data.isPlatformAdmin && <AdminPanel data={data} actions={actions} />}
         </PullToRefresh>
       </div>
