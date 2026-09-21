@@ -24,7 +24,7 @@ export function PrimerosPasos({ data, householdId, setModal, setTab }) {
         <button onClick={hide} aria-label="Ocultar primeros pasos" className="p-1"><X size={15} color={T.inkSoft} /></button>
       </div>
       <p style={{ fontSize: 12, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-2">{p.done} de {p.total} listos · {p.next ? `sigue: ${p.next.title.toLowerCase()}` : ''}</p>
-      <ProgressBar value={p.pct} color={T.teal} bg="#fff" />
+      <ProgressBar value={p.pct} color={T.teal} bg={T.surface} />
       <div className="mt-3 flex flex-col gap-2">
         {steps.map((s) => (
           <div key={s.id} className="flex items-start gap-2">

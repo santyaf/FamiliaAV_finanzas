@@ -9,6 +9,7 @@ import { MisSugerenciasCard } from './Sugerencias';
 import { MiCuentaCard } from './Usuarios';
 import { PinSettingsCard } from './PinLock';
 import { MfaCard } from './Mfa';
+import { AparienciaCard } from './Apariencia';
 import {
   Card, CategoryIcon, CATEGORY_ICON_OPTIONS, Field, GhostButton, IconButton, MemberChip, Modal, PrimaryButton,
 } from '../ui/primitives';
@@ -292,6 +293,7 @@ export function Ajustes({ data, update, actions, setModal, setTab, pin }) {
       <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: T.ink }} className="mb-3">Ajustes</p>
 
       <InstallAppCard />
+      <AparienciaCard />
       <RemindersCard actions={actions} setModal={setModal} />
       <MisSugerenciasCard actions={actions} />
       <MiCuentaCard data={data} actions={actions} />

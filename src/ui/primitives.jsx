@@ -139,7 +139,7 @@ export function Card({ children, style }) {
   );
 }
 
-export function ProgressBar({ value, color = T.teal, bg = '#EDEFE9', height = 8 }) {
+export function ProgressBar({ value, color = T.teal, bg = T.track, height = 8 }) {
   const pct = Math.max(0, Math.min(100, value));
   return (
     <div style={{ width: '100%', height, borderRadius: height, background: bg, overflow: 'hidden' }}>

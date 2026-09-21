@@ -212,7 +212,7 @@ export function Dashboard({ data, update, actions, visibleTransactions, visibleM
   return (
     <div className="pb-4">
       <div style={{ marginTop: 8 }}><PrimerosPasos data={data} householdId={actions.householdId} setModal={setModal} setTab={setTab} /></div>
-      <Card style={{ marginTop: 8, marginBottom: 16, background: T.ink, border: 'none' }}>
+      <Card style={{ marginTop: 8, marginBottom: 16, background: T.inverse, border: 'none' }}>
         <div className="flex items-center gap-1.5 mb-1"><Landmark size={14} color="#fff" /><span style={{ fontSize: 12, color: '#fff', opacity: 0.7, fontFamily: FONT_BODY, fontWeight: 600 }}>Patrimonio neto</span></div>
         <p style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 24, color: '#fff' }}>{formatMoney(netWorth, currency)}</p>
         <div className="flex items-center justify-between mt-1.5">

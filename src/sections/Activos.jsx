@@ -45,7 +45,7 @@ export function Activos({ data, actions, setModal }) {
       )}
 
       {active.length > 0 && (
-        <Card style={{ marginBottom: 14, background: T.ink, border: 'none' }}>
+        <Card style={{ marginBottom: 14, background: T.inverse, border: 'none' }}>
           <p style={{ fontSize: 12, color: '#fff', opacity: 0.75, fontFamily: FONT_BODY }}>Valor de tus activos hoy</p>
           <p style={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: 24, color: '#fff' }}>{money(totalValue)}</p>
           <div className="flex gap-4 mt-1 flex-wrap">

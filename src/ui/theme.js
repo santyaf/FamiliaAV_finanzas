@@ -1,22 +1,10 @@
 // Tokens de diseño y constantes de UI compartidas por toda la app.
 // Sin JSX ni componentes — solo valores.
 
-export const T = {
-  bg: '#F4F6F2',
-  surface: '#FFFFFF',
-  ink: '#16232E',
-  inkSoft: '#556270',
-  border: '#DEE3DA',
-  teal: '#256359',
-  tealSoft: '#E1EFEB',
-  coral: '#D35B36',
-  coralSoft: '#FAE7DF',
-  amber: '#B4690E',
-  amberSoft: '#F7EAD4',
-  danger: '#B33B33',
-  dangerSoft: '#F8E2DF',
-  focus: '#2F6E68',
-};
+import { THEME_TOKENS, cssVar } from '../lib/theme';
+
+// Los colores son variables CSS (ver lib/theme.js): el tema claro/oscuro se cambia reescribiéndolas.
+export const T = Object.fromEntries(THEME_TOKENS.map((t) => [t, cssVar(t)]));
 // alias por compatibilidad con nombres usados en todo el código
 T.gold = T.amber;
 T.goldSoft = T.amberSoft;

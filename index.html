@@ -19,8 +19,12 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet" />
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      // evita el destello blanco al abrir en modo oscuro (el tema completo se aplica al arrancar la app)
+      (function () { try { var p = localStorage.getItem('fam_theme_v1') || 'system'; if (p === 'dark' || (p === 'system' && matchMedia('(prefers-color-scheme: dark)').matches)) { document.documentElement.style.colorScheme = 'dark'; document.documentElement.style.background = '#0E1620'; } } catch (e) {} })();
+    </script>
     <style>
-      body { margin: 0; background: #F3F5F1; }
+      body { margin: 0; background: var(--t-bg, #F3F5F1); }
     </style>
   </head>
   <body>
