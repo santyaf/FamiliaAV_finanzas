@@ -167,7 +167,7 @@ Objetivo: poder generar informes **mensuales, trimestrales, semestrales y anuale
 - **Mi cuenta** (Ajustes): descargar mis datos (JSON completo y CSV de movimientos; `lib/dataExport.js` con pruebas) y **desactivar mi cuenta** con confirmación escrita (`DESACTIVAR`). No se borra nada; al volver a entrar aparece una pantalla para **reactivarla** en un clic.
 - **Administrador de la plataforma** (Admin → Usuarios): lista con correo, hogares, estado, último acceso y alta; **suspender** (con motivo) y **reactivar**. Una cuenta suspendida no puede reactivarse sola. Historial en `user_status_events`.
 - **Bloqueo real en la base**: `is_household_member()` ahora exige cuenta activa, así que todas las políticas RLS dejan sin datos a una cuenta desactivada/suspendida; un trigger impide cambiar el estado editando el perfil directo (solo las funciones `deactivate_my_account`, `reactivate_my_account`, `admin_set_user_status`). Los endpoints `/api` también la rechazan. Probado en la base simulando al usuario.
-- Pendiente: los recordatorios push (`send-reminders`) aún se envían a cuentas desactivadas; cambiar rol / sacar a alguien de un hogar como administrador del hogar; borrado definitivo con reglas de retención (si algún día se pide).
+- ✅ Los recordatorios push ya no se envían a cuentas desactivadas o suspendidas (`send-reminders` las omite; con pruebas del endpoint). Pendiente: cambiar rol / sacar a alguien de un hogar como administrador del hogar; borrado definitivo con reglas de retención (si algún día se pide).
 
 ---
 

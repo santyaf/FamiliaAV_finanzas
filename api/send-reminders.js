@@ -99,6 +99,11 @@ export default async function handler(req, res) {
       .from('reminder_schedules').select('*').eq('enabled', true);
     if (error) throw error;
 
+    // Las cuentas desactivadas o suspendidas no reciben avisos.
+    const { data: inactiveRows } = await supabase.from('profiles').select('id').neq('status', 'active');
+    const inactive = new Set((inactiveRows || []).map((r) => r.id));
+    const send = (uid, payload, errors, context) => (inactive.has(uid) ? { sent: 0, subsCount: 0 } : sendToUser(supabase, uid, payload, errors, context));
+
     const now = new Date();
     const weekdayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
     let sent = 0, skipped = 0, due = 0;
@@ -142,8 +147,9 @@ export default async function handler(req, res) {
         if (already) { skipped++; info.result = 'ya-enviado-hoy'; evaluated.push(info); continue; }
       }
 
-      const { data: subs } = await supabase
+      const { data: subRowsOfUser } = await supabase
         .from('push_subscriptions').select('*').eq('user_id', s.user_id);
+      const subs = inactive.has(s.user_id) ? [] : subRowsOfUser;
       info.subs = subs?.length || 0;
 
       if (!dry && subs?.length) {
@@ -233,7 +239,7 @@ export default async function handler(req, res) {
           url: `/#/movimientos?ob=${o.id}`,
         });
         for (const userId of recipients) {
-          const { sent: n } = await sendToUser(supabase, userId, payload, pushErrors, `obligation:${o.id}`);
+          const { sent: n } = await send(userId, payload, pushErrors, `obligation:${o.id}`);
           obSent += n;
         }
       }
@@ -259,7 +265,7 @@ export default async function handler(req, res) {
 
       // resumen del mes anterior: un aviso general (sin cifras) por persona y mes
       const { data: subRows } = await supabase.from('push_subscriptions').select('user_id');
-      const subscribed = [...new Set((subRows || []).map((r) => r.user_id))];
+      const subscribed = [...new Set((subRows || []).map((r) => r.user_id))].filter((id) => !inactive.has(id));
       for (const userId of subscribed) {
         extras.digest.checked++;
         const local = localParts(now, tzOf(userId));
@@ -269,7 +275,7 @@ export default async function handler(req, res) {
         const title = `Cerró ${prev.label}`;
         const body = 'Revisa el resumen del mes y las decisiones para el siguiente en la reunión mensual.';
         if (!dry) {
-          const { sent: n } = await sendToUser(supabase, userId, JSON.stringify({ title, body, url: '/#/reunion' }), pushErrors, `digest:${userId}`);
+          const { sent: n } = await send(userId, JSON.stringify({ title, body, url: '/#/reunion' }), pushErrors, `digest:${userId}`);
           extras.digest.sent += n;
           if (!force) {
             await supabase.from('digest_sent_log').insert({ user_id: userId, month_key: local.monthKey });
@@ -303,7 +309,7 @@ export default async function handler(req, res) {
         if (!dry) {
           const text = cardAlertText(a.name, effective);
           for (const uid of recipients) {
-            const { sent: n } = await sendToUser(supabase, uid, JSON.stringify({ ...text, url: '/#/cuentas' }), pushErrors, `card:${a.id}`);
+            const { sent: n } = await send(uid, JSON.stringify({ ...text, url: '/#/cuentas' }), pushErrors, `card:${a.id}`);
             extras.cards.sent += n;
           }
           if (!force) await supabase.from('card_alert_log').insert({ account_id: a.id, due_date: effective.dueDate });
