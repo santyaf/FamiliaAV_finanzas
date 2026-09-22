@@ -491,7 +491,7 @@ function HouseholdApp({ session, household, households, onSwitchHousehold, onAdd
     },
   };
 
-  return <MainApp data={data} update={update} actions={actions} />;
+  return <MainApp data={data} update={update} actions={actions} pin={pin} />;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -561,7 +561,7 @@ function useHashRoute(fallback) {
   return [route, navigate];
 }
 
-function MainApp({ data, update, actions }) {
+function MainApp({ data, update, actions, pin }) {
   const [tab, setTab] = useHashRoute('dashboard');
   const [modal, setModal] = useState(null); // {type: 'transaction'|'goal'|'invite'|'account'|'budget'|'vote'|'contribute'|'category', payload}
 

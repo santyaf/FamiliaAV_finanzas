@@ -53,7 +53,7 @@ export const DEFAULT_CATEGORIES = [
 
 export const inputStyle = {
   width: '100%', padding: '10px 12px', borderRadius: 10, border: `1px solid ${T.border}`,
-  fontFamily: FONT_BODY, fontSize: 15, color: T.ink, background: '#FCFCFA', outline: 'none',
+  fontFamily: FONT_BODY, fontSize: 15, color: T.ink, background: T.bg, outline: 'none',
 };
 
 export const uid = (p) => `${p}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
