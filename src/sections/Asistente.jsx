@@ -429,7 +429,7 @@ function ChatPanel({ data, actions, visibleTransactions, setModal, canAsk, canRe
         <div ref={endRef} />
       </div>
 
-      {error && <p style={{ color: T.danger, fontSize: 12.5, fontFamily: FONT_BODY, flexShrink: 0 }} className="mt-2">{error}</p>}
+      {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5, fontFamily: FONT_BODY, flexShrink: 0 }} className="mt-2">{error}</p>}
 
       {imagePreview && (
         <div className="flex items-center gap-2 mt-3 rounded-xl p-2" style={{ background: T.bg, flexShrink: 0 }}>

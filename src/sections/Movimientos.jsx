@@ -556,7 +556,7 @@ export function TransactionModal({ data, actions, payload, onClose }) {
           )}
         </div>
       )}
-      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mt-2">{error}</p>}
+      {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mt-2">{error}</p>}
       <PrimaryButton full onClick={save} style={{ marginTop: 8 }}>{saving ? 'Guardando…' : 'Guardar movimiento'}</PrimaryButton>
     </Modal>
   );
@@ -660,7 +660,7 @@ export function EditTransactionModal({ data, actions, payload: original, onClose
             </div>
           ))}
         </div>
-        {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+        {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
         <div className="flex gap-2">
           <GhostButton onClick={() => setStep('edit')}>Volver</GhostButton>
           <PrimaryButton full onClick={confirm}>{saving ? 'Guardando…' : 'Confirmar cambios'}</PrimaryButton>
@@ -746,7 +746,7 @@ export function HistoryModal({ data, actions, payload: tx, onClose }) {
         <p style={{ fontFamily: FONT_MONO, fontSize: 13, color: T.ink }}>{formatMoney(current.amount, data.currency)} · {formatDate(current.date)}</p>
       </div>
 
-      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+      {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
       {!entries && !error && <p style={{ fontSize: 13, color: T.inkSoft }} className="text-center py-6">Cargando historial…</p>}
 
       <div className="flex flex-col gap-3">

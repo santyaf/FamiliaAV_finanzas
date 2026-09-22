@@ -225,12 +225,12 @@ export function AdminPanel({ data, actions }) {
           </button>
         </div>
         <p style={{ fontSize: 11, color: T.inkSoft, fontFamily: FONT_BODY }} className="mt-2">La persona debe tener ya una cuenta creada en la app.</p>
-        {error && <p style={{ color: T.danger, fontSize: 12 }} className="mt-2">{error}</p>}
+        {error && <p role="alert" style={{ color: T.danger, fontSize: 12 }} className="mt-2">{error}</p>}
       </Card>
 
       <Card>
         <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: T.ink }} className="mb-3">Hogares en la plataforma {households ? `(${households.length})` : ''}</p>
-        {householdsError && <p style={{ color: T.danger, fontSize: 12 }} className="mb-2">{householdsError}</p>}
+        {householdsError && <p role="alert" style={{ color: T.danger, fontSize: 12 }} className="mb-2">{householdsError}</p>}
         {!households && !householdsError && <p style={{ fontSize: 12.5, color: T.inkSoft }}>Cargando…</p>}
         {households?.length === 0 && <p style={{ fontSize: 12.5, color: T.inkSoft }}>Aún no hay hogares creados en la plataforma.</p>}
         {households?.map((h) => (

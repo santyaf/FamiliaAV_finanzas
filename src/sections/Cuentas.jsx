@@ -163,7 +163,7 @@ export function AccountModal({ data, actions, payload, onClose }) {
           <p style={{ fontSize: 11, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-4">Si la cuenta ya tiene dinero, regístralo aquí — se guarda como un ingreso inicial.</p>
         </>
       )}
-      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+      {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
       <PrimaryButton full onClick={save}>{saving ? 'Guardando…' : editing ? 'Guardar cambios' : 'Crear cuenta'}</PrimaryButton>
     </Modal>
   );

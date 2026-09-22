@@ -190,7 +190,7 @@ export function ReunionMensual({ data, actions }) {
                   <input style={{ ...inputStyle, flex: 1 }} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') add(); }} placeholder="Ej. Bajar el gasto en domicilios a $150.000" aria-label="Nueva decisión" />
                   <button onClick={add} aria-label="Agregar decisión" className="flex items-center justify-center" style={{ background: T.teal, borderRadius: 10, minWidth: 44, height: 44 }}><Plus size={18} color="#fff" /></button>
                 </div>
-                {error && <p style={{ color: T.danger, fontSize: 12 }} className="mt-2">{error}</p>}
+                {error && <p role="alert" style={{ color: T.danger, fontSize: 12 }} className="mt-2">{error}</p>}
               </Card>
             </>
           )}

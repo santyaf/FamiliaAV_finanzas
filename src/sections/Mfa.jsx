@@ -69,7 +69,7 @@ export function MfaCard({ api }) {
           <div className="flex gap-2 mt-3"><GhostButton onClick={cancelEnroll} style={{ flex: 1 }}>Cancelar</GhostButton><PrimaryButton onClick={confirm} style={{ flex: 2 }}>{busy ? 'Verificando…' : 'Activar'}</PrimaryButton></div>
         </div>
       )}
-      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mt-2">{error}</p>}
+      {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mt-2">{error}</p>}
     </Card>
   );
 }

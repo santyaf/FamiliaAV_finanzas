@@ -254,7 +254,7 @@ export function WithdrawGoalModal({ data, actions, payload, onClose }) {
           {data.accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select>
       </Field>
-      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+      {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
       <PrimaryButton full onClick={save}>{saving ? 'Procesando…' : isFamiliar ? 'Enviar para aprobación' : 'Confirmar retiro'}</PrimaryButton>
     </Modal>
   );
@@ -297,7 +297,7 @@ export function EditGoalModal({ data, actions, payload, onClose }) {
       <Field label="Nueva fecha meta (opcional)">
         <input style={inputStyle} type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} />
       </Field>
-      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+      {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
       <PrimaryButton full onClick={save}>{saving ? 'Guardando…' : isFamiliar ? 'Enviar para aprobación' : 'Guardar cambio'}</PrimaryButton>
     </Modal>
   );

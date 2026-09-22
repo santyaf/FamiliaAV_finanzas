@@ -517,7 +517,7 @@ export function CreditModal({ data, actions, onClose, onCreated }) {
           </span>
         </label>
       )}
-      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+      {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
       <PrimaryButton full onClick={save}>{saving ? 'Creando…' : 'Crear crédito y generar tabla de amortización'}</PrimaryButton>
     </Modal>
   );
@@ -587,7 +587,7 @@ export function PayInstallmentModal({ data, actions, payload, onClose, onDone })
         Se registran dos movimientos: el capital como pago de deuda ("Deudas y préstamos", no cuenta como gasto en los informes) y los intereses y seguro como gasto ("Intereses y comisiones").
         {libranza ? ' Si tu salario lo registraste ya neto (después del descuento), no registres también este descuento: se contaría dos veces.' : ''}
       </p>
-      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+      {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
       <PrimaryButton full onClick={confirm}>{saving ? 'Guardando…' : libranza ? 'Registrar descuento' : 'Confirmar pago'}</PrimaryButton>
     </Modal>
   );
@@ -667,7 +667,7 @@ export function ExtraPaymentModal({ data, actions, payload, onClose, onDone }) {
           </Field>
         </>
       )}
-      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+      {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
       <PrimaryButton full onClick={save}>{saving ? 'Aplicando…' : 'Aplicar abono y recalcular'}</PrimaryButton>
     </Modal>
   );
@@ -756,7 +756,7 @@ export function EditCreditModal({ data, actions, payload, onClose, onDone }) {
           <p style={{ fontSize: 11.5, color: T.ink, fontFamily: FONT_BODY }}>Cambiaste la tasa, el plazo o el sistema — las cuotas pendientes se recalcularán desde el saldo actual. Las ya pagadas no cambian. (Si el banco te cambió las condiciones o recibiste dinero nuevo, usa "Retanquear / rediferir" para dejar el historial.)</p>
         </div>
       )}
-      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+      {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
       <PrimaryButton full onClick={save}>{saving ? 'Guardando…' : 'Guardar cambios'}</PrimaryButton>
     </Modal>
   );
@@ -889,7 +889,7 @@ export function RefinanceModal({ data, actions, payload, onClose, onDone }) {
       <Field label="Nota (opcional)">
         <input style={inputStyle} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ej. Retanqueo aprobado por el banco, comisión $50.000" />
       </Field>
-      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+      {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
       <PrimaryButton full onClick={save}>{saving ? 'Aplicando…' : kind === 'retanqueo' ? 'Aplicar retanqueo' : 'Aplicar rediferido'}</PrimaryButton>
     </Modal>
   );
@@ -935,7 +935,7 @@ export function CreditInsuranceModal({ data, actions, payload: credit, onClose, 
         <input style={inputStyle} type="date" value={validTo} onChange={(e) => setValidTo(e.target.value)} />
       </Field>
       <p style={{ fontSize: 11, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-4">Cuando cambie el valor (renovación o endoso), agrega un seguro nuevo con la vigencia actualizada en vez de editar este.</p>
-      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+      {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
       <PrimaryButton full onClick={save}>{saving ? 'Guardando…' : 'Agregar seguro'}</PrimaryButton>
     </Modal>
   );
@@ -1004,7 +1004,7 @@ export function MemberTransferModal({ data, actions, onClose }) {
         <span style={{ fontSize: 13, color: T.ink, fontFamily: FONT_BODY }}>Esta transferencia salda una deuda de gastos compartidos (afecta el balance en Conciliación)</span>
       </label>
       <p style={{ fontSize: 11, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-4">No cuenta como ingreso ni gasto, pero sí se refleja en tu balance personal. Marca la casilla solo si además está pagando una deuda de un gasto compartido.</p>
-      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+      {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
       <PrimaryButton full onClick={save}>{saving ? 'Guardando…' : 'Registrar transferencia'}</PrimaryButton>
     </Modal>
   );

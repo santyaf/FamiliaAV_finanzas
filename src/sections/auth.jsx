@@ -33,7 +33,7 @@ export function ResetPasswordScreen({ onDone }) {
         <p style={{ fontSize: 12.5, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-4">Elige tu nueva contraseña para continuar.</p>
         <PasswordField label="Nueva contraseña" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
         <PasswordField label="Confirmar contraseña" value={passwordConfirm} onChange={(e) => setPasswordConfirm(e.target.value)} placeholder="••••••••" />
-        {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+        {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
         <PrimaryButton full onClick={save}>{loading ? 'Guardando…' : 'Guardar nueva contraseña'}</PrimaryButton>
       </Card>
     </AuthShell>
@@ -171,7 +171,7 @@ export function AuthScreen() {
             <span style={{ fontSize: 12.5, color: T.teal, fontFamily: FONT_BODY, fontWeight: 500 }}>¿Olvidaste tu contraseña?</span>
           </button>
         )}
-        {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+        {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
         {notice && <p style={{ color: T.teal, fontSize: 12.5 }} className="mb-3">{notice}</p>}
         <PrimaryButton full onClick={submit}>
           {loading ? 'Un momento…' : mode === 'signup' ? 'Crear cuenta' : mode === 'forgot' ? 'Enviar enlace' : 'Entrar'}
@@ -245,7 +245,7 @@ export function HouseholdSetup({ userId, onReady, joinError, onCancel }) {
                 {CURRENCIES.map((c) => <option key={c.code} value={c.code}>{c.label}</option>)}
               </select>
             </Field>
-            {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+            {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
             <PrimaryButton full onClick={create}>{loading ? 'Creando…' : 'Crear hogar'}</PrimaryButton>
           </>
         ) : (
@@ -254,7 +254,7 @@ export function HouseholdSetup({ userId, onReady, joinError, onCancel }) {
             <Field label="Código de invitación">
               <input style={inputStyle} value={code} onChange={(e) => setCode(e.target.value)} placeholder="Pega el código aquí" />
             </Field>
-            {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+            {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
             <PrimaryButton full onClick={join}>{loading ? 'Uniendo…' : 'Unirme al hogar'}</PrimaryButton>
           </>
         )}

@@ -114,7 +114,7 @@ export function SpendRequestModal({ data, actions, onClose }) {
         </select>
       </Field>
       <Field label="Detalle (opcional)"><input style={inputStyle} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Por qué, dónde, cuándo…" /></Field>
-      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+      {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
       <PrimaryButton full onClick={save}>{saving ? 'Enviando…' : 'Enviar solicitud'}</PrimaryButton>
     </Modal>
   );

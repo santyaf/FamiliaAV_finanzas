@@ -180,7 +180,7 @@ export function CardPayModal({ data, actions, payload, onClose }) {
       <p style={{ fontSize: 11.5, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-4">
         Se registra como una transferencia hacia la tarjeta: baja tu deuda y libera cupo, pero no es un gasto (el gasto ya quedó registrado cuando compraste).
       </p>
-      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+      {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
       <PrimaryButton full onClick={save}>{saving ? 'Guardando…' : 'Registrar pago'}</PrimaryButton>
     </Modal>
   );
@@ -273,7 +273,7 @@ export function CardPlansModal({ data, actions, payload, onClose, setModal }) {
       {active.map(renderPlan)}
       {done.length > 0 && <p style={{ fontSize: 12, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-2 mt-3">Ya facturadas</p>}
       {done.map(renderPlan)}
-      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mt-2">{error}</p>}
+      {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mt-2">{error}</p>}
     </Modal>
   );
 }
@@ -354,7 +354,7 @@ export function RedeferModal({ data, actions, payload, onClose }) {
       <Field label="Nota (opcional)">
         <input style={inputStyle} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ej. Rediferido en el banco a 24 cuotas" />
       </Field>
-      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+      {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
       <PrimaryButton full onClick={save}>{saving ? 'Aplicando…' : 'Aplicar cambio'}</PrimaryButton>
     </Modal>
   );

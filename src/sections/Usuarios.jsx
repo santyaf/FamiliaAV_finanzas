@@ -61,7 +61,7 @@ export function MiCuentaCard({ data, actions }) {
           </p>
           <p style={{ fontSize: 12, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-1">Escribe <strong>DESACTIVAR</strong> para confirmar:</p>
           <input style={inputStyle} value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="DESACTIVAR" aria-label="Confirmación" />
-          {error && <p style={{ color: T.danger, fontSize: 12 }} className="mt-2">{error}</p>}
+          {error && <p role="alert" style={{ color: T.danger, fontSize: 12 }} className="mt-2">{error}</p>}
           <div className="flex gap-2 mt-3">
             <GhostButton onClick={() => { setConfirming(false); setTyped(''); setError(''); }} style={{ flex: 1, padding: '8px 12px', fontSize: 13 }}>Cancelar</GhostButton>
             <button onClick={deactivate} disabled={typed.trim().toUpperCase() !== 'DESACTIVAR' || busy}
@@ -98,7 +98,7 @@ export function AccountStatusScreen({ status, onReactivate, onSignOut }) {
             <PrimaryButton full onClick={reactivate}>{busy ? 'Reactivando…' : 'Reactivar mi cuenta'}</PrimaryButton>
           </>
         )}
-        {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mt-3">{error}</p>}
+        {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mt-3">{error}</p>}
         <GhostButton full onClick={onSignOut} style={{ marginTop: 10 }}>Cerrar sesión</GhostButton>
       </Card>
     </AuthShell>
@@ -138,7 +138,7 @@ export function UsuariosAdmin({ actions }) {
         <p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: T.ink }}>Usuarios {users ? `(${users.length})` : ''}</p>
       </div>
       <p style={{ fontSize: 11, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-3">Suspender bloquea el acceso a los datos sin borrar nada. Cada persona también puede desactivar su propia cuenta desde Ajustes.</p>
-      {error && <p style={{ color: T.danger, fontSize: 12 }} className="mb-2">{error}</p>}
+      {error && <p role="alert" style={{ color: T.danger, fontSize: 12 }} className="mb-2">{error}</p>}
       {!users && !error && <p style={{ fontSize: 12.5, color: T.inkSoft }}>Cargando…</p>}
       {users?.map((u) => (
         <div key={u.userId} className="mb-3 pb-3" style={{ borderBottom: `1px solid ${T.border}` }}>

@@ -222,7 +222,7 @@ export function AssetModal({ data, actions, payload, onClose }) {
       <Field label="Notas (opcional)">
         <input style={inputStyle} value={notes} onChange={(e) => setNotes(e.target.value)} />
       </Field>
-      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+      {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
       <PrimaryButton full onClick={save}>{saving ? 'Guardando…' : editing ? 'Guardar cambios' : 'Crear activo'}</PrimaryButton>
     </Modal>
   );
@@ -261,7 +261,7 @@ export function ValuationModal({ data, actions, payload, onClose }) {
         <Field label="Valor"><input style={inputStyle} type="number" value={value} onChange={(e) => setValue(e.target.value)} placeholder="0" /></Field>
       </div>
       <Field label="Nota (opcional)"><input style={inputStyle} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ej. avalúo comercial, extracto del banco" /></Field>
-      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+      {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
       <PrimaryButton full onClick={add}>{busy ? 'Guardando…' : 'Agregar valoración'}</PrimaryButton>
 
       {asset.valuations.length > 0 && (
@@ -322,7 +322,7 @@ export function SellAssetModal({ data, actions, payload, onClose }) {
         </select>
       </Field>
       {accountId && <p style={{ fontSize: 11, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-3">Se registra como ingreso de inversión (no cuenta como ingreso operativo).</p>}
-      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+      {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
       <PrimaryButton full onClick={save}>{saving ? 'Guardando…' : isReceivable ? 'Marcar como cobrado' : 'Registrar venta'}</PrimaryButton>
     </Modal>
   );

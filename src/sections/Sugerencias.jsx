@@ -102,7 +102,7 @@ function AdminSuggestionCard({ suggestion, onUpdate }) {
 
       <textarea style={{ ...inputStyle, minHeight: 60, resize: 'vertical', marginTop: 10 }} value={note} onChange={(e) => setNote(e.target.value)}
         placeholder="Nota o respuesta para quien sugirió (opcional, la verá en su cuenta)" />
-      {error && <p style={{ color: T.danger, fontSize: 12 }} className="mt-1">{error}</p>}
+      {error && <p role="alert" style={{ color: T.danger, fontSize: 12 }} className="mt-1">{error}</p>}
       <div className="flex flex-wrap gap-2 mt-2">
         {triage && (
           <>
@@ -165,7 +165,7 @@ export function SugerenciasAdmin({ actions }) {
           </button>
         ))}
       </div>
-      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-2">{error}</p>}
+      {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mb-2">{error}</p>}
       {shown.length === 0 && (
         <EmptyState icon={<Lightbulb size={30} color={T.gold} />} title="Nada por aquí"
           subtitle={filter === 'pendientes' ? 'No hay sugerencias por revisar.' : 'No hay sugerencias en este estado.'} />

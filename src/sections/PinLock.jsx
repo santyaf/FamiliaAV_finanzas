@@ -107,7 +107,7 @@ export function PinSettingsCard({ pin }) {
           <select style={{ ...inputStyle, marginTop: 8 }} value={timeout} onChange={(e) => setTimeoutValue(Number(e.target.value))} aria-label="Cuándo bloquear">
             {TIMEOUT_OPTIONS.map((o) => <option key={o.min} value={o.min}>{o.label}</option>)}
           </select>
-          {error && <p style={{ color: T.danger, fontSize: 12 }} className="mt-2">{error}</p>}
+          {error && <p role="alert" style={{ color: T.danger, fontSize: 12 }} className="mt-2">{error}</p>}
           <div className="flex gap-2 mt-3"><GhostButton onClick={reset} style={{ flex: 1 }}>Cancelar</GhostButton><PrimaryButton onClick={enable} style={{ flex: 2 }}>{busy ? 'Guardando…' : 'Activar'}</PrimaryButton></div>
         </div>
       )}
@@ -133,7 +133,7 @@ export function PinSettingsCard({ pin }) {
       {pin.enabled && mode === 'remove' && (
         <div>
           <input style={inputStyle} type="password" inputMode="numeric" maxLength={PIN_MAX} value={a} onChange={(e) => setA(e.target.value.replace(/\D/g, ''))} placeholder="Escribe tu PIN actual" aria-label="PIN actual" />
-          {error && <p style={{ color: T.danger, fontSize: 12 }} className="mt-2">{error}</p>}
+          {error && <p role="alert" style={{ color: T.danger, fontSize: 12 }} className="mt-2">{error}</p>}
           <div className="flex gap-2 mt-3"><GhostButton onClick={reset} style={{ flex: 1 }}>Cancelar</GhostButton><PrimaryButton onClick={remove} style={{ flex: 2 }}>{busy ? 'Verificando…' : 'Quitar PIN'}</PrimaryButton></div>
         </div>
       )}

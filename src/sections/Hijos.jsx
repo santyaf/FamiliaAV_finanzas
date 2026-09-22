@@ -72,7 +72,7 @@ function KidModal({ data, actions, kid, onClose, onSaved }) {
           </>
         )}
       </div>
-      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+      {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
       <PrimaryButton full onClick={save}>{saving ? 'Guardando…' : 'Guardar'}</PrimaryButton>
     </Modal>
   );
@@ -106,7 +106,7 @@ function EntryModal({ kid, balance, actions, onClose, onSaved, currency }) {
       <Field label="Monto"><input style={inputStyle} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" aria-label="Monto" /></Field>
       <Field label="Fecha"><input style={inputStyle} type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
       <Field label="Detalle (opcional)"><input style={inputStyle} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ej. Cumpleaños de la abuela" /></Field>
-      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+      {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
       <PrimaryButton full onClick={save}>{saving ? 'Guardando…' : 'Guardar'}</PrimaryButton>
     </Modal>
   );

@@ -144,7 +144,7 @@ export function ObligationModal({ data, actions, payload, onClose }) {
       <Field label="Nota (opcional)">
         <input style={inputStyle} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ej. Pagar antes del día 5" />
       </Field>
-      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+      {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
       <PrimaryButton full onClick={save}>{saving ? 'Guardando…' : editing ? 'Guardar cambios' : 'Crear obligación'}</PrimaryButton>
     </Modal>
   );

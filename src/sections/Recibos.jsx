@@ -42,7 +42,7 @@ export function ReceiptPicker({ file, onChange }) {
       )}
       <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={pick} aria-label="Foto del recibo" />
       <input ref={galleryRef} type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="hidden" onChange={pick} aria-label="Archivo del recibo" />
-      {error && <p style={{ color: T.danger, fontSize: 12 }} className="mt-1.5">{error}</p>}
+      {error && <p role="alert" style={{ color: T.danger, fontSize: 12 }} className="mt-1.5">{error}</p>}
     </div>
   );
 }
@@ -124,7 +124,7 @@ export function ReceiptsModal({ data, actions, payload, onClose }) {
       </div>
       <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={add} aria-label="Foto del recibo" />
       <input ref={galleryRef} type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="hidden" onChange={add} aria-label="Archivo del recibo" />
-      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mt-3">{error}</p>}
+      {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mt-3">{error}</p>}
     </Modal>
   );
 }

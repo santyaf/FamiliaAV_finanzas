@@ -164,7 +164,7 @@ export function ImportarExtractos({ data, actions }) {
           <p style={{ fontSize: 11.5, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-3">
             ¿Tu banco solo da Excel (.xlsx)? Ábrelo y guárdalo como CSV, o selecciona las filas y pégalas aquí. Nada se guarda hasta que confirmes en el paso 3.
           </p>
-          {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+          {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
           <PrimaryButton full onClick={goToColumns}>Continuar</PrimaryButton>
         </Card>
       )}
@@ -220,7 +220,7 @@ export function ImportarExtractos({ data, actions }) {
               <span style={{ fontSize: 12.5, color: T.ink, fontFamily: FONT_BODY }}>Invertir el signo (mi extracto lista las compras en positivo)</span>
             </label>
           )}
-          {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+          {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
           <div className="flex gap-2">
             <GhostButton onClick={() => setStep(1)} style={{ flex: 1 }}>Atrás</GhostButton>
             <PrimaryButton onClick={goToReview} style={{ flex: 2 }}>Revisar movimientos</PrimaryButton>
@@ -275,7 +275,7 @@ export function ImportarExtractos({ data, actions }) {
             ))}
           </div>
 
-          {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+          {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
           <div className="flex gap-2">
             <GhostButton onClick={() => setStep(2)} style={{ flex: 1 }}>Atrás</GhostButton>
             <PrimaryButton onClick={doImport} style={{ flex: 2, opacity: summary.selected && !busy ? 1 : 0.5 }}>{busy ? 'Importando…' : `Importar ${summary.selected} movimientos`}</PrimaryButton>

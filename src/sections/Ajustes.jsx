@@ -258,7 +258,7 @@ export function ReminderModal({ actions, onClose, onDone }) {
           ))}
         </div>
       </Field>
-      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+      {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
       <PrimaryButton full onClick={save}>{saving ? 'Guardando…' : 'Crear recordatorio'}</PrimaryButton>
     </Modal>
   );
@@ -399,7 +399,7 @@ export function InviteModal({ data, actions, onClose }) {
         Pide a la persona que escanee este código con la cámara de su celular, o comparte el enlace directamente. La invitación vence en 3 días.
       </p>
       {loading && <p style={{ fontSize: 13, color: T.inkSoft }} className="text-center py-6">Generando invitación…</p>}
-      {error && <p style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
+      {error && <p role="alert" style={{ color: T.danger, fontSize: 12.5 }} className="mb-3">{error}</p>}
       {invite && (
         <>
           <div className="flex justify-center mb-4">
