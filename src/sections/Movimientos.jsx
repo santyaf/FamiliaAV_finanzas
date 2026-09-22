@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Repeat, Pencil, History, Trash2, ArrowRight, ArrowLeftRight, ChevronRight, Calendar,
   Info, List, PiggyBank, Paperclip, Zap,
@@ -9,6 +9,7 @@ import {
 } from '../ui/primitives';
 import { formatMoney, formatDate } from '../lib/format';
 import { exceedsThreshold, approvedRequestsOf } from '../lib/spendRequests';
+import { PAGE_SIZE, pageSlice, nextCount } from '../lib/pagination';
 import { FOREVER, canHide, privateUntilValue, validateHideUntil, hiddenLabel, isHiddenNow } from '../lib/surprise';
 import { todayISO, computeIncomeShares, occurrencesInMonth, getNextOccurrence, daysUntil } from '../lib/finance';
 import { NATURES, natureLabel } from '../lib/accounting';
@@ -23,14 +24,21 @@ export function Movimientos({ data, actions, visibleTransactions, setModal }) {
   const [filter, setFilter] = useState('todos'); // todos | income | expense | recurring | sporadic
   const currency = data.currency;
 
-  const filtered = visibleTransactions.filter((t) => {
+  // La lista puede tener miles de movimientos: se muestran de a PAGE_SIZE y se piden más con un botón.
+  const [shown, setShown] = useState(PAGE_SIZE);
+  const changeFilter = (id) => { setFilter(id); setShown(PAGE_SIZE); };
+  const filtered = useMemo(() => visibleTransactions.filter((t) => {
     if (t.type === 'settlement') return false;
     if (filter === 'income') return t.type === 'income';
     if (filter === 'expense') return t.type === 'expense';
     if (filter === 'recurring') return t.recurring;
     if (filter === 'sporadic') return !t.recurring;
     return true;
-  }).sort((a, b) => b.date.localeCompare(a.date));
+  }).sort((a, b) => b.date.localeCompare(a.date)), [visibleTransactions, filter]);
+  const page = pageSlice(filtered, shown);
+  const catById = useMemo(() => new Map(data.categories.map((c) => [c.id, c])), [data.categories]);
+  const memberById = useMemo(() => new Map(data.members.map((m) => [m.id, m])), [data.members]);
+  const accountById = useMemo(() => new Map(data.accounts.map((a) => [a.id, a])), [data.accounts]);
 
   function removeTransaction(id) {
     actions.deleteTransaction(id);
@@ -43,7 +51,7 @@ export function Movimientos({ data, actions, visibleTransactions, setModal }) {
       </GhostButton>
       <div className="flex gap-2 mb-4 overflow-x-auto pt-2">
         {[['todos', 'Todos'], ['income', 'Ingresos'], ['expense', 'Gastos'], ['recurring', 'Recurrentes'], ['sporadic', 'Esporádicos']].map(([id, label]) => (
-          <button key={id} onClick={() => setFilter(id)} className="flex-shrink-0 rounded-full px-3 py-1.5"
+          <button key={id} onClick={() => changeFilter(id)} className="flex-shrink-0 rounded-full px-3 py-1.5"
             style={{ background: filter === id ? T.ink : T.surface, border: `1px solid ${filter === id ? T.ink : T.border}` }}>
             <span style={{ fontSize: 12.5, color: filter === id ? '#fff' : T.inkSoft, fontFamily: FONT_BODY }}>{label}</span>
           </button>
@@ -53,10 +61,10 @@ export function Movimientos({ data, actions, visibleTransactions, setModal }) {
       {filtered.length === 0 && <EmptyState icon={<List size={36} color={T.teal} />} title="Sin movimientos" subtitle="No hay movimientos que coincidan con este filtro." />}
 
       <div className="flex flex-col gap-2">
-        {filtered.map((t) => {
+        {page.map((t) => {
           if (t.type === 'transfer') {
-            const member = data.members.find((m) => m.id === t.memberId);
-            const account = data.accounts.find((a) => a.id === t.accountId);
+            const member = memberById.get(t.memberId);
+            const account = accountById.get(t.accountId);
             const isGoalTransfer = !!t.goalId;
             if (isGoalTransfer) {
               const isDeposit = t.transferDirection !== 'withdraw';
@@ -84,8 +92,8 @@ export function Movimientos({ data, actions, visibleTransactions, setModal }) {
               );
             }
             // transferencia entre integrantes
-            const toMember = data.members.find((m) => m.id === t.toMemberId);
-            const toAccount = data.accounts.find((a) => a.id === t.toAccountId);
+            const toMember = memberById.get(t.toMemberId);
+            const toAccount = accountById.get(t.toAccountId);
             return (
               <Card key={t.id}>
                 <div className="flex items-start justify-between">
@@ -114,9 +122,9 @@ export function Movimientos({ data, actions, visibleTransactions, setModal }) {
               </Card>
             );
           }
-          const cat = data.categories.find((c) => c.id === t.categoryId);
-          const member = data.members.find((m) => m.id === t.memberId);
-          const account = data.accounts.find((a) => a.id === t.accountId);
+          const cat = catById.get(t.categoryId);
+          const member = memberById.get(t.memberId);
+          const account = accountById.get(t.accountId);
           return (
             <Card key={t.id}>
               <div className="flex items-start justify-between">
@@ -173,6 +181,12 @@ export function Movimientos({ data, actions, visibleTransactions, setModal }) {
           );
         })}
       </div>
+      {filtered.length > page.length && (
+        <div className="flex flex-col items-center gap-2 mt-4">
+          <p style={{ fontSize: 12, color: T.inkSoft, fontFamily: FONT_BODY }} role="status">Mostrando {page.length} de {filtered.length}</p>
+          <GhostButton onClick={() => setShown(nextCount(shown, filtered.length))}>Mostrar {Math.min(PAGE_SIZE, filtered.length - page.length)} más</GhostButton>
+        </div>
+      )}
     </div>
   );
 }
