@@ -219,5 +219,18 @@ begin
     reset role;
   else res := res || 'omitida(sorpresa: sin cuenta compartida); '; end if;
 
+  -- ================= 11. Errores del navegador: cada quien reporta los suyos, solo el administrador los lee =================
+  if nonadmin is not null then
+    perform set_config('request.jwt.claims', json_build_object('sub', nonadmin, 'role', 'authenticated')::text, true);
+    set local role authenticated;
+    insert into client_errors (message, source, route) values ('__prueba', 'window', '#/x');
+    begin insert into client_errors (user_id, message) values (case when nonadmin = a then b else a end, '__suplantado'); okk := false;
+    exception when others then okk := true; end;
+    if not okk then fails := fails + 1; end if; res := res || case when okk then 'ok ' else 'FALLA ' end || 'no se reporta a nombre de otro; ';
+    select count(*) into n from client_errors;
+    okk := n = 0; if not okk then fails := fails + 1; end if; res := res || case when okk then 'ok ' else 'FALLA ' end || 'un no-admin no lee reportes; ';
+    reset role;
+  end if;
+
   raise exception 'RESULTADO: % | FALLAS=%', res, fails;
 end $$;

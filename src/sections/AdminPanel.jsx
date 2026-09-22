@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Bot, Plus, ShieldAlert, Trash2, ToggleLeft, ToggleRight, Sparkles, Activity, RefreshCw } from 'lucide-react';
+import { Bot, Plus, ShieldAlert, Trash2, ToggleLeft, ToggleRight, Sparkles, Activity, RefreshCw, Bug } from 'lucide-react';
 import { T, FONT_DISPLAY, FONT_BODY, FONT_MONO, TAP_MIN, inputStyle } from '../ui/theme';
 import { Card, IconButton, PrimaryButton, GhostButton, Field } from '../ui/primitives';
 import { formatDate } from '../lib/format';
 import { DEFAULT_AI_ACCESS } from '../lib/access';
 import { cronStatus } from '../lib/cronHealth';
+import { groupErrors } from '../lib/errorReporter';
 import { SugerenciasAdmin } from './Sugerencias';
 import { UsuariosAdmin } from './Usuarios';
 
@@ -91,6 +92,44 @@ export function CronEstadoCard({ actions, now }) {
   );
 }
 
+// Errores recientes del navegador de las personas, agrupados por mensaje.
+export function ErroresCard({ actions }) {
+  const [rows, setRows] = useState(undefined);
+  const [error, setError] = useState('');
+  const [open, setOpen] = useState(null);
+  const load = () => actions.loadClientErrors().then((r) => { setRows(r); setError(''); }).catch((e) => setError(e.message || 'No se pudo leer.'));
+  useEffect(() => { load(); }, []);
+  if (rows === undefined && !error) return null;
+  const groups = groupErrors(rows);
+  async function clear() {
+    if (!confirm('¿Borrar todos los reportes de error?')) return;
+    await actions.clearClientErrors();
+    await load();
+  }
+  return (
+    <Card style={{ marginBottom: 14 }}>
+      <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center gap-2"><Bug size={15} color={T.ink} /><p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 13.5, color: T.ink }}>Errores del navegador</p></div>
+        <div className="flex items-center gap-1">
+          <button onClick={load} aria-label="Actualizar errores" className="p-1"><RefreshCw size={14} color={T.inkSoft} /></button>
+          {groups.length > 0 && <button onClick={clear} aria-label="Borrar reportes de error" className="p-1"><Trash2 size={14} color={T.inkSoft} /></button>}
+        </div>
+      </div>
+      {error && <p role="alert" style={{ fontSize: 12, color: T.danger, fontFamily: FONT_BODY }}>{error}</p>}
+      {!error && groups.length === 0 && <p style={{ fontSize: 12.5, color: T.inkSoft, fontFamily: FONT_BODY }}>Sin errores reportados. Cuando la app falle en el celular de alguien, aparecerá aquí.</p>}
+      {groups.map((g) => (
+        <div key={g.message} className="py-2" style={{ borderTop: `1px solid ${T.border}` }}>
+          <button onClick={() => setOpen(open === g.message ? null : g.message)} className="w-full text-left" aria-expanded={open === g.message}>
+            <p style={{ fontSize: 12.5, color: T.ink, fontFamily: FONT_MONO, wordBreak: 'break-word' }}>{g.message}</p>
+            <p style={{ fontSize: 11, color: T.inkSoft, fontFamily: FONT_BODY }}>{g.count} {g.count === 1 ? 'vez' : 'veces'} · {g.users} {g.users === 1 ? 'persona' : 'personas'} · última {formatDate(String(g.last).slice(0, 10))}{g.route ? ` · ${g.route}` : ''}</p>
+          </button>
+          {open === g.message && g.stack && <pre style={{ fontSize: 10.5, color: T.inkSoft, fontFamily: FONT_MONO, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }} className="mt-1">{g.stack}</pre>}
+        </div>
+      ))}
+    </Card>
+  );
+}
+
 export function AdminPanel({ data, actions }) {
   const [households, setHouseholds] = useState(null);
   const [householdsError, setHouseholdsError] = useState('');
@@ -149,6 +188,8 @@ export function AdminPanel({ data, actions }) {
       </p>
 
       <CronEstadoCard actions={actions} />
+
+      <ErroresCard actions={actions} />
 
       <SugerenciasAdmin actions={actions} />
 

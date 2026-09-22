@@ -1,4 +1,5 @@
 import React from 'react';
+import { reportBoundaryError } from '../lib/errorReporter';
 
 // Evita la "pantalla en blanco": si algún componente lanza un error al
 // renderizar, se muestra un mensaje amable con opción de recargar en vez de
@@ -14,8 +15,8 @@ export default class ErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, info) {
-    // Punto único para enganchar un servicio de reporte (Sentry, etc.) más adelante.
     console.error('ErrorBoundary capturó un error:', error, info?.componentStack);
+    reportBoundaryError(error);
   }
 
   render() {

@@ -9,6 +9,7 @@ import { mergeNotificationStates, notificationCounts, statePatchFor } from './li
 import { isAiFeatureEnabled } from './lib/access';
 import { isNetworkError, withTimeout, newId, mergePendingTransactions } from './lib/offlineQueue';
 import { readJSON, writeJSON, removeKey, getStorage } from './lib/safeStorage';
+import { installErrorReporter } from './lib/errorReporter';
 import { chooseActiveHousehold, normalizeCachedHouseholds, readActiveHouseholdId, saveActiveHouseholdId } from './lib/households';
 import { useOfflineQueue, SEND_TIMEOUT_MS } from './lib/useOfflineQueue';
 import { OfflineBanner } from './components/OfflineBanner';
@@ -111,6 +112,13 @@ export default function App() {
     });
     return () => sub.subscription.unsubscribe();
   }, []);
+
+  // errores del navegador: se le avisan al administrador (sin datos financieros)
+  useEffect(() => {
+    if (!session) return undefined;
+    const reporter = installErrorReporter({ report: db.reportClientError });
+    return reporter.uninstall;
+  }, [session?.user?.id]);
 
   useEffect(() => {
     if (session === undefined) return;
@@ -451,6 +459,8 @@ function HouseholdApp({ session, household, households, onSwitchHousehold, onAdd
     listAllHouseholdsAdmin: () => db.listAllHouseholdsAdmin(),
     listPlatformAdmins: () => db.listPlatformAdmins(),
     loadCronHeartbeat: () => db.loadCronHeartbeat(),
+    loadClientErrors: () => db.loadClientErrors(),
+    clearClientErrors: () => db.clearClientErrors(),
     deactivateMyAccount: () => db.deactivateMyAccount(),
     mfa: { listFactors: db.mfaListFactors, enroll: db.mfaEnroll, verifyEnroll: db.mfaVerifyEnroll, unenroll: db.mfaUnenroll },
     adminListUsers: () => db.adminListUsers(),

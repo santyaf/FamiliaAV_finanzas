@@ -825,6 +825,21 @@ export async function applyDueAllowances(householdId, userId, todayISO) {
   return paid;
 }
 
+/* ---------------------- ERRORES DEL NAVEGADOR ---------------------- */
+export async function reportClientError({ message, stack, source, route, userAgent }) {
+  const { error } = await supabase.from('client_errors').insert({ message, stack: stack || null, source, route: route || null, user_agent: userAgent || null });
+  if (error) throw error;
+}
+export async function loadClientErrors(limit = 200) {
+  const { data, error } = await supabase.from('client_errors').select('*').order('created_at', { ascending: false }).limit(limit);
+  if (error) throw error;
+  return data.map((r) => ({ id: r.id, userId: r.user_id, message: r.message, stack: r.stack, source: r.source, route: r.route, userAgent: r.user_agent, createdAt: r.created_at }));
+}
+export async function clearClientErrors() {
+  const { error } = await supabase.from('client_errors').delete().gte('created_at', '1970-01-01');
+  if (error) throw error;
+}
+
 /* ---------------------- SOLICITUDES DE GASTO ---------------------- */
 export async function createSpendRequest(householdId, userId, r) {
   const { data, error } = await supabase.from('spend_requests').insert({
