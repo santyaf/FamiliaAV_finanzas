@@ -671,7 +671,14 @@ export async function ensureCategory(householdId, spec) {
 }
 export async function removeCategory(id) {
   const { error } = await supabase.from('categories').delete().eq('id', id);
-  if (error) throw error;
+  if (!error) return;
+  if (error.code === '23503') {
+    const { count } = await supabase.from('transactions').select('id', { count: 'exact', head: true }).eq('category_id', id);
+    throw new Error(count > 0
+      ? `No se puede eliminar: ${count} movimiento${count === 1 ? '' : 's'} usa${count === 1 ? '' : 'n'} esta categoría. Cámbiales la categoría (editando cada movimiento) y vuelve a intentarlo.`
+      : 'No se puede eliminar: la categoría está en uso (presupuestos, plantillas u obligaciones). Quita primero esos usos.');
+  }
+  throw error;
 }
 
 export async function updateHousehold(householdId, patch) {
@@ -1565,7 +1572,7 @@ export async function loadCronHeartbeat() {
 
 export async function listPlatformAdmins() {
   const { data, error } = await supabase.from('platform_admins')
-    .select('user_id, created_at, profiles(full_name)')
+    .select('user_id, created_at, profiles!platform_admins_user_id_fkey(full_name)')
     .order('created_at');
   if (error) throw error;
   return data.map((a) => ({ userId: a.user_id, name: a.profiles?.full_name || 'Usuario', createdAt: a.created_at }));

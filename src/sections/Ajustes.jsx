@@ -287,7 +287,7 @@ function CategoryRow({ c, onEdit, onRemove }) {
 
 export function Ajustes({ data, update, actions, setModal, setTab, pin }) {
   function removeCategory(id) {
-    actions.removeCategory(id);
+    return actions.removeCategory(id);
   }
   return (
     <div className="pb-4 pt-2">
