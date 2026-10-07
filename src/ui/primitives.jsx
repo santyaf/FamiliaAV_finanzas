@@ -136,9 +136,9 @@ export function IconButton({ icon: Icon, onClick, size = 17, color = T.inkSoft, 
   );
 }
 
-export function Card({ children, style }) {
+export function Card({ children, style, ...rest }) {
   return (
-    <div className="rounded-2xl p-4" style={{ background: T.surface, border: `1px solid ${T.border}`, ...style }}>
+    <div className="rounded-2xl p-4" style={{ background: T.surface, border: `1px solid ${T.border}`, ...style }} {...rest}>
       {children}
     </div>
   );

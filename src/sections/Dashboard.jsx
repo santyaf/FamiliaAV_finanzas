@@ -7,7 +7,7 @@ import { Card, ProgressBar, EmptyState, CategoryIcon } from '../ui/primitives';
 import { AnomaliasCard } from './AnomaliasCard';
 import { cardUsage, cardCycle, payToAvoidInterest } from '../lib/creditCards';
 import { projectMonth, budgetAllowances } from '../lib/projection';
-import { assetValueAt } from '../lib/assets';
+import { assetValueAt, allAssets } from '../lib/assets';
 import { SaludFinanciera } from './SaludFinanciera';
 import { PrimerosPasos } from './PrimerosPasos';
 import { formatMoney, formatDate } from '../lib/format';
@@ -65,7 +65,7 @@ export function Dashboard({ data, update, actions, visibleTransactions, visibleM
   }, [hasUvrCredits]);
 
   // activos registrados (propiedades, vehículos, inversiones…) a su valor de hoy
-  const assetsValue = (data.assets || []).reduce((s, a) => s + assetValueAt(a, a.valuations, todayISO()).value, 0);
+  const assetsValue = allAssets(data).reduce((s, a) => s + assetValueAt(a, a.valuations, todayISO()).value, 0);
   const totalAssets = data.accounts.reduce((s, a) => s + accountBalance(data.transactions, a.id), 0)
     + data.goals.reduce((s, g) => s + g.currentAmount, 0) + assetsValue;
   let totalLiabilities = 0, uvrLiabilitiesPending = 0;

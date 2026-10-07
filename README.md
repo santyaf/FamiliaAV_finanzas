@@ -14,7 +14,7 @@ App web (PWA instalable) para llevar juntos las finanzas de una familia: cuentas
 - Notificaciones en un pop-up (deslizar para leer, archivar o eliminar), **push** al celular y resumen mensual.
 
 **Patrimonio y deuda**
-- Créditos en COP y UVR (amortización, libranza, abonos, retanqueo), **estrategias para pagar deudas**, activos e inversiones con valorización, **salud financiera** y los estados **de resultados, flujo de efectivo, situación financiera y cambios en el patrimonio**.
+- Créditos en COP y UVR (amortización, libranza, abonos, retanqueo), **estrategias para pagar deudas**, activos e inversiones con valorización y un **portafolio de mercados** (dólar con TRM y alerta, criptoactivos y acciones con costo promedio, resultado y tendencia), **salud financiera** y los estados **de resultados, flujo de efectivo, situación financiera y cambios en el patrimonio**.
 - **Declaración de renta** orientativa (ingresos, posibles deducciones y semáforo de obligación de declarar).
 
 **Familia**
@@ -76,6 +76,7 @@ el detalle de cada una; el resumen:
 | `VITE_VAPID_PUBLIC_KEY` | sí (push, Fase 9) | Vercel + `.env.local` |
 | `VAPID_PRIVATE_KEY` | sí (push, Fase 9) | **solo Vercel** — secreta |
 | `REMINDER_CRON_SECRET` | sí (push, Fase 9) | Vercel **y** GitHub Actions secret |
+| `TWELVE_DATA_API_KEY` | opcional (precios de acciones) | **solo Vercel** — gratuita en twelvedata.com |
 
 Además, en **GitHub → repo → Settings → Secrets and variables → Actions**:
 `VERCEL_APP_URL` (la URL de tu app, sin `/` final) y `REMINDER_CRON_SECRET`

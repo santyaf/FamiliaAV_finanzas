@@ -66,6 +66,12 @@ export function assetRevaluation(asset, valuations, startISO, endISO) {
   const before = dayBefore(startISO);
   const vStart = assetValueAt(asset, valuations, before).value;
   const vEnd = assetValueAt(asset, valuations, endISO).value;
+  // posiciones de mercado: varias compras y ventas; solo cuenta como "dinero puesto" lo que salió o entró de una
+  // cuenta de la app (flows: + compra, − venta); lo demás aparece como valorización, igual que un bien recibido
+  if (Array.isArray(asset.flows)) {
+    const net = asset.flows.filter((f) => f.date >= startISO && f.date <= endISO).reduce((s, f) => s + f.amount, 0);
+    return round2(vEnd - vStart - net);
+  }
   const boughtInPeriod = asset.acquiredOn && asset.acquiredOn >= startISO && asset.acquiredOn <= endISO;
   const soldInPeriod = asset.status === 'vendido' && asset.soldOn && asset.soldOn >= startISO && asset.soldOn <= endISO;
   const invested = boughtInPeriod ? (asset.acquisitionCost || 0) : 0;
@@ -73,6 +79,9 @@ export function assetRevaluation(asset, valuations, startISO, endISO) {
   // al vender, el valor final es 0: la valorización es lo cobrado menos el último valor en libros
   return round2(vEnd - vStart - invested + proceeds);
 }
+
+// Bienes del patrimonio: los registrados a mano más las posiciones de mercado (divisas, cripto, acciones).
+export const allAssets = (data) => [...((data && data.assets) || []), ...((data && data.marketAssets) || [])];
 
 export function dayBefore(iso) {
   const d = new Date(`${iso}T00:00:00Z`);

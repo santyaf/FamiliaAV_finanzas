@@ -9,6 +9,7 @@ import {
   PERIOD_TYPES, recentPeriods, previousPeriod, accountsInScope,
   buildIncomeStatement, buildCashFlow, incomeStatementRows, cashFlowRows, rowsToCsv, statementToHtml,
 } from '../lib/statements';
+import { allAssets } from '../lib/assets';
 
 const HOW_MANY = { mes: 12, trimestre: 8, semestre: 6, anio: 5 };
 const STATEMENTS = [
@@ -58,7 +59,7 @@ export function Informes({ data, actions }) {
 
   const { rows, cashFlow, hasNoRubro, uvrPending, other } = useMemo(() => {
     const base = { transactions: data.transactions, categories: data.categories, accounts: data.accounts, scope };
-    const bs = { accounts: data.accounts, transactions: data.transactions, assets: data.assets || [], creditsWithPayments: data.creditsWithPayments || [], scope, uvrValue };
+    const bs = { accounts: data.accounts, transactions: data.transactions, assets: allAssets(data), creditsWithPayments: data.creditsWithPayments || [], scope, uvrValue };
     if (statement === 'situacion') {
       const cur = buildBalanceSheet({ ...bs, dateISO: range.end });
       const prev = compare ? buildBalanceSheet({ ...bs, dateISO: prevRange.end }) : null;
@@ -78,7 +79,7 @@ export function Informes({ data, actions }) {
     const cur = buildCashFlow({ ...base, range });
     const prev = compare ? buildCashFlow({ ...base, range: prevRange }) : null;
     return { rows: cashFlowRows(cur, prev), cashFlow: cur, hasNoRubro: false, uvrPending: false, other: null };
-  }, [data.transactions, data.categories, data.accounts, data.assets, data.creditsWithPayments, uvrValue, scopeKind, actions.userId, range.start, range.end, statement, compare]);
+  }, [data.transactions, data.categories, data.accounts, data.assets, data.marketAssets, data.creditsWithPayments, uvrValue, scopeKind, actions.userId, range.start, range.end, statement, compare]);
 
   const statementLabel = STATEMENTS.find((s) => s.id === statement).label;
   const scopeLabel = scopeKind === 'hogar' ? `Hogar ${data.householdName}` : `Personal — ${me?.name || 'yo'}`;

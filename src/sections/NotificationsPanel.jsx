@@ -21,6 +21,7 @@ const NOTIFICATION_ICONS = {
   monthly_review: { icon: Calendar, color: T.teal, bg: T.tealSoft },
   spend_request: { icon: BadgeCheck, color: T.gold, bg: T.goldSoft },
   spend_decision: { icon: BadgeCheck, color: T.teal, bg: T.tealSoft },
+  fx_opportunity: { icon: TrendingUp, color: T.teal, bg: T.tealSoft },
 };
 
 export function relativeDay(iso) {

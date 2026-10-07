@@ -5,6 +5,7 @@ import { Card, GhostButton, ProgressBar } from '../ui/primitives';
 import { formatMoney } from '../lib/format';
 import { todayISO } from '../lib/finance';
 import { buildTaxSummary, taxSummaryCsv, taxTagsFor, defaultUvt } from '../lib/tax';
+import { allAssets } from '../lib/assets';
 
 function download(name, text) {
   const blob = new Blob(['﻿' + text], { type: 'text/csv;charset=utf-8' });
@@ -47,9 +48,9 @@ export function Renta({ data, actions }) {
   const uvt = Number(uvtText) > 0 ? Number(uvtText) : defaultUvt(year);
   const scope = scopeKind === 'hogar' ? { kind: 'hogar' } : { kind: 'personal', memberId: actions.userId };
   const summary = useMemo(() => buildTaxSummary({
-    transactions: data.transactions, categories: data.categories, accounts: data.accounts, assets: data.assets || [],
+    transactions: data.transactions, categories: data.categories, accounts: data.accounts, assets: allAssets(data),
     creditsWithPayments: data.creditsWithPayments || [], scope, year, uvt, uvrValue,
-  }), [data.transactions, data.categories, data.accounts, data.assets, data.creditsWithPayments, scopeKind, actions.userId, year, uvt, uvrValue]);
+  }), [data.transactions, data.categories, data.accounts, data.assets, data.marketAssets, data.creditsWithPayments, scopeKind, actions.userId, year, uvt, uvrValue]);
 
   const years = [thisYear, thisYear - 1, thisYear - 2, thisYear - 3, thisYear - 4];
   const scopeLabel = scopeKind === 'hogar' ? `Hogar ${data.householdName}` : `Personal — ${me?.name || 'yo'}`;

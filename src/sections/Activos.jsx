@@ -1,10 +1,14 @@
-import React, { useState } from 'react';
+import React, { Suspense, useState } from 'react';
 import { Building2, Car, TrendingUp, HandCoins, Package, Pencil, Trash2, BadgeDollarSign, Landmark } from 'lucide-react';
 import { T, FONT_DISPLAY, FONT_BODY, FONT_MONO, inputStyle } from '../ui/theme';
 import { Card, PrimaryButton, GhostButton, IconButton, Modal, Field, EmptyState } from '../ui/primitives';
 import { formatMoney, formatDate } from '../lib/format';
 import { todayISO, creditOutstandingBalance, daysUntil } from '../lib/finance';
 import { ASSET_KINDS, assetKindLabel, assetValueAt, assetGain } from '../lib/assets';
+import { lazyNamed } from '../components/LazyBoundary';
+
+// Divisas, cripto y acciones: pesado y de uso ocasional, se descarga solo al abrir la pestaña
+const Mercados = lazyNamed(() => import('./Mercados'), 'Mercados');
 
 const KIND_ICON = { propiedad: Building2, vehiculo: Car, inversion: TrendingUp, por_cobrar: HandCoins, otro: Package };
 const BASIS_LABEL = { valoracion: 'según su última valoración', costo: 'a su costo', estimado: 'estimado con su rentabilidad', vendido: 'vendido', no_existia: '' };
@@ -13,6 +17,7 @@ const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0;
 // Gestión → Activos: lo que tienes (propiedades, vehículos, inversiones, cuentas por cobrar) con su
 // valor a hoy, para el Estado de Situación Financiera y el patrimonio.
 export function Activos({ data, actions, setModal }) {
+  const [view, setView] = useState('bienes'); // bienes | mercados
   const currency = data.currency;
   const money = (n) => formatMoney(n, currency);
   const today = todayISO();
@@ -35,10 +40,25 @@ export function Activos({ data, actions, setModal }) {
     <div className="pb-4 pt-2">
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-2"><BadgeDollarSign size={18} color={T.teal} /><p style={{ fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 16, color: T.ink }}>Activos e inversiones</p></div>
-        <PrimaryButton onClick={() => setModal({ type: 'asset' })} style={{ padding: '8px 14px', fontSize: 13 }}>+ Nuevo</PrimaryButton>
+        {view === 'bienes' && <PrimaryButton onClick={() => setModal({ type: 'asset' })} style={{ padding: '8px 14px', fontSize: 13 }}>+ Nuevo</PrimaryButton>}
       </div>
       <p style={{ fontSize: 12.5, color: T.inkSoft, fontFamily: FONT_BODY }} className="mb-3">Lo que tienes además del dinero en cuentas. Alimenta el Estado de Situación Financiera (Informes) y el patrimonio del Dashboard.</p>
 
+      <div className="flex rounded-xl p-1 mb-4" style={{ background: T.bg }} role="tablist" aria-label="Qué quieres ver">
+        {[['bienes', 'Bienes'], ['mercados', 'Mercados']].map(([id, label]) => (
+          <button key={id} type="button" role="tab" aria-selected={view === id} onClick={() => setView(id)} className="flex-1 rounded-lg py-2"
+            style={{ background: view === id ? T.surface : 'transparent', fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: view === id ? 600 : 400, color: view === id ? T.ink : T.inkSoft }}>{label}</button>
+        ))}
+      </div>
+
+      {view === 'mercados' && (
+        <Suspense fallback={<p style={{ fontSize: 12.5, color: T.inkSoft }} role="status">Cargando mercados…</p>}>
+          <Mercados data={data} actions={actions} />
+        </Suspense>
+      )}
+
+      {view === 'bienes' && (
+        <>
       {active.length === 0 && (
         <EmptyState icon={<Landmark size={34} color={T.teal} />} title="Aún no registras activos"
           subtitle="Agrega tu casa, tu carro, un CDT, acciones, o dinero que te deben. Actualiza su valor de vez en cuando y verás cómo crece tu patrimonio." />
@@ -113,6 +133,8 @@ export function Activos({ data, actions, setModal }) {
             </div>
           ))}
         </div>
+      )}
+        </>
       )}
     </div>
   );

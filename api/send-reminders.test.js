@@ -145,4 +145,90 @@ describe('send-reminders', () => {
     expect(sendNotification).not.toHaveBeenCalled();
     expect(fakeDb.writes.some((w) => w.table === 'notifications')).toBe(false);
   });
+
+  describe('aviso del dólar', () => {
+    const trmResponse = (value) => ({ ok: true, status: 200, json: async () => [{ valor: String(value), vigenciadesde: '2026-09-21T00:00:00.000' }] });
+    const fxTables = (over = {}) => ({
+      ...baseTables(),
+      reminder_schedules: [], // sin recordatorios: solo importa el aviso del dólar
+      profiles: [{ id: 'A', status: 'active' }, { id: 'B', status: 'active' }, { id: 'C', status: 'deactivated' }],
+      investment_settings: [{ household_id: 'H1', fx_alert: true }],
+      holdings: [{ id: 'hu', household_id: 'H1', owner_member_id: null, asset_class: 'divisa', archived: false }],
+      holding_trades: [{ id: 't1', holding_id: 'hu', trade_date: '2026-01-10', side: 'compra', units: 100, cop_amount: 400000, created_at: '1' }],
+      household_members: [{ household_id: 'H1', user_id: 'A' }, { household_id: 'H1', user_id: 'B' }, { household_id: 'H1', user_id: 'C' }],
+      ...over,
+    });
+    const upserts = () => fakeDb.writes.filter((w) => w.table === 'notifications' && w.op === 'upsert');
+    afterEach(() => vi.unstubAllGlobals());
+
+    it('si la TRM supera el costo promedio, avisa a cada integrante activo una vez por día', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(trmResponse(4200)));
+      fakeDb = makeDb(fxTables());
+      const res = makeRes();
+      await handler(req(), res);
+      expect(res.body.extras.fx).toMatchObject({ households: 1, created: 2, trm: 4200 }); // A y B; C está desactivada
+      const rows = upserts()[0].payload;
+      expect(rows.map((r) => r.user_id).sort()).toEqual(['A', 'B']);
+      expect(rows[0]).toMatchObject({ household_id: 'H1', type: 'fx_opportunity', title: 'El dólar superó tu tasa promedio' });
+      expect(rows[0].dedupe_key).toBe('fx:hu:2026-09-21:A');
+      expect(rows[0].body).toMatch(/4\.200,00 contra tu promedio de 4\.000,00/);
+      expect(rows[0].body).toMatch(/20\.000/); // 100 USD × 200
+      expect(upserts()[0].payload).toBeDefined();
+    });
+    it('una posición personal avisa solo a su dueño', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(trmResponse(4200)));
+      fakeDb = makeDb(fxTables({ holdings: [{ id: 'hu', household_id: 'H1', owner_member_id: 'B', asset_class: 'divisa', archived: false }] }));
+      await handler(req(), makeRes());
+      expect(upserts()[0].payload.map((r) => r.user_id)).toEqual(['B']);
+    });
+    it('con la TRM por debajo del costo no avisa', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(trmResponse(3900)));
+      fakeDb = makeDb(fxTables());
+      const res = makeRes();
+      await handler(req(), res);
+      expect(upserts()).toHaveLength(0);
+      expect(res.body.extras.fx.created).toBe(0);
+    });
+    it('sin hogares con la alerta activada ni siquiera consulta la TRM', async () => {
+      const f = vi.fn();
+      vi.stubGlobal('fetch', f);
+      fakeDb = makeDb(fxTables({ investment_settings: [{ household_id: 'H1', fx_alert: false }] }));
+      await handler(req(), makeRes());
+      expect(f).not.toHaveBeenCalled();
+    });
+    it('una venta total deja la posición en cero: no hay aviso', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(trmResponse(4200)));
+      fakeDb = makeDb(fxTables({ holding_trades: [
+        { id: 't1', holding_id: 'hu', trade_date: '2026-01-10', side: 'compra', units: 100, cop_amount: 400000, created_at: '1' },
+        { id: 't2', holding_id: 'hu', trade_date: '2026-02-10', side: 'venta', units: 100, cop_amount: 410000, created_at: '2' },
+      ] }));
+      await handler(req(), makeRes());
+      expect(upserts()).toHaveLength(0);
+    });
+    it('en simulación no escribe nada', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(trmResponse(4200)));
+      fakeDb = makeDb(fxTables());
+      await handler(req({ dry: '1' }), makeRes());
+      expect(upserts()).toHaveLength(0);
+    });
+    it('si la TRM falla, lo anota pero el resto del cron sigue', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500, json: async () => ({}) }));
+      fakeDb = makeDb(fxTables());
+      const res = makeRes();
+      await handler(req(), res);
+      expect(res.statusCode).toBe(200);
+      expect(res.body.extras.fx.error).toMatch(/TRM/);
+      expect(res.body.extras.error).toBeNull();
+    });
+    it('el aviso llega al celular con el enlace a Activos, una sola vez', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(trmResponse(4200)));
+      fakeDb = makeDb(fxTables({
+        notifications: [{ id: 'n9', user_id: 'A', type: 'fx_opportunity', title: 'El dólar superó tu tasa promedio', body: 'x', pushed_at: null }],
+      }));
+      await handler(req(), makeRes());
+      const payload = JSON.parse(sendNotification.mock.calls.at(-1)[1]);
+      expect(payload.url).toBe('/#/activos');
+      expect(fakeDb.writes.some((w) => w.table === 'notifications' && w.op === 'update')).toBe(true);
+    });
+  });
 });

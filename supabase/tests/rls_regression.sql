@@ -11,7 +11,7 @@
 do $$
 declare
   h uuid; a uuid; b uuid; c uuid; nonadmin uuid;
-  tx uuid; rid uuid; acct uuid; goal uuid; kid uuid; scat uuid; sacct uuid; t1 uuid; t2 uuid;
+  tx uuid; rid uuid; acct uuid; goal uuid; kid uuid; scat uuid; sacct uuid; t1 uuid; t2 uuid; hp uuid; hh uuid;
   n int; fails int := 0; res text := '';
   okk boolean;
 begin
@@ -229,6 +229,37 @@ begin
     if not okk then fails := fails + 1; end if; res := res || case when okk then 'ok ' else 'FALLA ' end || 'no se reporta a nombre de otro; ';
     select count(*) into n from client_errors;
     okk := n = 0; if not okk then fails := fails + 1; end if; res := res || case when okk then 'ok ' else 'FALLA ' end || 'un no-admin no lee reportes; ';
+    reset role;
+  end if;
+
+  -- ================= 12. Portafolio de mercados: lo personal es privado, no se vende más de lo que hay =================
+  perform set_config('request.jwt.claims', json_build_object('sub', a, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  insert into holdings (household_id, owner_member_id, asset_class, symbol, name) values (h, a, 'cripto', 'bitcoin', 'Bitcoin') returning id into hp;
+  insert into holdings (household_id, owner_member_id, asset_class, symbol, name) values (h, null, 'divisa', 'USD', 'Dólar') returning id into hh;
+  insert into holding_trades (household_id, holding_id, trade_date, side, units, cop_amount) values (h, hp, current_date, 'compra', 0.01, 3000000);
+  insert into holding_prices (holding_id, price_date, price_cop) values (hp, current_date, 300000000);
+  begin insert into holding_trades (household_id, holding_id, trade_date, side, units, cop_amount) values (h, hp, current_date, 'venta', 5, 1); okk := false;
+  exception when others then okk := true; end;
+  if not okk then fails := fails + 1; end if; res := res || case when okk then 'ok ' else 'FALLA ' end || 'no se vende más de lo que se tiene; ';
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', b, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  select count(*) into n from holdings where id = hp;
+  okk := n = 0; if not okk then fails := fails + 1; end if; res := res || case when okk then 'ok ' else 'FALLA ' end || 'la posición personal no la ve el otro integrante; ';
+  select count(*) into n from holding_trades where holding_id = hp;
+  okk := n = 0; if not okk then fails := fails + 1; end if; res := res || case when okk then 'ok ' else 'FALLA ' end || 'ni sus operaciones; ';
+  select count(*) into n from holdings where id = hh;
+  okk := n = 1; if not okk then fails := fails + 1; end if; res := res || case when okk then 'ok ' else 'FALLA ' end || 'la del hogar sí; ';
+  begin insert into holding_trades (household_id, holding_id, trade_date, side, units, cop_amount) values (h, hp, current_date, 'compra', 1, 1); okk := false;
+  exception when others then okk := true; end;
+  if not okk then fails := fails + 1; end if; res := res || case when okk then 'ok ' else 'FALLA ' end || 'no se anota en la posición ajena; ';
+  reset role;
+  if c is not null then
+    perform set_config('request.jwt.claims', json_build_object('sub', c, 'role', 'authenticated')::text, true);
+    set local role authenticated;
+    select count(*) into n from holdings where household_id = h;
+    okk := n = 0; if not okk then fails := fails + 1; end if; res := res || case when okk then 'ok ' else 'FALLA ' end || 'un extraño no ve el portafolio; ';
     reset role;
   end if;
 

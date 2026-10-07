@@ -17,6 +17,8 @@
 import { createClient } from '@supabase/supabase-js';
 import webpush from 'web-push';
 import { advanceByFrequency } from '../src/lib/finance.js';
+import { computePosition, fxOpportunity } from '../src/lib/portfolio.js';
+import { fetchTrm } from './_trm.js';
 import { localParts, previousMonthOf, shouldSendDigest, cardPaymentAlert, cardAlertText, DEFAULT_TIMEZONE } from '../src/lib/pushSchedule.js';
 
 const CHECK_WINDOW_MINUTES = 6; // un poco más que los ~5 min entre corridas, por margen
@@ -257,7 +259,7 @@ export default async function handler(req, res) {
     }
 
     // ---- Resumen mensual y vencimiento de tarjetas (Fase 29). Un fallo aquí no afecta a lo anterior. ----
-    const extras = { digest: { checked: 0, sent: 0, skipped: 0 }, cards: { checked: 0, sent: 0, skipped: 0 }, approvals: { checked: 0, sent: 0 }, error: null };
+    const extras = { digest: { checked: 0, sent: 0, skipped: 0 }, cards: { checked: 0, sent: 0, skipped: 0 }, approvals: { checked: 0, sent: 0 }, fx: { households: 0, created: 0, trm: null }, error: null };
     try {
       const tzByUser = {};
       [...(schedules || []), ...(obligations || [])].forEach((x) => { const uid = x.user_id || x.owner_member_id; if (uid && x.timezone && !tzByUser[uid]) tzByUser[uid] = x.timezone; });
@@ -316,14 +318,53 @@ export default async function handler(req, res) {
         }
       }
 
+      // ---- Dólar: la TRM superó el costo promedio de los dólares (Fase 37). Crea el aviso de la campana (uno por
+      // persona, posición y día); el envío al celular lo hace el bloque de abajo, igual que las aprobaciones. ----
+      try {
+        const { data: fxHouseholds } = await supabase.from('investment_settings').select('household_id').eq('fx_alert', true);
+        const fxIds = (fxHouseholds || []).map((r) => r.household_id);
+        extras.fx.households = fxIds.length;
+        if (fxIds.length) {
+          const trm = (await fetchTrm()).value;
+          extras.fx.trm = trm;
+          const today = new Intl.DateTimeFormat('en-CA', { timeZone: DEFAULT_TIMEZONE }).format(now);
+          const { data: usdHoldings } = await supabase.from('holdings').select('id, household_id, owner_member_id').eq('asset_class', 'divisa').eq('archived', false).in('household_id', fxIds);
+          const holdingIds = (usdHoldings || []).map((h) => h.id);
+          const { data: tradeRows } = holdingIds.length ? await supabase.from('holding_trades').select('holding_id, id, trade_date, side, units, cop_amount, created_at').in('holding_id', holdingIds) : { data: [] };
+          const { data: memberRows } = await supabase.from('household_members').select('household_id, user_id').in('household_id', fxIds);
+          const money = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
+          const rate = new Intl.NumberFormat('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          const rows = [];
+          for (const h of usdHoldings || []) {
+            const pos = computePosition((tradeRows || []).filter((t) => t.holding_id === h.id)
+              .map((t) => ({ id: t.id, date: t.trade_date, side: t.side, units: Number(t.units), cop: Number(t.cop_amount), createdAt: t.created_at })));
+            const opp = fxOpportunity(pos.avgCost, pos.units, trm);
+            if (!opp?.above) continue;
+            const recipients = h.owner_member_id ? [h.owner_member_id]
+              : (memberRows || []).filter((m) => m.household_id === h.household_id).map((m) => m.user_id);
+            recipients.filter((u) => !inactive.has(u)).forEach((userId) => rows.push({
+              household_id: h.household_id, user_id: userId, type: 'fx_opportunity', title: 'El dólar superó tu tasa promedio',
+              body: `TRM ${rate.format(trm)} contra tu promedio de ${rate.format(pos.avgCost)} (+${rate.format(opp.pct)} %). Si vendieras hoy a TRM, ganarías unos ${money.format(opp.potentialGain)}.`,
+              data: { holdingId: h.id, trm }, dedupe_key: `fx:${h.id}:${today}:${userId}`,
+            }));
+          }
+          if (rows.length && !dry) {
+            await supabase.from('notifications').upsert(rows, { onConflict: 'household_id,dedupe_key', ignoreDuplicates: true });
+            extras.fx.created = rows.length;
+          }
+        }
+      } catch (fxErr) {
+        extras.fx.error = fxErr.message; // un fallo del aviso del dólar no afecta a lo demás
+      }
+
       // solicitudes de gasto y su decisión: la campana ya las tiene; aquí además llegan al celular (una sola vez)
       const { data: pending } = await supabase.from('notifications').select('id, user_id, type, title, body')
-        .in('type', ['spend_request', 'spend_decision']).is('pushed_at', null);
+        .in('type', ['spend_request', 'spend_decision', 'fx_opportunity']).is('pushed_at', null);
       for (const n of pending || []) {
         extras.approvals.checked++;
         if (!n.user_id) continue;
         if (!dry) {
-          const { sent: k } = await send(n.user_id, JSON.stringify({ title: n.title, body: n.body, url: '/#/aprobaciones' }), pushErrors, `approval:${n.id}`);
+          const { sent: k } = await send(n.user_id, JSON.stringify({ title: n.title, body: n.body, url: n.type === 'fx_opportunity' ? '/#/activos' : '/#/aprobaciones' }), pushErrors, `approval:${n.id}`);
           extras.approvals.sent += k;
           if (!force) await supabase.from('notifications').update({ pushed_at: new Date().toISOString() }).eq('id', n.id);
         }

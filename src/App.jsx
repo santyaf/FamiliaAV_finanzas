@@ -23,6 +23,7 @@ import { Dashboard } from './sections/Dashboard';
 import { ResetPasswordScreen, LoadingScreen, AuthScreen, HouseholdSetup } from './sections/auth';
 import { AccountStatusScreen } from './sections/Usuarios';
 import { pendingForMe } from './lib/spendRequests';
+import { portfolioAssets } from './lib/portfolio';
 import { PinLockScreen } from './sections/PinLock';
 import { parseBankMessage } from './lib/smsParser';
 import { suggestCategories } from './lib/statementImport';
@@ -311,6 +312,7 @@ function HouseholdApp({ session, household, households, onSwitchHousehold, onAdd
     viewMode, activeMemberId,
     members: raw.members, categories: raw.categories, accounts: raw.accounts,
     transactions: mergePendingTransactions(raw.transactions, queue.items), goals: raw.goals, budgets: raw.budgets, obligations: raw.obligations, cardPlans: raw.cardPlans || [], attachmentCounts: raw.attachmentCounts || {}, assets: raw.assets || [], templates: raw.templates || [], spendRequests: raw.spendRequests || [], spendVotes: raw.spendVotes || [],
+    marketAssets: portfolioAssets(raw.holdings, raw.holdingTrades, raw.holdingPrices),
     households, activeHouseholdId: household.householdId,
     settings, isPlatformAdmin, notifications: myNotifications, unreadCount, creditsWithPayments: creditsSnapshot,
     offline: { online: queue.online, stale, pending: queue.pending, failed: queue.failed, syncing: queue.syncing },
@@ -410,6 +412,15 @@ function HouseholdApp({ session, household, households, onSwitchHousehold, onAdd
     removeCategory: wrap((id) => db.removeCategory(id)),
     setCategoryTaxTag: wrap((id, tag) => db.setCategoryTaxTag(id, tag)),
     setApprovalThreshold: async (value) => { await db.updateHousehold(household.householdId, { approvalThreshold: value || 0 }); setHouseholdMeta((m) => ({ ...m, spend_approval_threshold: value > 0 ? value : null })); },
+    loadPortfolio: () => db.loadPortfolio(household.householdId),
+    ensureHolding: (h) => db.ensureHolding(household.householdId, h),
+    setHoldingArchived: (id, archived) => db.setHoldingArchived(id, archived),
+    deleteHolding: (id) => db.deleteHolding(id),
+    saveHoldingPrices: (rows) => db.saveHoldingPrices(rows),
+    saveInvestmentSettings: (s) => db.saveInvestmentSettings(household.householdId, s),
+    // estas dos pueden crear o borrar un movimiento en una cuenta: se refrescan los datos
+    addHoldingTrade: wrap((t) => db.addHoldingTrade(household.householdId, session.user.id, t)),
+    deleteHoldingTrade: wrap((trade) => db.deleteHoldingTrade(trade)),
     loadKids: () => db.loadKids(household.householdId),
     saveKid: (kid) => db.saveKid(household.householdId, kid),
     setKidArchived: (id, archived) => db.setKidArchived(id, archived),

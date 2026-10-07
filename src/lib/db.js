@@ -110,7 +110,7 @@ export async function redeemInvite(token, userId) {
 
 /* ---------------------- CARGA DE DATOS DEL HOGAR ---------------------- */
 export async function loadHouseholdData(householdId) {
-  const [membersRes, catsRes, accsRes, txRes, goalsRes, votesRes, budgetsRes, obligationsRes, plansRes, attRes, assetsRes, valsRes, tplRes, reqRes, reqVotesRes] = await Promise.all([
+  const [membersRes, catsRes, accsRes, txRes, goalsRes, votesRes, budgetsRes, obligationsRes, plansRes, attRes, assetsRes, valsRes, tplRes, reqRes, reqVotesRes, holdRes, holdTradesRes, holdPricesRes] = await Promise.all([
     supabase.from('household_members').select('user_id, role, color, profiles(full_name)').eq('household_id', householdId),
     supabase.from('categories').select('*').eq('household_id', householdId),
     supabase.from('accounts').select('*').eq('household_id', householdId),
@@ -126,6 +126,9 @@ export async function loadHouseholdData(householdId) {
     supabase.from('transaction_templates').select('*').eq('household_id', householdId),
     supabase.from('spend_requests').select('*').eq('household_id', householdId),
     supabase.from('spend_request_votes').select('*'),
+    supabase.from('holdings').select('*').eq('household_id', householdId),
+    supabase.from('holding_trades').select('*').eq('household_id', householdId),
+    supabase.from('holding_prices').select('*').gte('price_date', new Date(Date.now() - 400 * 864e5).toISOString().slice(0, 10)),
   ]);
   for (const r of [membersRes, catsRes, accsRes, txRes, goalsRes, votesRes, budgetsRes, obligationsRes]) {
     if (r.error) throw r.error;
@@ -178,7 +181,14 @@ export async function loadHouseholdData(householdId) {
   const spendVotes = reqVotesRes.error ? [] : reqVotesRes.data.filter((v) => requestIds.has(v.request_id))
     .map((v) => ({ requestId: v.request_id, memberId: v.member_id, vote: v.vote, comment: v.comment, createdAt: v.created_at }));
 
-  return { members, categories, accounts, transactions, goals, budgets, obligations, cardPlans, attachmentCounts, assets, templates, spendRequests, spendVotes };
+  // portafolio de mercados: alimenta el patrimonio (si falla, la app sigue sin él)
+  const holdings = holdRes.error ? [] : holdRes.data.map(dbHoldingToJs);
+  const holdingIds = new Set(holdings.map((h) => h.id));
+  const holdingTrades = holdTradesRes.error ? [] : holdTradesRes.data.map(dbTradeToJs);
+  const holdingPrices = holdPricesRes.error ? [] : holdPricesRes.data.filter((p) => holdingIds.has(p.holding_id))
+    .map((p) => ({ holdingId: p.holding_id, date: p.price_date, priceCop: Number(p.price_cop) }));
+
+  return { members, categories, accounts, transactions, goals, budgets, obligations, cardPlans, attachmentCounts, assets, templates, spendRequests, spendVotes, holdings, holdingTrades, holdingPrices };
 }
 
 function dbAssetToJs(a, valuations) {
@@ -687,6 +697,124 @@ export async function updateHousehold(householdId, patch) {
   if (patch.currency !== undefined) dbPatch.currency = patch.currency;
   if (patch.approvalThreshold !== undefined) dbPatch.spend_approval_threshold = patch.approvalThreshold > 0 ? patch.approvalThreshold : null;
   const { error } = await supabase.from('households').update(dbPatch).eq('id', householdId);
+  if (error) throw error;
+}
+
+/* ---------------------- PORTAFOLIO DE MERCADOS ---------------------- */
+const dbHoldingToJs = (h) => ({
+  id: h.id, ownerMemberId: h.owner_member_id, assetClass: h.asset_class, symbol: h.symbol, name: h.name,
+  exchange: h.exchange, quoteCurrency: h.quote_currency, archived: h.archived,
+});
+const dbTradeToJs = (t) => ({
+  id: t.id, holdingId: t.holding_id, date: t.trade_date, side: t.side, units: Number(t.units), cop: Number(t.cop_amount),
+  fxRate: t.fx_rate === null || t.fx_rate === undefined ? null : Number(t.fx_rate),
+  accountId: t.account_id, transactionId: t.transaction_id, note: t.note, createdAt: t.created_at,
+});
+const dbInvestmentSettingsToJs = (s) => ({
+  fxSource: s?.fx_source || 'trm',
+  weniaBuy: s?.wenia_buy === null || s?.wenia_buy === undefined ? null : Number(s.wenia_buy),
+  weniaSell: s?.wenia_sell === null || s?.wenia_sell === undefined ? null : Number(s.wenia_sell),
+  fxAlert: !!s?.fx_alert,
+});
+
+export async function loadPortfolio(householdId) {
+  const since = new Date(Date.now() - 400 * 864e5).toISOString().slice(0, 10);
+  const [hRes, tRes, pRes, sRes] = await Promise.all([
+    supabase.from('holdings').select('*').eq('household_id', householdId).order('created_at'),
+    supabase.from('holding_trades').select('*').eq('household_id', householdId),
+    supabase.from('holding_prices').select('*').gte('price_date', since),
+    supabase.from('investment_settings').select('*').eq('household_id', householdId).maybeSingle(),
+  ]);
+  for (const r of [hRes, tRes, pRes, sRes]) if (r.error) throw r.error;
+  const holdings = hRes.data.map(dbHoldingToJs);
+  const ids = new Set(holdings.map((h) => h.id));
+  return {
+    holdings,
+    trades: tRes.data.map(dbTradeToJs),
+    prices: pRes.data.filter((p) => ids.has(p.holding_id)).map((p) => ({ holdingId: p.holding_id, date: p.price_date, priceCop: Number(p.price_cop) })),
+    settings: dbInvestmentSettingsToJs(sRes.data),
+  };
+}
+
+// Devuelve el id de la posición; si ya existía (misma clase, símbolo y dueño) devuelve la existente.
+export async function ensureHolding(householdId, h) {
+  const row = {
+    household_id: householdId, owner_member_id: h.ownerMemberId || null, asset_class: h.assetClass,
+    symbol: h.symbol, name: h.name, exchange: h.exchange || null, quote_currency: h.quoteCurrency || null,
+  };
+  const { data, error } = await supabase.from('holdings').insert(row).select('id').single();
+  if (!error) return data.id;
+  if (error.code !== '23505') throw error;
+  let q = supabase.from('holdings').select('id').eq('household_id', householdId).eq('asset_class', h.assetClass).eq('symbol', h.symbol);
+  q = h.ownerMemberId ? q.eq('owner_member_id', h.ownerMemberId) : q.is('owner_member_id', null);
+  const { data: found, error: e2 } = await q.maybeSingle();
+  if (e2) throw e2;
+  if (!found) throw error;
+  return found.id;
+}
+
+export async function setHoldingArchived(id, archived) {
+  const { error } = await supabase.from('holdings').update({ archived }).eq('id', id);
+  if (error) throw error;
+}
+export async function deleteHolding(id) {
+  // los gastos o ingresos que se crearon al operar no se borran: son dinero que sí se movió en tus cuentas
+  const { error } = await supabase.from('holdings').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// Registra una compra o venta. Con cuenta: además crea el gasto (compra) o ingreso (venta) de inversión, que no
+// cuenta como gasto operativo. Si el movimiento falla, la operación se deshace para no dejar nada a medias.
+export async function addHoldingTrade(householdId, userId, t) {
+  const { data: row, error } = await supabase.from('holding_trades').insert({
+    household_id: householdId, holding_id: t.holdingId, trade_date: t.date, side: t.side, units: t.units,
+    cop_amount: t.cop, fx_rate: t.fxRate || null, account_id: t.accountId || null, note: t.note?.trim() || null,
+  }).select('id').single();
+  if (error) throw error;
+  if (!t.accountId) return row.id;
+  try {
+    const isBuy = t.side === 'compra';
+    const categoryId = await ensureCategory(householdId, isBuy ? ASSET_PURCHASE_CATEGORY : ASSET_SALE_CATEGORY);
+    const transactionId = globalThis.crypto.randomUUID();
+    await addTransaction(householdId, userId, {
+      id: transactionId, type: isBuy ? 'expense' : 'income', description: `${isBuy ? 'Compra' : 'Venta'}: ${t.holdingName}`,
+      amount: t.cop, categoryId, accountId: t.accountId, memberId: t.memberId || userId, date: t.date,
+      recurring: false, isShared: false, nature: 'inversion',
+    });
+    const { error: eLink } = await supabase.from('holding_trades').update({ transaction_id: transactionId }).eq('id', row.id);
+    if (eLink) throw eLink;
+  } catch (e) {
+    await supabase.from('holding_trades').delete().eq('id', row.id);
+    throw e;
+  }
+  return row.id;
+}
+
+// Borra la operación y, si movió dinero de una cuenta, también ese movimiento (para que el saldo vuelva).
+export async function deleteHoldingTrade(trade) {
+  const { error } = await supabase.from('holding_trades').delete().eq('id', trade.id);
+  if (error) throw error;
+  if (trade.transactionId) {
+    const { error: e2 } = await supabase.from('transactions').delete().eq('id', trade.transactionId);
+    if (e2) throw e2;
+  }
+}
+
+// Guarda el precio del día (en pesos) de cada posición; es lo que valora el portafolio en el patrimonio.
+export async function saveHoldingPrices(rows) {
+  if (!rows.length) return;
+  const { error } = await supabase.from('holding_prices').upsert(
+    rows.map((r) => ({ holding_id: r.holdingId, price_date: r.date, price_cop: r.priceCop })),
+    { onConflict: 'holding_id,price_date' },
+  );
+  if (error) throw error;
+}
+
+export async function saveInvestmentSettings(householdId, s) {
+  const { error } = await supabase.from('investment_settings').upsert({
+    household_id: householdId, fx_source: s.fxSource, wenia_buy: s.weniaBuy > 0 ? s.weniaBuy : null,
+    wenia_sell: s.weniaSell > 0 ? s.weniaSell : null, fx_alert: !!s.fxAlert,
+  }, { onConflict: 'household_id' });
   if (error) throw error;
 }
 
