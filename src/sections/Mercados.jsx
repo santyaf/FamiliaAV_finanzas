@@ -19,11 +19,14 @@ const fmtPct = (n) => `${n >= 0 ? '+' : '−'}${nf(2, 2).format(Math.abs(n))} %`
 const CLASS_ICON = { divisa: Coins, cripto: Bitcoin, accion: LineChart };
 const tone = (n) => (n > 0 ? T.teal : n < 0 ? T.coral : T.inkSoft);
 
-function Pill({ active, children, onClick, label }) {
+// onDark: sobre una tarjeta oscura (que es oscura en ambos temas) el activo va en blanco y el resto, en contorno
+function Pill({ active, children, onClick, label, onDark }) {
+  const bg = onDark ? (active ? T.onInverse : 'transparent') : (active ? T.ink : T.surface);
+  const border = onDark ? (active ? T.onInverse : 'rgba(255,255,255,0.45)') : (active ? T.ink : T.border);
+  const color = onDark ? (active ? T.inverse : T.onInverse) : (active ? T.surface : T.inkSoft);
   return (
-    <button type="button" onClick={onClick} aria-pressed={active} aria-label={label} className="flex-shrink-0 rounded-full px-3 py-1.5"
-      style={{ background: active ? T.ink : T.surface, border: `1px solid ${active ? T.ink : T.border}` }}>
-      <span style={{ fontSize: 12.5, color: active ? T.surface : T.inkSoft, fontFamily: FONT_BODY, fontWeight: active ? 600 : 400 }}>{children}</span>
+    <button type="button" onClick={onClick} aria-pressed={active} aria-label={label} className="flex-shrink-0 rounded-full px-3 py-1.5" style={{ background: bg, border: `1px solid ${border}` }}>
+      <span style={{ fontSize: 12.5, color, fontFamily: FONT_BODY, fontWeight: active ? 600 : 400 }}>{children}</span>
     </button>
   );
 }
@@ -265,9 +268,9 @@ function DivisasPanel({ ctx }) {
         <p style={{ fontSize: 12, color: T.onInverse, opacity: 0.8, fontFamily: FONT_BODY }}>{FX_SOURCE_LABELS[usdRate.source]}</p>
         {market.trmError && <p role="alert" style={{ fontSize: 12, color: T.onInverse }} className="mt-1">{market.trmError}</p>}
         {trm && <p style={{ fontSize: 11.5, color: T.onInverse, opacity: 0.7, fontFamily: FONT_BODY }}>TRM vigente: {nf(2, 2).format(trm.value)} · {formatDate(trm.date)}</p>}
-        <div className="flex gap-2 mt-3" role="group" aria-label="Fuente de la tasa">
-          <Pill active={settings.fxSource === 'trm'} onClick={() => saveSettings({ fxSource: 'trm' })}>TRM · Banco de la República</Pill>
-          <Pill active={settings.fxSource === 'wenia'} onClick={() => saveSettings({ fxSource: 'wenia' })}>Wenia (manual)</Pill>
+        <div className="flex flex-wrap gap-2 mt-3" role="group" aria-label="Fuente de la tasa">
+          <Pill onDark active={settings.fxSource === 'trm'} onClick={() => saveSettings({ fxSource: 'trm' })}>TRM · Banco de la República</Pill>
+          <Pill onDark active={settings.fxSource === 'wenia'} onClick={() => saveSettings({ fxSource: 'wenia' })}>Wenia (manual)</Pill>
         </div>
       </Card>
 
@@ -297,8 +300,8 @@ function DivisasPanel({ ctx }) {
         </div>
         {pos.rows.some((r) => r.side === 'venta') && <p style={{ fontSize: 12, color: tone(pos.realized), fontFamily: FONT_MONO }} className="mt-2">Realizado en ventas: {pos.realized >= 0 ? '+' : '−'}{money(Math.abs(pos.realized))}</p>}
         <div className="flex gap-2 mt-3">
-          <PrimaryButton onClick={() => openTrade('compra')} style={{ flex: 1 }}>Registrar compra</PrimaryButton>
-          <GhostButton onClick={() => openTrade('venta')} style={{ flex: 1 }} disabled={!holding || pos.units <= 0}>Registrar venta</GhostButton>
+          <PrimaryButton onClick={() => openTrade('compra')} style={{ flex: 1 }}>Comprar</PrimaryButton>
+          <GhostButton onClick={() => openTrade('venta')} style={{ flex: 1 }} disabled={!holding || pos.units <= 0}>Vender</GhostButton>
         </div>
       </Card>
 
@@ -413,8 +416,8 @@ function HoldingDetail({ ctx, holding, onBack }) {
         </div>
         {pos.rows.some((r) => r.side === 'venta') && <p style={{ fontSize: 12, color: tone(pos.realized), fontFamily: FONT_MONO }} className="mt-2">Realizado en ventas: {pos.realized >= 0 ? '+' : '−'}{money(Math.abs(pos.realized))}</p>}
         <div className="flex gap-2 mt-3">
-          <PrimaryButton onClick={() => setDialog({ type: 'trade', holdingId: holding.id, side: 'compra' })} style={{ flex: 1 }}>Registrar compra</PrimaryButton>
-          <GhostButton onClick={() => setDialog({ type: 'trade', holdingId: holding.id, side: 'venta' })} style={{ flex: 1 }} disabled={pos.units <= 0}>Registrar venta</GhostButton>
+          <PrimaryButton onClick={() => setDialog({ type: 'trade', holdingId: holding.id, side: 'compra' })} style={{ flex: 1 }}>Comprar</PrimaryButton>
+          <GhostButton onClick={() => setDialog({ type: 'trade', holdingId: holding.id, side: 'venta' })} style={{ flex: 1 }} disabled={pos.units <= 0}>Vender</GhostButton>
         </div>
       </Card>
 

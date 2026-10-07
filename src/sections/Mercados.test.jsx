@@ -42,12 +42,12 @@ describe('Mercados — divisas', () => {
     expect((await screen.findAllByText(/4\.000,00/)).length).toBeGreaterThan(0);
     expect(screen.getByText('TRM · Banco de la República', { selector: 'p' })).toBeTruthy();
     expect(screen.getByText(/Registra tu primera compra de dólares/)).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Registrar venta' }).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: 'Vender' }).disabled).toBe(true);
   });
 
   it('registra la primera compra: crea la posición solo para mí y guarda la tasa de la operación', async () => {
     const actions = await open(emptyStore());
-    fireEvent.click(screen.getByRole('button', { name: 'Registrar compra' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Comprar' }));
     fireEvent.change(screen.getByLabelText('Pesos de la operación'), { target: { value: '400000' } });
     fireEvent.change(screen.getByLabelText('Unidades de la operación'), { target: { value: '100' } });
     expect(screen.getByText(/4\.?000.*\/ USD/, { selector: 'b' })).toBeTruthy(); // tasa implícita
@@ -59,7 +59,7 @@ describe('Mercados — divisas', () => {
 
   it('puede compartir la posición con el hogar y mover dinero de una cuenta', async () => {
     const actions = await open(emptyStore());
-    fireEvent.click(screen.getByRole('button', { name: 'Registrar compra' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Comprar' }));
     fireEvent.change(screen.getByLabelText('Quién ve esta posición'), { target: { value: 'hogar' } });
     fireEvent.change(screen.getByLabelText('Cuenta de la operación'), { target: { value: 'a1' } });
     expect(screen.getByText(/gasto de inversión en esa cuenta/)).toBeTruthy();
@@ -89,7 +89,7 @@ describe('Mercados — divisas', () => {
   it('no deja vender más de lo que se tiene', async () => {
     const actions = await open(withUsd());
     await screen.findByText('US$ 100,00');
-    fireEvent.click(screen.getByRole('button', { name: 'Registrar venta' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Vender' }));
     expect(screen.getByText(/Disponible para vender: 100 USD/)).toBeTruthy();
     fireEvent.change(screen.getByLabelText('Pesos de la operación'), { target: { value: '900000' } });
     fireEvent.change(screen.getByLabelText('Unidades de la operación'), { target: { value: '500' } });
