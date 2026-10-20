@@ -1,7 +1,7 @@
 // Estado del cron de recordatorios a partir de su latido (tabla cron_heartbeat).
-// El cron externo corre cada 5 minutos: pasado este margen sin latido, algo se detuvo.
-export const CRON_EXPECTED_MINUTES = 5;
-export const CRON_LATE_MINUTES = 30;
+// El cron externo corre pocas veces al día (a las 9:00, 12:00 y 19:30 de Colombia, para ahorrar CPU en Vercel): la pausa más
+// larga es de ~13,5 h (de las 19:30 a las 9:00). Pasado este margen sin latido, algo se detuvo.
+export const CRON_LATE_MINUTES = 15 * 60;
 
 export function cronStatus(row, now = new Date()) {
   if (!row?.lastRunAt) {
@@ -10,7 +10,7 @@ export function cronStatus(row, now = new Date()) {
   const minutes = Math.max(0, Math.round((new Date(now).getTime() - new Date(row.lastRunAt).getTime()) / 60000));
   const ago = minutes < 1 ? 'hace instantes' : minutes < 60 ? `hace ${minutes} min` : minutes < 1440 ? `hace ${Math.floor(minutes / 60)} h` : `hace ${Math.floor(minutes / 1440)} d`;
   if (minutes > CRON_LATE_MINUTES) {
-    return { state: 'late', tone: 'bad', minutes, label: `Detenido · última ejecución ${ago}`, detail: `Debería correr cada ${CRON_EXPECTED_MINUTES} minutos. Revisa el trabajo en cron-job.org y REMINDER_CRON_SECRET en Vercel.` };
+    return { state: 'late', tone: 'bad', minutes, label: `Detenido · última ejecución ${ago}`, detail: 'Debería correr varias veces al día (la pausa normal más larga es de unas 14 horas). Revisa el trabajo en cron-job.org y REMINDER_CRON_SECRET en Vercel.' };
   }
   if (row.lastOk === false) {
     return { state: 'failing', tone: 'bad', minutes, label: `Con errores · ${ago}`, detail: row.detail || 'La última ejecución terminó con error.' };

@@ -267,6 +267,11 @@ describe('send-reminders', () => {
       fakeDb = makeDb(tables());
       await handler(req(), makeRes());
       expect(fetchCalls.length).toBeGreaterThan(0);
+      fetchCalls.length = 0;
+      vi.setSystemTime(new Date('2026-09-21T14:00:00Z')); // 09:00: la corrida de la mañana también la evalúa
+      fakeDb = makeDb(tables());
+      await handler(req(), makeRes());
+      expect(fetchCalls.length).toBeGreaterThan(0);
     });
 
     it('el resumen mensual no consulta su registro fuera de los primeros 5 días del mes', async () => {

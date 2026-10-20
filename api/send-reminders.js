@@ -1,5 +1,7 @@
-// Se llama externamente (GitHub Actions / cron-job.org, cada pocos minutos) —
-// Vercel Hobby no permite cron nativo más frecuente que una vez al día.
+// Se llama externamente (cron-job.org) — Vercel Hobby no permite cron nativo más frecuente que una vez al día.
+// Para gastar poca CPU corre pocas veces al día, a las horas de los recordatorios (hoy 9:00, 12:00 y 19:30 de Colombia,
+// con la ventana de CHECK_WINDOW_MINUTES). Un recordatorio solo sale si una corrida cae en su ventana: al cambiar las
+// horas de los recordatorios o de las obligaciones hay que ajustar también las horas del trabajo en cron-job.org.
 // Revisa, para cada recordatorio activo, si la hora local del usuario (según su
 // zona horaria guardada) cayó dentro de la ventana desde la última revisión, y
 // si no se ha enviado ya hoy, envía el push. También revisa las Obligaciones
@@ -325,9 +327,10 @@ export default async function handler(req, res) {
       // ---- Dólar: la TRM superó el costo promedio de los dólares (Fase 37). Crea el aviso de la campana (uno por
       // persona, posición y día); el envío al celular lo hace el bloque de abajo, igual que las aprobaciones. ----
       try {
-        // la TRM cambia una vez al día: se evalúa solo en las dos primeras corridas de las 8:00 (hora de Colombia)
+        // la TRM cambia una vez al día: se evalúa solo en las corridas de la mañana (8:00 a 12:59, hora de Colombia); el aviso
+        // lleva clave por persona y día, así que repetir la evaluación no duplica nada
         const bogota = localParts(now, DEFAULT_TIMEZONE);
-        const fxDue = force || (bogota.hour === 8 && bogota.minute < 30);
+        const fxDue = force || (bogota.hour >= 8 && bogota.hour <= 12);
         const { data: fxHouseholds } = fxDue ? await supabase.from('investment_settings').select('household_id').eq('fx_alert', true) : { data: [] };
         const fxIds = (fxHouseholds || []).map((r) => r.household_id);
         extras.fx.households = fxIds.length;

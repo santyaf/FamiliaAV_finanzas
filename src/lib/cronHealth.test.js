@@ -36,4 +36,10 @@ describe('cronStatus', () => {
     expect(cronStatus({ lastRunAt: at(180), lastOk: true }, now).label).toContain('hace 3 h');
     expect(cronStatus({ lastRunAt: at(3000), lastOk: true }, now).label).toContain('hace 2 d');
   });
+  it('la pausa nocturna normal (de las 19:30 a las 9:00) no es una falla; pasadas 15 horas sí', () => {
+    expect(cronStatus({ lastRunAt: at(13 * 60 + 30), lastOk: true }, now).state).toBe('ok');
+    const late = cronStatus({ lastRunAt: at(16 * 60), lastOk: true }, now);
+    expect(late.state).toBe('late');
+    expect(late.detail).toMatch(/varias veces al día/);
+  });
 });

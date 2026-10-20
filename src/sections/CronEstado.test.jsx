@@ -16,9 +16,9 @@ describe('CronEstadoCard', () => {
     await waitFor(() => expect(screen.getByText('Al día · hace 3 min')).toBeTruthy());
   });
   it('avisa cuando el cron se detuvo', async () => {
-    const actions = { loadCronHeartbeat: vi.fn().mockResolvedValue({ lastRunAt: '2026-09-21T09:00:00Z', lastOk: true, sent: 0 }) };
+    const actions = { loadCronHeartbeat: vi.fn().mockResolvedValue({ lastRunAt: '2026-09-20T09:00:00Z', lastOk: true, sent: 0 }) };
     render(<CronEstadoCard actions={actions} now={now} />);
-    await waitFor(() => expect(screen.getByText(/Detenido · última ejecución hace 3 h/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/Detenido · última ejecución hace 1 d/)).toBeTruthy());
     expect(screen.getByText(/cron-job.org/)).toBeTruthy();
   });
   it('sin registros lo dice, y actualizar vuelve a consultar', async () => {

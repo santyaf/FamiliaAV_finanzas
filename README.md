@@ -263,7 +263,7 @@ Cada usuario puede crear **varios** recordatorios ("Registrar mis gastos", "Revi
 
 ### Por qué esto necesitó más que solo código
 
-Vercel, en el plan gratis (Hobby), **solo permite correr su cron nativo una vez al día**. Eso no sirve para que cada usuario elija su hora exacta. La solución: un **cron externo** (cron-job.org, gratis) que llama cada 5 minutos a `POST https://<tu-app>.vercel.app/api/send-reminders` con el header `Authorization: Bearer <REMINDER_CRON_SECRET>`. La función revisa qué recordatorios están vencidos (según la hora local de cada usuario) y envía las notificaciones.
+Vercel, en el plan gratis (Hobby), **solo permite correr su cron nativo una vez al día**. Eso no sirve para que cada usuario elija su hora exacta. La solución: un **cron externo** (cron-job.org, gratis) que llama a `POST https://<tu-app>.vercel.app/api/send-reminders` con el header `Authorization: Bearer <REMINDER_CRON_SECRET>`. La función revisa qué recordatorios están vencidos (según la hora local de cada usuario) y envía las notificaciones.
 
 > El workflow de GitHub Actions `send-reminders.yml` quedó **solo como botón manual** (`Run workflow`, con modos `normal`/`dry`/`force`) para probar y depurar — el cron de GitHub Actions resultó demasiado irregular para esto.
 
@@ -282,7 +282,7 @@ Agrega estas 4 (ver `.env.example` para más detalle de cada una):
 - `REMINDER_CRON_SECRET` — invéntate una clave larga y aleatoria
 
 ### 3. Cron externo (cron-job.org u otro)
-Crea un cronjob que cada 5 minutos haga:
+Crea un cronjob (con la zona horaria `America/Bogota`) que haga la llamada **solo a las horas que importan** —hoy a las 9:00, 12:00 y 19:30: elige las horas 9, 12 y 19 con los minutos 0 y 30— y no cada pocos minutos, para gastar poca CPU de Vercel. Un recordatorio sale solo si una ejecución cae en los 14 minutos siguientes a su hora, así que si cambias la hora de un recordatorio o de una obligación, cambia también las horas del trabajo:
 - **URL**: `https://<tu-app>.vercel.app/api/send-reminders`
 - **Método**: `POST`  · **Cuerpo**: vacío
 - **Header**: `Authorization: Bearer <REMINDER_CRON_SECRET>` (el mismo valor de Vercel, con el prefijo `Bearer ` y un espacio)
