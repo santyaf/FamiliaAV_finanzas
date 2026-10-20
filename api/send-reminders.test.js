@@ -231,4 +231,55 @@ describe('send-reminders', () => {
       expect(fakeDb.writes.some((w) => w.table === 'notifications' && w.op === 'update')).toBe(true);
     });
   });
+
+  describe('ahorro de consultas en cada corrida', () => {
+    const tablesAt = () => ({ ...baseTables(), reminder_schedules: [
+      { id: 's-x', user_id: 'A', enabled: true, timezone: 'America/Bogota', time_of_day: '19:20:00', label: 'Registra tus movimientos' },
+    ] });
+    const fetchCalls = [];
+    beforeEach(() => { fetchCalls.length = 0; vi.stubGlobal('fetch', vi.fn(async (...a) => { fetchCalls.push(a[0]); return { ok: true, status: 200, json: async () => [{ valor: '4200', vigenciadesde: '2026-09-21T00:00:00.000' }] }; })); });
+    afterEach(() => vi.unstubAllGlobals());
+
+    it('un recordatorio a las 19:20 sale en la corrida de las 19:30 (el cron corre cada 15 min)', async () => {
+      vi.setSystemTime(new Date('2026-09-22T00:30:05Z')); // 19:30 en Bogotá
+      fakeDb = makeDb(tablesAt());
+      const res = makeRes();
+      await handler(req(), res);
+      expect(res.body.sent).toBe(1);
+      expect(res.body.evaluated[0].diffMin).toBe(10);
+    });
+    it('pasada la ventana de 15 minutos, ya no', async () => {
+      vi.setSystemTime(new Date('2026-09-22T00:50:00Z')); // 19:50
+      fakeDb = makeDb(tablesAt());
+      const res = makeRes();
+      await handler(req(), res);
+      expect(res.body.sent).toBe(0);
+      expect(res.body.evaluated[0].result).toBe('ya-pasó-la-ventana');
+    });
+
+    it('la alerta del dólar solo consulta la TRM por la mañana', async () => {
+      const tables = () => ({ ...baseTables(), reminder_schedules: [], investment_settings: [{ household_id: 'H1', fx_alert: true }], holdings: [], holding_trades: [], household_members: [] });
+      vi.setSystemTime(new Date('2026-09-21T18:00:00Z')); // 13:00 en Bogotá
+      fakeDb = makeDb(tables());
+      await handler(req(), makeRes());
+      expect(fetchCalls).toHaveLength(0);
+      vi.setSystemTime(new Date('2026-09-21T13:10:00Z')); // 08:10 en Bogotá
+      fakeDb = makeDb(tables());
+      await handler(req(), makeRes());
+      expect(fetchCalls.length).toBeGreaterThan(0);
+    });
+
+    it('el resumen mensual no consulta su registro fuera de los primeros 5 días del mes', async () => {
+      const queried = [];
+      const base = makeDb({ ...baseTables(), reminder_schedules: [] });
+      fakeDb = { ...base, from: (name) => { queried.push(name); return base.from(name); } };
+      vi.setSystemTime(new Date('2026-09-21T18:00:00Z')); // día 21
+      await handler(req(), makeRes());
+      expect(queried).not.toContain('digest_sent_log');
+      queried.length = 0;
+      vi.setSystemTime(new Date('2026-09-02T18:00:00Z')); // día 2, después de las 9:00
+      await handler(req(), makeRes());
+      expect(queried).toContain('digest_sent_log');
+    });
+  });
 });

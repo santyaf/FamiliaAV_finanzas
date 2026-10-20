@@ -21,7 +21,9 @@ import { computePosition, fxOpportunity } from '../src/lib/portfolio.js';
 import { fetchTrm } from './_trm.js';
 import { localParts, previousMonthOf, shouldSendDigest, cardPaymentAlert, cardAlertText, DEFAULT_TIMEZONE } from '../src/lib/pushSchedule.js';
 
-const CHECK_WINDOW_MINUTES = 6; // un poco más que los ~5 min entre corridas, por margen
+// El cron externo corre cada 15 min: la ventana debe cubrir ese intervalo (menos 1 min) para que un recordatorio a una hora
+// que no sea :00/:15/:30/:45 igual salga en la corrida siguiente. Los registros de "ya enviado hoy" evitan los duplicados.
+const CHECK_WINDOW_MINUTES = 14;
 
 // Envía un push a cada suscripción de un usuario; limpia las que ya expiraron.
 async function sendToUser(supabase, userId, payload, pushErrors, context) {
@@ -271,8 +273,10 @@ export default async function handler(req, res) {
       for (const userId of subscribed) {
         extras.digest.checked++;
         const local = localParts(now, tzOf(userId));
+        // primero lo barato (sin base de datos): fuera de los primeros 5 días del mes nadie recibe el resumen
+        if (!force && !shouldSendDigest(local, false)) { extras.digest.skipped++; continue; }
         const { data: sentRow } = await supabase.from('digest_sent_log').select('user_id').eq('user_id', userId).eq('month_key', local.monthKey).maybeSingle();
-        if (!force && !shouldSendDigest(local, !!sentRow)) { extras.digest.skipped++; continue; }
+        if (!force && sentRow) { extras.digest.skipped++; continue; }
         const prev = previousMonthOf(local.monthKey);
         const title = `Cerró ${prev.label}`;
         const body = 'Revisa el resumen del mes y las decisiones para el siguiente en la reunión mensual.';
@@ -321,7 +325,10 @@ export default async function handler(req, res) {
       // ---- Dólar: la TRM superó el costo promedio de los dólares (Fase 37). Crea el aviso de la campana (uno por
       // persona, posición y día); el envío al celular lo hace el bloque de abajo, igual que las aprobaciones. ----
       try {
-        const { data: fxHouseholds } = await supabase.from('investment_settings').select('household_id').eq('fx_alert', true);
+        // la TRM cambia una vez al día: se evalúa solo en las dos primeras corridas de las 8:00 (hora de Colombia)
+        const bogota = localParts(now, DEFAULT_TIMEZONE);
+        const fxDue = force || (bogota.hour === 8 && bogota.minute < 30);
+        const { data: fxHouseholds } = fxDue ? await supabase.from('investment_settings').select('household_id').eq('fx_alert', true) : { data: [] };
         const fxIds = (fxHouseholds || []).map((r) => r.household_id);
         extras.fx.households = fxIds.length;
         if (fxIds.length) {
